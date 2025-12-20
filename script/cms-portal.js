@@ -181,11 +181,11 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Preview</title>
 
-  <link rel="stylesheet" href="/css/style.css">
-  <link rel="stylesheet" href="/css/accordian.css">
-  <link rel="stylesheet" href="/css/grid-panel.css">
-  <link rel="stylesheet" href="/css/nav.css">
-  <link rel="stylesheet" href="/css/modal.css">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <link rel="stylesheet" href="/assets/css/accordian.css">
+  <link rel="stylesheet" href="/assets/css/grid-panel.css">
+  <link rel="stylesheet" href="/assets/css/nav.css">
+  <link rel="stylesheet" href="/assets/css/modal.css">
 
   <style>
     /* Preview watermark + safety */
@@ -204,14 +204,14 @@
     }
   </style>
 
-  <script src="/script/sections.js" defer></script>
-  <script src="/script/lightbox.js" defer></script>
+  <script src="/assets/script/sections.js" defer></script>
+  <script src="/assets/script/lightbox.js" defer></script>
 </head>
 <body>
   <div class="__cms_watermark">DEV PORTAL PREVIEW</div>
 
   <div class="container">
-    <div><img class="cover-img" src="/img/cover-photo.png" alt="Cover"></div>
+    <div><img class="cover-img" src="/assets/img/cover-photo.png" alt="Cover"></div>
   </div>
 
   ${heroInner || ""}
@@ -360,7 +360,7 @@
 		setStatus("warn", "Loading…");
 		qs("#cms-sub").textContent = `Target: ${path}`;
 
-		const url = `${API_BASE}/repo/file?path=...`;
+		const url = `${API_BASE}/repo/file?path=${encodeURIComponent(path)}`;
 		const data = await fetchJson(url);
 
 		// Worker returns { text, sha, ... }

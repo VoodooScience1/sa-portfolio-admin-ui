@@ -2,15 +2,11 @@
 <html>
 	<head>
 		<title>Admin</title>
-		<link rel="stylesheet" href="/css/nav.css" />
-		<link rel="stylesheet" href="/css/style.css" />
-		<script type="text/javascript" src="/script/nav-close.js" defer></script>
-		<script type="text/javascript" src="/script/nav-marker.js" defer></script>
-		<script
-			type="text/javascript"
-			src="/tools/sa-portfolio-cms/script/cms-portal.js"
-			defer
-		></script>
+		<link rel="stylesheet" href="/assets/css/nav.css" />
+		<link rel="stylesheet" href="/assets/css/style.css" />
+		<script src="/assets/script/nav-close.js" defer></script>
+		<script src="/assets/script/nav-marker.js" defer></script>
+		<script src="/script/cms-portal.js" defer></script>
 	</head>
 	<body>
 		<div id="nav-placeholder"></div>
@@ -18,7 +14,7 @@
 
 		<script>
 			window.addEventListener("DOMContentLoaded", () => {
-				fetch("/partials/nav.html")
+				fetch("/assets/partials/nav.html")
 					.then((r) => r.text())
 					.then((html) => {
 						document.getElementById("nav-placeholder").innerHTML = html;
