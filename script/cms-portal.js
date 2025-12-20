@@ -19,8 +19,7 @@
 	// -------------------------
 	// CONFIG (edit these)
 	// -------------------------
-	const WORKER_BASE =
-		"https://sa-portfolio-cms.voodoo-science-programming.workers.dev";
+	const API_BASE = "/api";
 	const MANAGED_PAGES = [
 		{ label: "Working Style", path: "about/working-style.html" },
 	];
@@ -361,7 +360,7 @@
 		setStatus("warn", "Loading…");
 		qs("#cms-sub").textContent = `Target: ${path}`;
 
-		const url = `${WORKER_BASE}/api/repo/file?path=${encodeURIComponent(path)}`;
+		const url = `${API_BASE}/repo/file?path=...`;
 		const data = await fetchJson(url);
 
 		// Worker returns { text, sha, ... }
