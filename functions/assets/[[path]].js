@@ -1,36 +1,34 @@
 export async function onRequest({ request, env, params }) {
-	const origin = env.PORTFOLIO_ORIGIN;
+	const origin = (env.PORTFOLIO_ORIGIN || "").trim().replace(/\/+$/, "");
 	if (!origin) {
 		return new Response("Missing PORTFOLIO_ORIGIN", { status: 500 });
 	}
 
-	// Rebuild requested path
-	const path = params.path || "";
-	const url = new URL(origin.replace(/\/$/, "") + "/" + path);
+	// CF can supply params.path as an array for [[path]]
+	const path = Array.isArray(params.path)
+		? params.path.join("/")
+		: params.path || "";
 
-	// Allowlist: only proxy real site assets
 	const allowedPrefixes = ["css/", "font/", "img/", "partials/", "script/"];
-
 	if (!allowedPrefixes.some((p) => path.startsWith(p))) {
 		return new Response("Forbidden asset path", { status: 403 });
 	}
 
-	// Forward request
-	const upstream = await fetch(url.toString(), {
-		method: request.method,
+	const srcUrl = new URL(request.url);
+	const upstreamUrl = new URL(`${origin}/${path}`);
+	upstreamUrl.search = srcUrl.search; // keep querystring if any
+
+	const upstream = await fetch(upstreamUrl.toString(), {
+		method: "GET",
 		headers: {
-			// pass through user agent etc
 			"User-Agent": request.headers.get("user-agent") || "CF-Proxy",
+			Accept: request.headers.get("accept") || "*/*",
 		},
 	});
 
-	// Clone headers so we can safely modify
+	// Don’t throw if upstream is 404 etc — just pass it through
 	const headers = new Headers(upstream.headers);
-
-	// Ensure browser accepts CSS/JS/fonts
 	headers.set("X-Content-Type-Options", "nosniff");
-
-	// Cache aggressively (assets are immutable unless you change them)
 	headers.set("Cache-Control", "public, max-age=31536000, immutable");
 
 	return new Response(upstream.body, {
