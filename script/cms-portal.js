@@ -360,11 +360,10 @@
 		setStatus("warn", "Loading…");
 		qs("#cms-sub").textContent = `Target: ${path}`;
 
-		const url = `${API_BASE}/repo/file?path=${encodeURIComponent(path)}`;
-		const data = await fetchJson(url);
-
-		// Worker returns { text, sha, ... }
-		state.originalHtml = data.text || "";
+		const url = `/api/content?path=/${encodeURIComponent(path)}`;
+		const res = await fetch(url, { headers: { Accept: "text/html" } });
+		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		state.originalHtml = await res.text();
 
 		const hero = extractRegion(state.originalHtml, "hero");
 		const main = extractRegion(state.originalHtml, "main");
