@@ -293,7 +293,7 @@
 				style: `
 				width:100%;
 				display:block;
-				max-height: 300px
+				max-height: 300px;
 				height: auto;
 				object-fit: cover;
 				`,
