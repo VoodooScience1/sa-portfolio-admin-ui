@@ -22,21 +22,6 @@
 					.then((html) => {
 						document.getElementById("nav-placeholder").innerHTML = html;
 						if (window.setActiveNav) window.setActiveNav();
-
-						// Recompute spacer after nav is injected (and on resize)
-						const syncStackSpacer = () => {
-							const stack = document.getElementById("cms-fixed-stack");
-							const spacer = document.getElementById("cms-stack-spacer");
-							if (!stack || !spacer) return;
-
-							spacer.style.height = `${stack.offsetHeight + 20}px`; // +20px gap before banner
-						};
-
-						syncStackSpacer();
-						window.addEventListener("resize", syncStackSpacer);
-
-						// Also run once after CMS mounts (fonts can change heights)
-						setTimeout(syncStackSpacer, 50);
 					})
 					.catch((err) => console.error("Nav load failed:", err));
 			});
