@@ -43,22 +43,6 @@
 		return n;
 	};
 
-	async function fetchJson(url) {
-		const res = await fetch(url, { headers: { Accept: "application/json" } });
-		const text = await res.text();
-		let json;
-		try {
-			json = text ? JSON.parse(text) : null;
-		} catch {
-			json = { raw: text };
-		}
-		if (!res.ok) {
-			const msg = json?.error || json?.message || `HTTP ${res.status}`;
-			throw new Error(`${msg}`);
-		}
-		return json;
-	}
-
 	function extractRegion(html, name) {
 		// name: "hero" or "main"
 		const start = `<!-- CMS:START ${name} -->`;
@@ -171,139 +155,110 @@
 		return h?.textContent?.trim() || "";
 	}
 
-	function buildPreviewSrcdoc(heroInner, mainInner) {
-		// A lightweight page wrapper that uses your real CSS + sections.js.
-		// We intentionally omit your nav partial injection for now (keeps preview stable).
-		return `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Preview</title>
-
-  <link rel="stylesheet" href="/assets/css/style.css">
-  <link rel="stylesheet" href="/assets/css/accordian.css">
-  <link rel="stylesheet" href="/assets/css/grid-panel.css">
-  <link rel="stylesheet" href="/assets/css/nav.css">
-  <link rel="stylesheet" href="/assets/css/modal.css">
-
-  <style>
-    /* Preview watermark + safety */
-    body { position: relative; }
-    .__cms_watermark {
-      position: fixed;
-      top: 10px;
-      right: 10px;
-      font: 700 12px/1.2 system-ui, -apple-system, Segoe UI, Roboto, Arial;
-      padding: 6px 10px;
-      border-radius: 999px;
-      background: rgba(255,183,3,.25);
-      border: 1px solid rgba(255,183,3,.5);
-      z-index: 999999;
-      pointer-events: none;
-    }
-  </style>
-
-  <script src="/assets/script/sections.js" defer></script>
-  <script src="/assets/script/lightbox.js" defer></script>
-</head>
-<body>
-  <div class="__cms_watermark">DEV PORTAL PREVIEW</div>
-
-  <div class="container">
-    <div><img class="cover-img" src="/assets/img/cover-photo.png" alt="Cover"></div>
-  </div>
-
-  ${heroInner || ""}
-
-  ${mainInner || ""}
-
-</body>
-</html>`;
-	}
-
 	// -------------------------
 	// UI Shell
 	// -------------------------
 	function mountShell(root) {
+		// Inject CSS once
 		const style = el("style", {
 			html: `
-#cms-portal { font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial; }
-.cms-banner {
-  position: sticky; top: 0; z-index: 50;
-  display: flex; gap: 12px; align-items: center; justify-content: space-between;
-  padding: 10px 12px;
-  background: rgba(255,183,3,.18);
-  border-bottom: 1px solid rgba(255,183,3,.35);
-  backdrop-filter: blur(8px);
-}
-.cms-banner h1 { font-size: 14px; margin: 0; letter-spacing: .2px; }
-.cms-pill { font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid rgba(255,183,3,.55); }
-.cms-pill.ok { background: rgba(60, 200, 120, .15); border-color: rgba(60, 200, 120, .35); }
-.cms-pill.warn { background: rgba(255,183,3,.18); }
-.cms-pill.err { background: rgba(255, 90, 90, .16); border-color: rgba(255, 90, 90, .35); }
+	#cms-status-strip, #cms-banner, #cms-portal { width: 100%; }
 
-.cms-layout { display: grid; grid-template-columns: 360px 1fr; gap: 12px; padding: 12px; }
-.cms-left, .cms-right { border: 1px solid rgba(255,183,3,.25); border-radius: 16px; overflow: hidden; background: rgba(255,255,255,.03); }
-.cms-left-header { padding: 10px 12px; border-bottom: 1px solid rgba(255,183,3,.18); display:flex; gap: 8px; align-items:center; }
-.cms-left-header select { width: 100%; padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(255,183,3,.22); background: rgba(0,0,0,.15); color: inherit; }
-.cms-btn { padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(255,183,3,.25); background: rgba(255,183,3,.12); color: inherit; cursor: pointer; }
-.cms-btn:disabled { opacity: .5; cursor: not-allowed; }
+	/* Slim strip (sticky under nav) */
+	#cms-status-strip {
+	position: sticky;
+	top: 0;              /* nav is already sticky; if nav overlaps, bump this to nav height */
+	z-index: 60;
+	}
 
-.cms-blocks { padding: 10px; display: grid; gap: 10px; }
-.cms-card { border: 1px solid rgba(255,183,3,.18); border-radius: 14px; padding: 10px; background: rgba(0,0,0,.10); }
-.cms-card .t { font-size: 12px; opacity: .8; margin-bottom: 4px; }
-.cms-card .s { font-size: 13px; }
+	.cms-strip {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 6px 12px;
+	border-bottom: 1px solid rgba(255,183,3,.18);
+	background: rgba(0,0,0,.18);
+	backdrop-filter: blur(8px);
+	}
 
-.cms-preview { width: 100%; height: calc(100vh - 86px); border: 0; background: transparent; }
-.cms-error { padding: 10px 12px; color: #ffb4b4; }
-      `,
+	.cms-strip-left, .cms-strip-mid, .cms-strip-right {
+	font: 600 12px/1.2 system-ui,-apple-system,Segoe UI,Roboto,Arial;
+	opacity: .9;
+	}
+
+	.cms-controls { display:flex; gap:8px; align-items:center; }
+	.cms-btn { padding: 6px 10px; border-radius: 10px; border: 1px solid rgba(255,183,3,.25); background: rgba(255,183,3,.12); color: inherit; cursor: pointer; }
+	.cms-btn:disabled { opacity: .5; cursor: not-allowed; }
+	.cms-select { padding: 6px 10px; border-radius: 10px; border: 1px solid rgba(255,183,3,.22); background: rgba(0,0,0,.15); color: inherit; }
+
+	.cms-pill { font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid rgba(255,183,3,.55); }
+	.cms-pill.ok { background: rgba(60, 200, 120, .15); border-color: rgba(60, 200, 120, .35); }
+	.cms-pill.warn { background: rgba(255,183,3,.18); }
+	.cms-pill.err { background: rgba(255, 90, 90, .16); border-color: rgba(255, 90, 90, .35); }
+
+	/* Empty main */
+	.cms-empty { padding: 18px; border: 1px dashed rgba(255,183,3,.25); border-radius: 16px; background: rgba(255,255,255,.03); margin: 12px; text-align:center; }
+	.cms-empty-title { font-weight: 700; margin-bottom: 10px; }
+	.cms-add-first { padding: 10px 14px; border-radius: 12px; border: 1px solid rgba(255,183,3,.25); background: rgba(60, 200, 120, .12); cursor: pointer; }
+	`,
 		});
+		document.head.appendChild(style);
 
-		const banner = el("div", { class: "cms-banner" }, [
-			el("div", {}, [
-				el("h1", {}, ["Development Portal"]),
-				el("div", { id: "cms-sub", style: "font-size:12px; opacity:.8;" }, [
-					"Loading…",
-				]),
-			]),
-			el("div", { style: "display:flex; gap:10px; align-items:center;" }, [
-				el("span", { id: "cms-status", class: "cms-pill warn" }, ["Idle"]),
-				el("button", { class: "cms-btn", id: "cms-commit", disabled: "true" }, [
-					"Commit",
-				]),
-			]),
-		]);
-
+		// Controls: page selector + Load button (keep IDs)
 		const pageSelect = el(
 			"select",
-			{ id: "cms-page" },
+			{ id: "cms-page", class: "cms-select" },
 			MANAGED_PAGES.map((p) => el("option", { value: p.path }, [p.label])),
 		);
 
-		const leftHeader = el("div", { class: "cms-left-header" }, [
-			pageSelect,
-			el("button", { class: "cms-btn", id: "cms-load" }, ["Load"]),
+		const loadBtn = el("button", { class: "cms-btn", id: "cms-load" }, [
+			"Load",
 		]);
 
-		const left = el("div", { class: "cms-left" }, [
-			leftHeader,
-			el("div", { id: "cms-blocks", class: "cms-blocks" }, []),
-		]);
+		// Status bits (keep IDs used elsewhere)
+		const statusPill = el(
+			"span",
+			{ id: "cms-status", class: "cms-pill warn" },
+			["LOADING"],
+		);
+		const sub = el(
+			"div",
+			{ id: "cms-sub", style: "font-size:12px; opacity:.8;" },
+			["LOADING / INITIALISING"],
+		);
 
-		const iframe = el("iframe", {
-			id: "cms-preview",
-			class: "cms-preview",
-			sandbox: "allow-same-origin allow-scripts",
-		});
+		// Commit button placeholder (we'll wire later, but keep it for layout)
+		const commitBtn = el(
+			"button",
+			{ class: "cms-btn", id: "cms-commit", disabled: "true" },
+			["Commit PR"],
+		);
 
-		const right = el("div", { class: "cms-right" }, [iframe]);
+		// Mount into the dedicated strip container (NOT into #cms-portal)
+		const stripHost = qs("#cms-status-strip") || root; // fallback
+		stripHost.innerHTML = "";
+		stripHost.appendChild(
+			el("div", { class: "cms-strip" }, [
+				el("div", { class: "cms-strip-left" }, ["Development Portal"]),
+				el(
+					"div",
+					{
+						class: "cms-strip-mid",
+						style: "display:flex; gap:10px; align-items:center;",
+					},
+					[statusPill, sub],
+				),
+				el("div", { class: "cms-strip-right cms-controls" }, [
+					pageSelect,
+					loadBtn,
+					commitBtn,
+				]),
+			]),
+		);
 
-		const layout = el("div", { class: "cms-layout" }, [left, right]);
-
-		root.appendChild(style);
-		root.appendChild(banner);
-		root.appendChild(layout);
+		// Ensure the CMS surface starts empty; renderPageSurface() will fill it
+		root.innerHTML = "";
 	}
 
 	// -------------------------
@@ -315,93 +270,128 @@
 		heroInner: "",
 		mainInner: "",
 		blocks: [],
+		uiState: "loading",
+		uiStateLabel: "LOADING / INITIALISING",
 	};
 
-	function setStatus(kind, text) {
-		const pill = qs("#cms-status");
-		pill.classList.remove("ok", "warn", "err");
-		pill.classList.add(kind);
-		pill.textContent = text;
+	function renderBanner() {
+		const host = qs("#cms-banner");
+		if (!host) return;
+		const map = {
+			loading: "/img/dev-portal-load.png",
+			clean: "/img/dev-portal-clean.png",
+			dirty: "/img/dev-portal-dirty.png",
+			error: "/img/dev-portal-error.png",
+			pr: "/img/dev-portal-pr.png",
+			readonly: "/img/dev-portal-read.png",
+		};
+		const src = map[state.uiState] || map.loading;
+		host.innerHTML = "";
+		host.appendChild(el("img", { src, style: "width:100%; display:block;" }));
 	}
 
-	function renderBlocks() {
-		const wrap = qs("#cms-blocks");
-		wrap.innerHTML = "";
+	function renderPageSurface() {
+		const root = qs("#cms-portal");
+		root.innerHTML = "";
 
-		if (!state.blocks.length) {
-			wrap.appendChild(
-				el("div", { class: "cms-card" }, [
-					el("div", { class: "t" }, ["No blocks detected"]),
-					el("div", { class: "s" }, ["(Your CMS main region is empty)"]),
+		// Hero (text only)
+		const hero = new DOMParser().parseFromString(
+			state.heroInner || "",
+			"text/html",
+		).body;
+		Array.from(hero.children).forEach((n) => root.appendChild(n));
+
+		// Main
+		const mainWrap = el("div", { id: "cms-main" }, []);
+		if (!state.mainInner.trim()) {
+			mainWrap.appendChild(
+				el("div", { class: "cms-empty" }, [
+					el("div", { class: "cms-empty-title" }, ["No blocks yet"]),
+					el("button", { class: "cms-add-first", id: "cms-add-first" }, [
+						"+ Add your first block",
+					]),
 				]),
 			);
-			return;
+		} else {
+			const main = new DOMParser().parseFromString(
+				`<div>${state.mainInner}</div>`,
+				"text/html",
+			).body;
+			Array.from(main.firstChild.children).forEach((n) =>
+				mainWrap.appendChild(n),
+			);
 		}
-
-		state.blocks.forEach((b) => {
-			wrap.appendChild(
-				el("div", { class: "cms-card" }, [
-					el("div", { class: "t" }, [`${b.idx + 1}. ${b.type}`]),
-					el("div", { class: "s" }, [b.summary || "—"]),
-				]),
-			);
-		});
-	}
-
-	function renderPreview() {
-		const iframe = qs("#cms-preview");
-		iframe.srcdoc = buildPreviewSrcdoc(state.heroInner, state.mainInner);
+		root.appendChild(mainWrap);
 	}
 
 	async function loadSelectedPage() {
-		const path = qs("#cms-page").value;
+		const path = qs("#cms-page")?.value || state.path;
 		state.path = path;
 
-		setStatus("warn", "Loading…");
-		qs("#cms-sub").textContent = `Target: ${path}`;
+		// 1) Loading state first
+		state.uiState = "loading";
+		state.uiStateLabel = "LOADING / INITIALISING";
+		updateStatusStrip();
+		renderBanner();
+		renderPageSurface(); // will show blank/empty state while loading (fine)
 
+		// 2) Fetch served HTML via Pages Function
 		const url = `/api/content?path=/${encodeURIComponent(path)}`;
 		const res = await fetch(url, { headers: { Accept: "text/html" } });
 		if (!res.ok) throw new Error(`HTTP ${res.status}`);
 		state.originalHtml = await res.text();
 
+		// 3) Extract regions
 		const hero = extractRegion(state.originalHtml, "hero");
 		const main = extractRegion(state.originalHtml, "main");
 
 		state.heroInner = hero.found ? hero.inner : "";
 		state.mainInner = main.found ? main.inner : "";
 
-		state.blocks = parseBlocks(state.mainInner);
-
-		renderBlocks();
-		renderPreview();
-
+		// 4) Compute marker health
 		const missing = [];
 		if (!hero.found) missing.push("hero markers");
 		if (!main.found) missing.push("main markers");
 
-		if (missing.length) setStatus("err", `Missing ${missing.join(" + ")}`);
-		else setStatus("ok", "Loaded");
+		// 5) Final state
+		if (missing.length) {
+			state.uiState = "error";
+			state.uiStateLabel = `Missing ${missing.join(" + ")}`;
+		} else {
+			state.uiState = "clean";
+			state.uiStateLabel = "CONNECTED - CLEAN";
+		}
+
+		updateStatusStrip();
+		renderBanner();
+		renderPageSurface();
+	}
+
+	function updateStatusStrip() {
+		const sub = qs("#cms-sub");
+		if (sub) sub.textContent = state.uiStateLabel || "—";
+
+		const pill = qs("#cms-status");
+		if (pill) {
+			pill.classList.remove("ok", "warn", "err");
+			if (state.uiState === "clean") pill.classList.add("ok");
+			else if (state.uiState === "loading") pill.classList.add("warn");
+			else pill.classList.add("err");
+			pill.textContent = state.uiState.toUpperCase();
+		}
 	}
 
 	function bindUI() {
-		qs("#cms-page").addEventListener("change", (e) => {
-			state.path = e.target.value;
-			qs("#cms-sub").textContent = `Target: ${state.path}`;
-		});
-
 		qs("#cms-load").addEventListener("click", async () => {
 			try {
 				await loadSelectedPage();
 			} catch (err) {
-				setStatus("err", "Error");
-				const wrap = qs("#cms-blocks");
-				wrap.prepend(
-					el("div", { class: "cms-error" }, [
-						`Load failed: ${String(err?.message || err)}`,
-						`\n\nIf this is a CORS error in the browser, tell me and I’ll give you the 3-line Worker fix.`,
-					]),
-				);
+				state.uiState = "error";
+				state.uiStateLabel = `DISCONNECTED / ERROR`;
+				updateStatusStrip();
+				renderBanner();
+				// optional: show details somewhere
+				console.error(err);
 			}
 		});
 	}
@@ -414,10 +404,12 @@
 		if (!root) return;
 
 		mountShell(root);
+		updateStatusStrip();
+		renderBanner();
+		renderPageSurface();
 		bindUI();
 
 		// auto-load working style
-		qs("#cms-sub").textContent = `Target: ${state.path}`;
 		qs("#cms-load").click();
 	}
 
