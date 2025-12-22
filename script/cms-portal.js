@@ -159,8 +159,6 @@
 	// UI Shell
 	// -------------------------
 	function mountShell(root) {
-		document.head.appendChild(style);
-
 		// Controls: page selector + Load button (keep IDs)
 		const pageSelect = el(
 			"select",
