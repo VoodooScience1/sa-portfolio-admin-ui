@@ -8,6 +8,7 @@
 		<script src="/assets/script/nav-marker.js" defer></script>
 		<script src="/script/cms-portal.js" defer></script>
 	</head>
+
 	<body>
 		<!-- Fixed stack -->
 		<div id="cms-fixed-stack">
@@ -15,13 +16,11 @@
 			<div id="cms-status-strip"></div>
 		</div>
 
-		<!-- Spacer to push the page below the fixed stack -->
+		<!-- Push page content below fixed stack (+ 20px gap) -->
 		<div id="cms-stack-spacer"></div>
 
-		<!-- Banner should start 20px below the stack -->
+		<!-- Normal flow content -->
 		<div id="cms-banner"></div>
-
-		<!-- CMS mounts here -->
 		<div id="cms-portal"></div>
 
 		<script>
@@ -32,28 +31,20 @@
 						document.getElementById("nav-placeholder").innerHTML = html;
 						if (window.setActiveNav) window.setActiveNav();
 
-						const syncStack = () => {
+						// Recompute spacer after nav is injected (and on resize)
+						const syncStackSpacer = () => {
 							const stack = document.getElementById("cms-fixed-stack");
 							const spacer = document.getElementById("cms-stack-spacer");
 							if (!stack || !spacer) return;
 
-							// set spacer = stack height + 20px (your requested gap before banner)
-							const h = Math.ceil(stack.getBoundingClientRect().height);
-							spacer.style.height = h + 20 + "px";
-
-							// optional: make strip match nav background
-							const nav = document.querySelector(".main-nav");
-							const strip = document.querySelector(".cms-strip");
-							if (nav && strip) {
-								strip.style.backgroundColor =
-									getComputedStyle(nav).backgroundColor;
-							}
+							spacer.style.height = `${stack.offsetHeight + 20}px`; // +20px gap before banner
 						};
 
-						// Run once now, then again after cms-portal.js mounts the strip contents
-						syncStack();
-						requestAnimationFrame(syncStack);
-						window.addEventListener("resize", syncStack);
+						syncStackSpacer();
+						window.addEventListener("resize", syncStackSpacer);
+
+						// Also run once after CMS mounts (fonts can change heights)
+						setTimeout(syncStackSpacer, 50);
 					})
 					.catch((err) => console.error("Nav load failed:", err));
 			});

@@ -164,24 +164,6 @@
 			html: `
 	#cms-status-strip, #cms-banner, #cms-portal { width: 100%; }
 
-	/* Slim strip (sticky under nav) */
-	#cms-status-strip {
-	position: sticky;
-	top: 0;              /* nav is already sticky; if nav overlaps, bump this to nav height */
-	z-index: 60;
-	}
-
-	.cms-strip {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 12px;
-	padding: 6px 12px;
-	border-bottom: 1px solid rgba(255,183,3,.18);
-	background: rgba(0,0,0,.18);
-	backdrop-filter: blur(8px);
-	}
-
 	.cms-strip-left, .cms-strip-mid, .cms-strip-right {
 	font: 600 12px/1.2 system-ui,-apple-system,Segoe UI,Roboto,Arial;
 	opacity: .9;
