@@ -253,9 +253,28 @@
 			mainWrap.appendChild(
 				el("div", { class: "cms-empty" }, [
 					el("div", { class: "cms-empty-title" }, ["No blocks yet"]),
-					el("button", { class: "cms-add-first", id: "cms-add-first" }, [
-						"+ Add your first block",
-					]),
+					el(
+						"button",
+						{ class: "cms-divider-btn", id: "cms-add-first", type: "button" },
+						[
+							el(
+								"span",
+								{ class: "cms-divider-line", "aria-hidden": "true" },
+								[],
+							),
+							el("span", { class: "cms-divider-plus", "aria-hidden": "true" }, [
+								"＋",
+							]),
+							el("span", { class: "cms-divider-text" }, [
+								"Add your first block",
+							]),
+							el(
+								"span",
+								{ class: "cms-divider-line", "aria-hidden": "true" },
+								[],
+							),
+						],
+					),
 				]),
 			);
 		} else {
