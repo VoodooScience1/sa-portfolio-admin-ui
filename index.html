@@ -20,6 +20,21 @@
 					.then((html) => {
 						document.getElementById("nav-placeholder").innerHTML = html;
 						if (window.setActiveNav) window.setActiveNav();
+
+						// NOW the nav exists — measure it
+						const nav = document.querySelector(".main-nav");
+						if (nav) {
+							document.documentElement.style.setProperty(
+								"--nav-h",
+								`${nav.offsetHeight}px`,
+							);
+						}
+
+						// Match CMS strip background to nav
+						const strip = document.querySelector(".cms-strip");
+						if (nav && strip) {
+							strip.style.background = getComputedStyle(nav).background;
+						}
 					})
 					.catch((err) => console.error("Nav load failed:", err));
 			});
