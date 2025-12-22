@@ -285,20 +285,6 @@
 			pr: "/img/dev-portal-pr.png",
 			readonly: "/img/dev-portal-read.png",
 		};
-		const src = map[state.uiState] || map.loading;
-		host.innerHTML = "";
-		host.appendChild(
-			el("img", {
-				src,
-				style: `
-				width:100%;
-				display:block;
-				max-height: 300px;
-				height: auto;
-				object-fit: cover;
-				`,
-			}),
-		);
 	}
 
 	function renderPageSurface() {

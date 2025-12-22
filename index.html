@@ -9,10 +9,8 @@
 		<script src="/script/cms-portal.js" defer></script>
 	</head>
 	<body>
-		<div id="cms-sticky-stack">
-			<div id="nav-placeholder"></div>
-			<div id="cms-status-strip"></div>
-		</div>
+		<div id="nav-placeholder"></div>
+		<div id="cms-status-strip"></div>
 		<div id="cms-banner"></div>
 
 		<script>
@@ -25,9 +23,24 @@
 
 						// Match CMS strip background to nav
 						const strip = document.querySelector(".cms-strip");
+						const nav = document.querySelector(".main-nav");
 						if (nav && strip) {
-							strip.style.background = getComputedStyle(nav).background;
+							const bg = getComputedStyle(nav).backgroundColor;
+							strip.style.backgroundColor = bg;
 						}
+
+						// Match CMS position to nav height
+						const syncNavHeight = () => {
+							const nav = document.querySelector(".main-nav");
+							if (!nav) return;
+							document.documentElement.style.setProperty(
+								"--nav-h",
+								`${nav.offsetHeight}px`,
+							);
+						};
+
+						syncNavHeight();
+						window.addEventListener("resize", syncNavHeight);
 					})
 					.catch((err) => console.error("Nav load failed:", err));
 			});
