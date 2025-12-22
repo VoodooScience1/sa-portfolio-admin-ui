@@ -1,73 +1,33 @@
 <!doctype html>
 <html>
 	<head>
-		<title>Admin</title>
-		<link rel="stylesheet" href="/assets/css/style.css" />
-		<link rel="stylesheet" href="/assets/css/accordian.css" />
-		<link rel="stylesheet" href="/assets/css/grid-panel.css" />
-		<link rel="stylesheet" href="/assets/css/nav.css" />
-		<link rel="stylesheet" href="/assets/css/modal.css" />
-		<script
-			type="text/javascript"
-			src="/assets/script/sections.js"
-			defer
-		></script>
-		<script
-			type="text/javascript"
-			src="/assets/script/lightbox.js"
-			defer
-		></script>
-		<script
-			type="text/javascript"
-			src="/assets/script/nav-close.js"
-			defer
-		></script>
-		<script
-			type="text/javascript"
-			src="/assets/script/nav-marker.js"
-			defer
-		></script>
-		<script
-			type="text/javascript"
-			src="/assets/script/breadcrumbs.js"
-			defer
-		></script>
-		<script src="/script/cms-portal.js" defer></script>
+		<title>
+			Home - Phil Cook - Engineering Manager, Developing Solutions Architect
+		</title>
 	</head>
 
 	<body>
 		<div id="nav-placeholder"></div>
-		<div id="cms-status-strip"></div>
-		<div id="cms-banner"></div>
-		<div id="cms-portal"></div>
+		<div id="lightbox-placeholder"></div>
 
-		<script>
-			window.addEventListener("DOMContentLoaded", () => {
-				fetch("/assets/partials/nav.html")
-					.then((r) => r.text())
-					.then((html) => {
-						document.getElementById("nav-placeholder").innerHTML = html;
-						if (window.setActiveNav) window.setActiveNav();
-					})
-					.catch((err) => console.error("Nav load failed:", err));
+		<div class="container">
+			<div>
+				<img class="cover-img" src="/assets/img/cover-photo.png" alt="Cover" />
+			</div>
+		</div>
 
-				fetch("/assets/partials/lightbox.html")
-					.then((r) => r.text())
-					.then((html) => {
-						document.getElementById("lightbox-placeholder").innerHTML = html;
-					})
-					.catch((err) => console.error("Lightbox load failed:", err));
+		<nav class="breadcrumbs" aria-label="Breadcrumb"></nav>
 
-				fetch("/assets/partials/footer.html")
-					.then((r) => r.text())
-					.then((html) => {
-						document.getElementById("footer-placeholder").innerHTML = html;
-					})
-					.catch((err) => console.error("Footer load failed:", err));
-			});
-		</script>
+		<!-- CMS:START hero -->
+		<!-- CMS:END hero -->
+
+		<!-- CMS:START main -->
+		<!-- CMS:END main -->
+
 		<footer>
 			<div id="footer-placeholder"></div>
 		</footer>
+
+		<script src="/assets/script/dom-loader.js" defer></script>
 	</body>
 </html>
