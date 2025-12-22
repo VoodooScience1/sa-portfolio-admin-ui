@@ -162,8 +162,6 @@
 		// Inject CSS once
 		const style = el("style", {
 			html: `
-	#cms-status-strip, #cms-banner, #cms-portal { width: 100%; }
-
 	.cms-strip-left, .cms-strip-mid, .cms-strip-right {
 	font: 600 12px/1.2 system-ui,-apple-system,Segoe UI,Roboto,Arial;
 	opacity: .9;
