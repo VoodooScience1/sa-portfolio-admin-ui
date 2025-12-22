@@ -1,0 +1,17 @@
+/admin*
+  Cache-Control: no-store
+
+/script/*
+  Cache-Control: no-store
+
+/assets/script/*
+  Cache-Control: no-store
+
+/img/*
+  Cache-Control: public, max-age=604800, immutable
+
+/font/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/assets/css/*
+  Cache-Control: no-cache

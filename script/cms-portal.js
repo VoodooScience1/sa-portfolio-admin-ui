@@ -159,30 +159,6 @@
 	// UI Shell
 	// -------------------------
 	function mountShell(root) {
-		// Inject CSS once
-		const style = el("style", {
-			html: `
-	.cms-strip-left, .cms-strip-mid, .cms-strip-right {
-	font: 600 12px/1.2 system-ui,-apple-system,Segoe UI,Roboto,Arial;
-	opacity: .9;
-	}
-
-	.cms-controls { display:flex; gap:8px; align-items:center; }
-	.cms-btn { padding: 6px 10px; border-radius: 10px; border: 1px solid rgba(255,183,3,.25); background: rgba(255,183,3,.12); color: inherit; cursor: pointer; }
-	.cms-btn:disabled { opacity: .5; cursor: not-allowed; }
-	.cms-select { padding: 6px 10px; border-radius: 10px; border: 1px solid rgba(255,183,3,.22); background: rgba(0,0,0,.15); color: inherit; }
-
-	.cms-pill { font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid rgba(255,183,3,.55); }
-	.cms-pill.ok { background: rgba(60, 200, 120, .15); border-color: rgba(60, 200, 120, .35); }
-	.cms-pill.warn { background: rgba(255,183,3,.18); }
-	.cms-pill.err { background: rgba(255, 90, 90, .16); border-color: rgba(255, 90, 90, .35); }
-
-	/* Empty main */
-	.cms-empty { padding: 18px; border: 1px dashed rgba(255,183,3,.25); border-radius: 16px; background: rgba(255,255,255,.03); margin: 12px; text-align:center; }
-	.cms-empty-title { font-weight: 700; margin-bottom: 10px; }
-	.cms-add-first { padding: 10px 14px; border-radius: 12px; border: 1px solid rgba(255,183,3,.25); background: rgba(60, 200, 120, .12); cursor: pointer; }
-	`,
-		});
 		document.head.appendChild(style);
 
 		// Controls: page selector + Load button (keep IDs)
@@ -202,11 +178,8 @@
 			{ id: "cms-status", class: "cms-pill warn" },
 			["LOADING"],
 		);
-		const sub = el(
-			"div",
-			{ id: "cms-sub", style: "font-size:12px; opacity:.8;" },
-			["LOADING / INITIALISING"],
-		);
+
+		const sub = el("div", { id: "cms-sub" }, ["LOADING / INITIALISING"]);
 
 		// Commit button placeholder (we'll wire later, but keep it for layout)
 		const commitBtn = el(
@@ -221,14 +194,7 @@
 		stripHost.appendChild(
 			el("div", { class: "cms-strip" }, [
 				el("div", { class: "cms-strip-left" }, ["Development Portal"]),
-				el(
-					"div",
-					{
-						class: "cms-strip-mid",
-						style: "display:flex; gap:10px; align-items:center;",
-					},
-					[statusPill, sub],
-				),
+				el("div", { class: "cms-strip-mid" }, [statusPill, sub]),
 				el("div", { class: "cms-strip-right cms-controls" }, [
 					pageSelect,
 					loadBtn,
