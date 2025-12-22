@@ -277,6 +277,7 @@
 	function renderBanner() {
 		const host = qs("#cms-banner");
 		if (!host) return;
+
 		const map = {
 			loading: "/img/dev-portal-load.png",
 			clean: "/img/dev-portal-clean.png",
@@ -285,6 +286,10 @@
 			pr: "/img/dev-portal-pr.png",
 			readonly: "/img/dev-portal-read.png",
 		};
+
+		const src = map[state.uiState] || map.loading;
+		host.innerHTML = "";
+		host.appendChild(el("img", { src, alt: "Dev portal status banner" }));
 	}
 
 	function renderPageSurface() {

@@ -9,9 +9,20 @@
 		<script src="/script/cms-portal.js" defer></script>
 	</head>
 	<body>
-		<div id="nav-placeholder"></div>
-		<div id="cms-status-strip"></div>
+		<!-- Fixed stack -->
+		<div id="cms-fixed-stack">
+			<div id="nav-placeholder"></div>
+			<div id="cms-status-strip"></div>
+		</div>
+
+		<!-- Spacer to push the page below the fixed stack -->
+		<div id="cms-stack-spacer"></div>
+
+		<!-- Banner should start 20px below the stack -->
 		<div id="cms-banner"></div>
+
+		<!-- CMS mounts here -->
+		<div id="cms-portal"></div>
 
 		<script>
 			window.addEventListener("DOMContentLoaded", () => {
@@ -21,32 +32,31 @@
 						document.getElementById("nav-placeholder").innerHTML = html;
 						if (window.setActiveNav) window.setActiveNav();
 
-						// Match CMS strip background to nav
-						const strip = document.querySelector(".cms-strip");
-						const nav = document.querySelector(".main-nav");
-						if (nav && strip) {
-							const bg = getComputedStyle(nav).backgroundColor;
-							strip.style.backgroundColor = bg;
-						}
+						const syncStack = () => {
+							const stack = document.getElementById("cms-fixed-stack");
+							const spacer = document.getElementById("cms-stack-spacer");
+							if (!stack || !spacer) return;
 
-						// Match CMS position to nav height
-						const syncNavHeight = () => {
+							// set spacer = stack height + 20px (your requested gap before banner)
+							const h = Math.ceil(stack.getBoundingClientRect().height);
+							spacer.style.height = h + 20 + "px";
+
+							// optional: make strip match nav background
 							const nav = document.querySelector(".main-nav");
-							if (!nav) return;
-							document.documentElement.style.setProperty(
-								"--nav-h",
-								`${nav.offsetHeight}px`,
-							);
+							const strip = document.querySelector(".cms-strip");
+							if (nav && strip) {
+								strip.style.backgroundColor =
+									getComputedStyle(nav).backgroundColor;
+							}
 						};
 
-						syncNavHeight();
-						window.addEventListener("resize", syncNavHeight);
+						// Run once now, then again after cms-portal.js mounts the strip contents
+						syncStack();
+						requestAnimationFrame(syncStack);
+						window.addEventListener("resize", syncStack);
 					})
 					.catch((err) => console.error("Nav load failed:", err));
 			});
 		</script>
-
-		<!-- CMS mounts here -->
-		<div id="cms-portal"></div>
 	</body>
 </html>
