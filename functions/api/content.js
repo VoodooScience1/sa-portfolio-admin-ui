@@ -1,3 +1,4 @@
+// sa-portfolio-admin-ui/functions/api/content.js
 export async function onRequestGet(context) {
 	const { request } = context;
 	const url = new URL(request.url);

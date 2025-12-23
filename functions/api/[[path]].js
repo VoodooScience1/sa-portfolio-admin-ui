@@ -1,4 +1,4 @@
-// functions/api/[[path]].js
+// sa-portfolio-admin-ui/functions/api/[[path]].js
 export async function onRequest(context) {
 	const { request, env, params } = context;
 
