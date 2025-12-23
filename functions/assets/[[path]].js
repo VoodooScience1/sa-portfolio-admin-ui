@@ -3,16 +3,13 @@ export async function onRequest({ request, env, params }) {
 	const origin = String(env.PORTFOLIO_ORIGIN || "")
 		.trim()
 		.replace(/\/+$/, "");
-
-	if (!origin) {
-		return new Response("Missing PORTFOLIO_ORIGIN", { status: 500 });
-	}
+	if (!origin) return new Response("Missing PORTFOLIO_ORIGIN", { status: 500 });
 
 	const path = Array.isArray(params.path)
 		? params.path.join("/")
 		: params.path || "";
 
-	const allowed = ["css/", "font/", "img/", "partials/", "script/"];
+	const allowed = ["css/", "font/", "img/", "partials/", "script/", "docs/"];
 	if (!allowed.some((p) => path.startsWith(p))) {
 		return new Response("Forbidden asset path", { status: 403 });
 	}
@@ -28,11 +25,10 @@ export async function onRequest({ request, env, params }) {
 	});
 
 	const headers = new Headers(res.headers);
-	headers.set("X-Content-Type-Options", "nosniff");
-	headers.set("Cache-Control", "no-store");
+	headers.set("Cache-Control", "no-store"); // dev-friendly
 
-	return new Response(res.body, {
-		status: res.status,
-		headers,
-	});
+	// IMPORTANT: do NOT force nosniff here, it turns upstream HTML (404) into “script/css blocked”
+	// headers.set("X-Content-Type-Options", "nosniff");
+
+	return new Response(res.body, { status: res.status, headers });
 }
