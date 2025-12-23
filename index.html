@@ -1,33 +1,28 @@
 <!doctype html>
 <html>
 	<head>
-		<title>
-			Home - Phil Cook - Engineering Manager, Developing Solutions Architect
-		</title>
+		<title>Admin</title>
+		<link rel="stylesheet" href="/assets/css/style.css" />
+		<link rel="stylesheet" href="/assets/css/nav.css" />
+		<script src="/assets/script/cms-portal.js" defer></script>
 	</head>
 
 	<body>
 		<div id="nav-placeholder"></div>
-		<div id="lightbox-placeholder"></div>
+		<div id="cms-status-strip"></div>
+		<div id="cms-banner"></div>
+		<div id="cms-portal"></div>
 
-		<div class="container">
-			<div>
-				<img class="cover-img" src="/assets/img/cover-photo.png" alt="Cover" />
-			</div>
-		</div>
-
-		<nav class="breadcrumbs" aria-label="Breadcrumb"></nav>
-
-		<!-- CMS:START hero -->
-		<!-- CMS:END hero -->
-
-		<!-- CMS:START main -->
-		<!-- CMS:END main -->
-
-		<footer>
-			<div id="footer-placeholder"></div>
-		</footer>
-
-		<script src="/assets/script/dom-loader.js" defer></script>
+		<script>
+			window.addEventListener("DOMContentLoaded", () => {
+				fetch("/assets/partials/nav.html")
+					.then((r) => r.text())
+					.then((html) => {
+						document.getElementById("nav-placeholder").innerHTML = html;
+						if (window.setActiveNav) window.setActiveNav();
+					})
+					.catch((err) => console.error("Nav load failed:", err));
+			});
+		</script>
 	</body>
 </html>
