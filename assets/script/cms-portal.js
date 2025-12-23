@@ -16,6 +16,7 @@
  */
 
 (() => {
+	console.log("[cms-portal] loaded");
 	// -------------------------
 	// CONFIG (edit these)
 	// -------------------------
@@ -223,12 +224,12 @@
 		if (!host) return;
 
 		const map = {
-			loading: "/img/dev-portal-load.png",
-			clean: "/img/dev-portal-clean.png",
-			dirty: "/img/dev-portal-dirty.png",
-			error: "/img/dev-portal-error.png",
-			pr: "/img/dev-portal-pr.png",
-			readonly: "/img/dev-portal-read.png",
+			loading: "/assets/img/dev-portal-load.png",
+			clean: "/assets/assets/img/dev-portal-clean.png",
+			dirty: "/assets/img/dev-portal-dirty.png",
+			error: "/assets/img/dev-portal-error.png",
+			pr: "/assets/img/dev-portal-pr.png",
+			readonly: "/asset/img/dev-portal-read.png",
 		};
 
 		const src = map[state.uiState] || map.loading;
@@ -377,6 +378,12 @@
 		// auto-load working style
 		qs("#cms-load").click();
 	}
+
+	console.log("[cms-portal] boot", {
+		hasPortal: !!document.querySelector("#cms-portal"),
+		hasStrip: !!document.querySelector("#cms-status-strip"),
+		hasBanner: !!document.querySelector("#cms-banner"),
+	});
 
 	if (document.readyState === "loading")
 		document.addEventListener("DOMContentLoaded", boot);
