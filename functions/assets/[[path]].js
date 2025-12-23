@@ -1,4 +1,11 @@
 // sa-portfolio-admin-ui/functions/assets/[[path]].js
+// IMPORTANT:
+// This function intentionally proxies /assets/* from voodooscience1.github.io
+// Do NOT:
+//  - move admin assets here
+//  - add admin-assets to this allowlist
+//  - add nosniff headers
+// See ADR-010.
 export async function onRequest({ request, env, params }) {
 	const origin = String(env.PORTFOLIO_ORIGIN || "")
 		.trim()
