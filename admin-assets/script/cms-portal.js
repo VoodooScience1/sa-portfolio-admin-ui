@@ -224,12 +224,12 @@
 		if (!host) return;
 
 		const map = {
-			loading: "/assets/img/dev-portal-load.png",
-			clean: "/assets/img/dev-portal-clean.png",
-			dirty: "/assets/img/dev-portal-dirty.png",
-			error: "/assets/img/dev-portal-error.png",
-			pr: "/assets/img/dev-portal-pr.png",
-			readonly: "/assets/img/dev-portal-read.png",
+			loading: "/admin-assets/img/dev-portal-load.png",
+			clean: "/admin-assets/img/dev-portal-clean.png",
+			dirty: "/admin-assets/img/dev-portal-dirty.png",
+			error: "/admin-assets/img/dev-portal-error.png",
+			pr: "/admin-assets/img/dev-portal-pr.png",
+			readonly: "/admin-assets/img/dev-portal-read.png",
 		};
 
 		const src = map[state.uiState] || map.loading;
