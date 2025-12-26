@@ -1,34 +1,33 @@
 /* cms-portal.js
- * MVP (read-only):
+ * MVP:
  * - Runs on /admin.html
- * - Loads a target page via your Cloudflare Worker:
- *     GET {WORKER_BASE}/api/repo/file?path=about/working-style.html
- * - Extracts:
+ * - Loads rendered HTML via Pages Function: GET /api/content?path=about/working-style.html
+ * - Extracts CMS regions using markers:
  *     <!-- CMS:START hero --> ... <!-- CMS:END hero -->
  *     <!-- CMS:START main --> ... <!-- CMS:END main -->
- * - Renders:
- *     Left: block list (detected types + small summary)
- *     Right: preview (hero + main rendered in an iframe via srcdoc)
+ * - Represents main as an array of blocks (outerHTML per top-level element)
+ * - Allows a first “divider” block to be inserted (marks DIRTY)
  *
- * Next iterations:
- * - Add/Edit/Delete/Reorder blocks
- * - Dirty tracking + Commit modal + POST /api/pr
+ * This version adds the “next milestone” mechanism:
+ * - replaceRegion() to rebuild a full HTML page from blocks
+ * - rebuildPreviewHtml() to prove marker replacement is safe before PR writing
  */
 
 (() => {
 	console.log("[cms-portal] loaded");
+
 	// -------------------------
-	// CONFIG (edit these)
+	// CONFIG
 	// -------------------------
-	const API_BASE = "/api";
 	const MANAGED_PAGES = [
 		{ label: "Working Style", path: "about/working-style.html" },
 	];
 
 	// -------------------------
-	// Utilities
+	// Tiny utilities
 	// -------------------------
 	const qs = (sel, root = document) => root.querySelector(sel);
+
 	const el = (tag, attrs = {}, children = []) => {
 		const n = document.createElement(tag);
 		Object.entries(attrs || {}).forEach(([k, v]) => {
@@ -44,13 +43,17 @@
 		return n;
 	};
 
+	// -------------------------
+	// Marker helpers
+	// -------------------------
+
 	function extractRegion(html, name) {
-		// name: "hero" or "main"
 		const start = `<!-- CMS:START ${name} -->`;
 		const end = `<!-- CMS:END ${name} -->`;
 		const i = html.indexOf(start);
 		const j = html.indexOf(end);
 		if (i === -1 || j === -1 || j <= i) return { found: false, inner: "" };
+
 		return {
 			found: true,
 			inner: html.slice(i + start.length, j).trim(),
@@ -59,9 +62,41 @@
 		};
 	}
 
+	// Replace ONLY the content between the two marker comments.
+	// Keeps the markers themselves intact.
+	function replaceRegion(html, name, newInnerHtml) {
+		const start = `<!-- CMS:START ${name} -->`;
+		const end = `<!-- CMS:END ${name} -->`;
+
+		const i = html.indexOf(start);
+		const j = html.indexOf(end);
+
+		if (i === -1 || j === -1 || j <= i) {
+			// If markers missing, we refuse to guess (safety)
+			throw new Error(`replaceRegion: missing markers for '${name}'`);
+		}
+
+		const before = html.slice(0, i + start.length);
+		const after = html.slice(j);
+
+		// Keep it readable + stable
+		const cleaned = (newInnerHtml || "").trim();
+
+		// Ensure we always have a newline between marker + content + marker
+		return `${before}\n${cleaned}\n${after}`;
+	}
+
+	function serializeMainFromBlocks(blocks) {
+		return (blocks || [])
+			.map((b) => (b.html || "").trim())
+			.filter(Boolean)
+			.join("\n\n");
+	}
+
+	// -------------------------
+	// Block parsing (top-level children only)
+	// -------------------------
 	function parseBlocks(mainHtml) {
-		// We treat each top-level element in main as a "block".
-		// Later we’ll support “managed blocks” inside wrappers too.
 		const doc = new DOMParser().parseFromString(
 			`<div id="__wrap__">${mainHtml}</div>`,
 			"text/html",
@@ -80,12 +115,14 @@
 		});
 	}
 
+	function headingText(node) {
+		const h = node.querySelector("h1,h2,h3");
+		return h?.textContent?.trim() || "";
+	}
+
 	function detectBlock(node) {
-		// Recognisers for your “Day-1” blocks, plus a fallback.
-		// (You can expand this as you add more templates.)
 		const cls = node.classList;
 
-		// inline-polaroid stub
 		if (cls.contains("img-stub") && node.getAttribute("data-img")) {
 			const cap = node.getAttribute("data-caption") || "";
 			return {
@@ -94,7 +131,6 @@
 			};
 		}
 
-		// section stubs that sections.js expands
 		if (cls.contains("section")) {
 			const t = (node.getAttribute("data-type") || "").trim();
 			if (t === "twoCol")
@@ -119,16 +155,42 @@
 			};
 		}
 
-		// std-container (your wrapper)
-		if (cls.contains("div-wrapper")) {
-			const h = node.querySelector("h1,h2,h3");
+		if (node.querySelector(".doc-card")) {
+			const a = node.querySelector(".doc-card__link");
+			return { type: "doc-card", summary: a?.getAttribute("href") || "Doc" };
+		}
+
+		if (cls.contains("tab") && node.querySelector("input[type=checkbox]")) {
+			const label = node.querySelector(".tab-label");
 			return {
-				type: "std-container",
-				summary: h?.textContent?.trim() || "Container",
+				type: "accordion-item",
+				summary: label?.textContent?.trim() || "Accordion item",
 			};
 		}
 
-		// std-image
+		if (cls.contains("grid-wrapper") && cls.contains("grid-wrapper--row")) {
+			if (node.querySelector(".content.box.box-img")) {
+				return {
+					type: "hover-card-row",
+					summary: `Hover cards (${node.querySelectorAll(".content.box.box-img").length})`,
+				};
+			}
+			if (node.querySelector(".box > img")) {
+				return {
+					type: "square-grid-row",
+					summary: `Square grid (${node.querySelectorAll(".box > img").length})`,
+				};
+			}
+			return { type: "grid-wrapper-row", summary: "Grid row" };
+		}
+
+		if (cls.contains("grid-wrapper")) {
+			return {
+				type: "grid-wrapper",
+				summary: `Grid (${node.querySelectorAll("img").length} imgs)`,
+			};
+		}
+
 		if (cls.contains("img-text-div-img")) {
 			const img = node.querySelector("img");
 			return {
@@ -137,11 +199,11 @@
 			};
 		}
 
-		// hover cards / grid wrapper
-		if (cls.contains("grid-wrapper")) {
+		if (cls.contains("div-wrapper")) {
+			const h = node.querySelector("h1,h2,h3");
 			return {
-				type: "grid-wrapper",
-				summary: `Grid (${node.querySelectorAll("img").length} imgs)`,
+				type: "std-container",
+				summary: h?.textContent?.trim() || "Container",
 			};
 		}
 
@@ -151,73 +213,48 @@
 		};
 	}
 
-	function headingText(node) {
-		const h = node.querySelector("h1,h2,h3");
-		return h?.textContent?.trim() || "";
-	}
-
 	// -------------------------
-	// UI Shell
-	// -------------------------
-	function mountShell(root) {
-		// Controls: page selector + Load button (keep IDs)
-		const pageSelect = el(
-			"select",
-			{ id: "cms-page", class: "cms-select" },
-			MANAGED_PAGES.map((p) => el("option", { value: p.path }, [p.label])),
-		);
-
-		const loadBtn = el("button", { class: "cms-btn", id: "cms-load" }, [
-			"Load",
-		]);
-
-		// Status bits (keep IDs used elsewhere)
-		const statusPill = el(
-			"span",
-			{ id: "cms-status", class: "cms-pill warn" },
-			["LOADING"],
-		);
-
-		const sub = el("div", { id: "cms-sub" }, ["LOADING / INITIALISING"]);
-
-		// Commit button placeholder (we'll wire later, but keep it for layout)
-		const commitBtn = el(
-			"button",
-			{ class: "cms-btn", id: "cms-commit", disabled: "true" },
-			["Commit PR"],
-		);
-
-		// Mount into the dedicated strip container (NOT into #cms-portal)
-		const stripHost = qs("#cms-status-strip") || root; // fallback
-		stripHost.innerHTML = "";
-		stripHost.appendChild(
-			el("div", { class: "cms-strip" }, [
-				el("div", { class: "cms-strip-left" }, ["Development Portal"]),
-				el("div", { class: "cms-strip-mid" }, [statusPill, sub]),
-				el("div", { class: "cms-strip-right cms-controls" }, [
-					pageSelect,
-					loadBtn,
-					commitBtn,
-				]),
-			]),
-		);
-
-		// Ensure the CMS surface starts empty; renderPageSurface() will fill it
-		root.innerHTML = "";
-	}
-
-	// -------------------------
-	// App state
+	// State
 	// -------------------------
 	const state = {
 		path: MANAGED_PAGES[0].path,
 		originalHtml: "",
+		rebuiltHtml: "",
+
 		heroInner: "",
 		mainInner: "",
+
 		blocks: [],
+
 		uiState: "loading",
 		uiStateLabel: "LOADING / INITIALISING",
 	};
+
+	// -------------------------
+	// Render helpers
+	// -------------------------
+	function setUiState(kind, label) {
+		state.uiState = kind;
+		state.uiStateLabel = label;
+		updateStatusStrip();
+		renderBanner();
+	}
+
+	function updateStatusStrip() {
+		const sub = qs("#cms-sub");
+		if (sub) sub.textContent = state.uiStateLabel || "—";
+
+		const pill = qs("#cms-status");
+		if (pill) {
+			pill.classList.remove("ok", "warn", "err");
+			if (state.uiState === "clean") pill.classList.add("ok");
+			else if (state.uiState === "loading") pill.classList.add("warn");
+			else if (state.uiState === "dirty") pill.classList.add("warn");
+			else pill.classList.add("err");
+
+			pill.textContent = state.uiState.toUpperCase();
+		}
+	}
 
 	function renderBanner() {
 		const host = qs("#cms-banner");
@@ -232,25 +269,64 @@
 			readonly: "/admin-assets/img/dev-portal-read.png",
 		};
 
-		const src = map[state.uiState] || map.loading;
 		host.innerHTML = "";
-		host.appendChild(el("img", { src, alt: "Dev portal status banner" }));
+		host.appendChild(
+			el("img", {
+				src: map[state.uiState] || map.loading,
+				alt: "Dev portal status banner",
+			}),
+		);
+	}
+
+	// Builds state.rebuiltHtml from originalHtml + current blocks.
+	// Then re-extracts hero/main from rebuiltHtml (so we render from the same pipeline a PR will use).
+	function rebuildPreviewHtml() {
+		if (!state.originalHtml) return;
+
+		const rebuiltMain = serializeMainFromBlocks(state.blocks);
+
+		// If you add hero editing later, this becomes hero editor output.
+		// For now we just keep hero as-is.
+		const rebuiltHero = (state.heroInner || "").trim();
+
+		let html = state.originalHtml;
+		html = replaceRegion(html, "hero", rebuiltHero);
+		html = replaceRegion(html, "main", rebuiltMain);
+
+		state.rebuiltHtml = html;
+
+		// Re-extract from the rebuilt html for rendering (proof the replacement is correct)
+		const hero2 = extractRegion(state.rebuiltHtml, "hero");
+		const main2 = extractRegion(state.rebuiltHtml, "main");
+		state.heroInner = hero2.found ? hero2.inner : state.heroInner;
+		state.mainInner = main2.found ? main2.inner : state.mainInner;
 	}
 
 	function renderPageSurface() {
 		const root = qs("#cms-portal");
 		root.innerHTML = "";
 
-		// Hero (text only)
-		const hero = new DOMParser().parseFromString(
+		// Hero
+		const heroDoc = new DOMParser().parseFromString(
 			state.heroInner || "",
 			"text/html",
 		).body;
-		Array.from(hero.children).forEach((n) => root.appendChild(n));
+		Array.from(heroDoc.children).forEach((n) => root.appendChild(n));
 
 		// Main
 		const mainWrap = el("div", { id: "cms-main" }, []);
-		if (!state.mainInner.trim()) {
+
+		if (state.uiState === "loading") {
+			mainWrap.appendChild(
+				el("div", { class: "cms-empty" }, [
+					el("div", { class: "cms-empty-title" }, ["Loading page…"]),
+				]),
+			);
+			root.appendChild(mainWrap);
+			return;
+		}
+
+		if (!state.blocks.length) {
 			mainWrap.appendChild(
 				el("div", { class: "cms-empty" }, [
 					el("div", { class: "cms-empty-title" }, ["No blocks yet"]),
@@ -258,106 +334,152 @@
 						"button",
 						{ class: "cms-divider-btn", id: "cms-add-first", type: "button" },
 						[
-							el(
-								"span",
-								{ class: "cms-divider-line", "aria-hidden": "true" },
-								[],
-							),
+							el("span", { class: "cms-divider-line", "aria-hidden": "true" }),
 							el("span", { class: "cms-divider-plus", "aria-hidden": "true" }, [
 								"＋",
 							]),
 							el("span", { class: "cms-divider-text" }, [
 								"Add your first block",
 							]),
-							el(
-								"span",
-								{ class: "cms-divider-line", "aria-hidden": "true" },
-								[],
-							),
+							el("span", { class: "cms-divider-line", "aria-hidden": "true" }),
 						],
 					),
 				]),
 			);
-		} else {
-			const main = new DOMParser().parseFromString(
-				`<div>${state.mainInner}</div>`,
-				"text/html",
-			).body;
-			Array.from(main.firstChild.children).forEach((n) =>
-				mainWrap.appendChild(n),
-			);
+
+			// This is safe because the button is created fresh each render.
+			// (The old DOM is deleted, so old handlers go with it.)
+			queueMicrotask(() => {
+				qs("#cms-add-first")?.addEventListener("click", () => {
+					state.blocks = [
+						{
+							idx: 0,
+							type: "std-container",
+							summary: "Divider",
+							html: `<div class="div-wrapper">\n\t<div class="default-div-wrapper">\n\t\t<hr class="divider" />\n\t</div>\n</div>`,
+						},
+					];
+
+					// prove rebuild works (preview pipeline)
+					rebuildPreviewHtml();
+
+					setUiState("dirty", "CONNECTED - DIRTY");
+					renderPageSurface();
+				});
+			});
+
+			root.appendChild(mainWrap);
+			return;
 		}
+
+		// Render from state.blocks (raw HTML),
+		// then run sections/lightbox for parity (same as your live site).
+		state.blocks.forEach((b) => {
+			const frag = new DOMParser().parseFromString(b.html, "text/html").body;
+			Array.from(frag.children).forEach((n) => mainWrap.appendChild(n));
+		});
+
 		root.appendChild(mainWrap);
+
+		// Parity behaviours
+		window.runSections?.();
+		window.initLightbox?.();
 	}
 
+	// -------------------------
+	// UI Shell
+	// -------------------------
+	function mountShell() {
+		const pageSelect = el(
+			"select",
+			{ id: "cms-page", class: "cms-select" },
+			MANAGED_PAGES.map((p) => el("option", { value: p.path }, [p.label])),
+		);
+
+		const loadBtn = el("button", { class: "cms-btn", id: "cms-load" }, [
+			"Load",
+		]);
+
+		const statusPill = el(
+			"span",
+			{ id: "cms-status", class: "cms-pill warn" },
+			["LOADING"],
+		);
+		const sub = el("div", { id: "cms-sub" }, ["LOADING / INITIALISING"]);
+
+		const commitBtn = el(
+			"button",
+			{ class: "cms-btn", id: "cms-commit", disabled: "true" },
+			["Commit PR"],
+		);
+
+		const stripHost = qs("#cms-status-strip") || qs("#cms-portal");
+		stripHost.innerHTML = "";
+		stripHost.appendChild(
+			el("div", { class: "cms-strip" }, [
+				el("div", { class: "cms-strip-left" }, ["Development Portal"]),
+				el("div", { class: "cms-strip-mid" }, [statusPill, sub]),
+				el("div", { class: "cms-strip-right cms-controls" }, [
+					pageSelect,
+					loadBtn,
+					commitBtn,
+				]),
+			]),
+		);
+	}
+
+	// -------------------------
+	// Data load
+	// -------------------------
 	async function loadSelectedPage() {
 		const path = qs("#cms-page")?.value || state.path;
 		state.path = path;
 
-		// 1) Loading state first
-		state.uiState = "loading";
-		state.uiStateLabel = "LOADING / INITIALISING";
-		updateStatusStrip();
-		renderBanner();
-		renderPageSurface(); // will show blank/empty state while loading (fine)
+		setUiState("loading", "LOADING / INITIALISING");
+		renderPageSurface();
 
-		// 2) Fetch served HTML via Pages Function
-		const url = `/api/content?path=/${encodeURIComponent(path)}`;
+		// IMPORTANT: this assumes you already have /api/content implemented somewhere.
+		const url = `/api/content?path=${encodeURIComponent(path)}`;
 		const res = await fetch(url, { headers: { Accept: "text/html" } });
 		if (!res.ok) throw new Error(`HTTP ${res.status}`);
 		state.originalHtml = await res.text();
 
-		// 3) Extract regions
 		const hero = extractRegion(state.originalHtml, "hero");
 		const main = extractRegion(state.originalHtml, "main");
 
 		state.heroInner = hero.found ? hero.inner : "";
 		state.mainInner = main.found ? main.inner : "";
+		state.blocks = parseBlocks(state.mainInner);
 
-		// 4) Compute marker health
+		// Debug signal: whitespace normalisation can make this false even when correct.
+		const rebuiltMain = serializeMainFromBlocks(state.blocks);
+		const originalMain = (state.mainInner || "").trim();
+		console.log(
+			"[cms-portal] roundtrip main equal?",
+			rebuiltMain === originalMain,
+		);
+
 		const missing = [];
 		if (!hero.found) missing.push("hero markers");
 		if (!main.found) missing.push("main markers");
 
-		// 5) Final state
 		if (missing.length) {
-			state.uiState = "error";
-			state.uiStateLabel = `Missing ${missing.join(" + ")}`;
+			setUiState("error", `Missing ${missing.join(" + ")}`);
 		} else {
-			state.uiState = "clean";
-			state.uiStateLabel = "CONNECTED - CLEAN";
+			setUiState("clean", "CONNECTED - CLEAN");
 		}
 
-		updateStatusStrip();
-		renderBanner();
 		renderPageSurface();
 	}
 
-	function updateStatusStrip() {
-		const sub = qs("#cms-sub");
-		if (sub) sub.textContent = state.uiStateLabel || "—";
-
-		const pill = qs("#cms-status");
-		if (pill) {
-			pill.classList.remove("ok", "warn", "err");
-			if (state.uiState === "clean") pill.classList.add("ok");
-			else if (state.uiState === "loading") pill.classList.add("warn");
-			else pill.classList.add("err");
-			pill.textContent = state.uiState.toUpperCase();
-		}
-	}
-
 	function bindUI() {
-		qs("#cms-load").addEventListener("click", async () => {
+		qs("#cms-load")?.addEventListener("click", async () => {
 			try {
 				await loadSelectedPage();
 			} catch (err) {
-				state.uiState = "error";
-				state.uiStateLabel = `DISCONNECTED / ERROR`;
-				updateStatusStrip();
-				renderBanner();
-				// optional: show details somewhere
 				console.error(err);
+				setUiState("error", "DISCONNECTED / ERROR");
+				renderPageSurface();
 			}
 		});
 	}
@@ -366,24 +488,19 @@
 	// Boot
 	// -------------------------
 	function boot() {
-		const root = qs("#cms-portal");
-		if (!root) return;
+		if (!qs("#cms-portal")) return;
 
-		mountShell(root);
-		updateStatusStrip();
-		renderBanner();
-		renderPageSurface();
+		mountShell();
 		bindUI();
 
-		// auto-load working style
-		qs("#cms-load").click();
-	}
+		// initial render
+		setUiState("loading", "LOADING / INITIALISING");
+		renderBanner();
+		renderPageSurface();
 
-	console.log("[cms-portal] boot", {
-		hasPortal: !!document.querySelector("#cms-portal"),
-		hasStrip: !!document.querySelector("#cms-status-strip"),
-		hasBanner: !!document.querySelector("#cms-banner"),
-	});
+		// auto-load
+		qs("#cms-load")?.click();
+	}
 
 	if (document.readyState === "loading")
 		document.addEventListener("DOMContentLoaded", boot);
