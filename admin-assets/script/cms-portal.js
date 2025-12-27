@@ -1189,14 +1189,7 @@
 		const selectedPages = new Set();
 		const selectedBlocks = new Map();
 		let activeModes = new Set(["new"]);
-		let list = renderDirtyPageList({
-			selectedPages,
-			selectedBlocks,
-			blockData,
-			modes: activeModes,
-			onSelectionChange: () => rerenderList(),
-		});
-
+		let list = null;
 		const rerenderList = () => {
 			const next = renderDirtyPageList({
 				selectedPages,
@@ -1205,10 +1198,11 @@
 				modes: activeModes,
 				onSelectionChange: () => rerenderList(),
 			});
-			list.replaceWith(next);
+			if (list) list.replaceWith(next);
 			list = next;
 			updateAction();
 		};
+		rerenderList();
 
 		const toggle = buildModalToggleBar((modes) => {
 			activeModes = modes;
@@ -1428,14 +1422,7 @@
 		const selectedBlocks = new Map();
 		let activeModes = new Set(["new"]);
 
-		let list = renderDirtyPageList({
-			selectedPages,
-			selectedBlocks,
-			blockData,
-			modes: activeModes,
-			onSelectionChange: () => rerenderList(),
-		});
-
+		let list = null;
 		const rerenderList = () => {
 			const next = renderDirtyPageList({
 				selectedPages,
@@ -1444,10 +1431,11 @@
 				modes: activeModes,
 				onSelectionChange: () => rerenderList(),
 			});
-			list.replaceWith(next);
+			if (list) list.replaceWith(next);
 			list = next;
 			updateAction();
 		};
+		rerenderList();
 
 		const toggle = buildModalToggleBar((modes) => {
 			activeModes = modes;
