@@ -458,7 +458,7 @@
 		// Worker routing
 		const isDev = location.hostname.startsWith("dev.");
 		const ref = isDev ? "dev" : "master";
-		const url = `/api/repo/file?path=${encodeURIComponent(path)}&ref=${encodeURIComponent(ref)}`;
+		const url = `/api/repo/file?path=${encodeURIComponent(path)}`;
 		const res = await fetch(url, { headers: { Accept: "application/json" } });
 		if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
