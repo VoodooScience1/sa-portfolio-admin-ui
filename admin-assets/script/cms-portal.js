@@ -455,8 +455,10 @@
 		setUiState("loading", "LOADING / INITIALISING");
 		renderPageSurface();
 
-		// Pages Function proxies to Worker and injects x-cms-branch
-		const url = `/api/repo/file?path=${encodeURIComponent(path)}`;
+		// Worker routing
+		const isDev = location.hostname.startsWith("dev.");
+		const ref = isDev ? "dev" : "master";
+		const url = `/api/repo/file?path=${encodeURIComponent(path)}&ref=${encodeURIComponent(ref)}`;
 		const res = await fetch(url, { headers: { Accept: "application/json" } });
 		if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
@@ -473,7 +475,7 @@
 		state.mainInner = state.loadedMainInner;
 		state.blocks = parseBlocks(state.mainInner);
 
-		// Debug signal
+		// Debug signal: whitespace normalisation can make this false even when correct.
 		const rebuiltMain = serializeMainFromBlocks(state.blocks);
 		const originalMain = (state.mainInner || "").trim();
 		console.log(
@@ -485,8 +487,11 @@
 		if (!hero.found) missing.push("hero markers");
 		if (!main.found) missing.push("main markers");
 
-		if (missing.length) setUiState("error", `Missing ${missing.join(" + ")}`);
-		else setUiState("clean", "CONNECTED - CLEAN");
+		if (missing.length) {
+			setUiState("error", `Missing ${missing.join(" + ")}`);
+		} else {
+			setUiState("clean", "CONNECTED - CLEAN");
+		}
 
 		renderPageSurface();
 	}
