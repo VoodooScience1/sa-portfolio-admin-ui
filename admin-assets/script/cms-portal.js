@@ -1190,24 +1190,6 @@
 		const selectedBlocks = new Map();
 		let activeModes = new Set(["new"]);
 		let list = null;
-		const rerenderList = () => {
-			const next = renderDirtyPageList({
-				selectedPages,
-				selectedBlocks,
-				blockData,
-				modes: activeModes,
-				onSelectionChange: () => rerenderList(),
-			});
-			if (list) list.replaceWith(next);
-			list = next;
-			updateAction();
-		};
-		rerenderList();
-
-		const toggle = buildModalToggleBar((modes) => {
-			activeModes = modes;
-			rerenderList();
-		});
 
 		const selectAll = el("input", { type: "checkbox", id: "cms-select-all" });
 		const selectAllLabel = el(
@@ -1276,6 +1258,25 @@
 			setActionState(action, hasSelection && confirmed);
 			updateSelectAll();
 		};
+
+		const rerenderList = () => {
+			const next = renderDirtyPageList({
+				selectedPages,
+				selectedBlocks,
+				blockData,
+				modes: activeModes,
+				onSelectionChange: () => rerenderList(),
+			});
+			if (list) list.replaceWith(next);
+			list = next;
+			updateAction();
+		};
+		rerenderList();
+
+		const toggle = buildModalToggleBar((modes) => {
+			activeModes = modes;
+			rerenderList();
+		});
 
 		selectAll.addEventListener("change", () => {
 			selectedPages.clear();
@@ -1421,26 +1422,7 @@
 		const selectedPages = new Set();
 		const selectedBlocks = new Map();
 		let activeModes = new Set(["new"]);
-
 		let list = null;
-		const rerenderList = () => {
-			const next = renderDirtyPageList({
-				selectedPages,
-				selectedBlocks,
-				blockData,
-				modes: activeModes,
-				onSelectionChange: () => rerenderList(),
-			});
-			if (list) list.replaceWith(next);
-			list = next;
-			updateAction();
-		};
-		rerenderList();
-
-		const toggle = buildModalToggleBar((modes) => {
-			activeModes = modes;
-			rerenderList();
-		});
 
 		const selectAll = el("input", { type: "checkbox", id: "cms-select-all-pr" });
 		const selectAllLabel = el(
@@ -1521,6 +1503,25 @@
 			setActionState(action, hasSelection && confirmed);
 			updateSelectAll();
 		};
+
+		const rerenderList = () => {
+			const next = renderDirtyPageList({
+				selectedPages,
+				selectedBlocks,
+				blockData,
+				modes: activeModes,
+				onSelectionChange: () => rerenderList(),
+			});
+			if (list) list.replaceWith(next);
+			list = next;
+			updateAction();
+		};
+		rerenderList();
+
+		const toggle = buildModalToggleBar((modes) => {
+			activeModes = modes;
+			rerenderList();
+		});
 
 		selectAll.addEventListener("change", () => {
 			selectedPages.clear();
