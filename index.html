@@ -6,6 +6,7 @@
 		<link rel="stylesheet" href="/assets/css/style.css" />
 		<script src="/assets/script/nav-close.js" defer></script>
 		<script src="/assets/script/nav-marker.js" defer></script>
+		<script src="/assets/script/breadcrumbs.js" defer></script>
 		<script src="/admin-assets/script/cms-portal.js" defer></script>
 	</head>
 
@@ -13,6 +14,7 @@
 		<div id="nav-placeholder"></div>
 		<div id="cms-status-strip"></div>
 		<div id="cms-banner"></div>
+		<nav class="breadcrumbs" aria-label="Breadcrumb"></nav>
 		<div id="cms-portal"></div>
 
 		<script>
@@ -22,6 +24,13 @@
 					.then((html) => {
 						document.getElementById("nav-placeholder").innerHTML = html;
 						if (window.setActiveNav) window.setActiveNav();
+						if (window.whenNavReady) {
+							window.whenNavReady(() => {
+								if (window.buildBreadcrumbs) window.buildBreadcrumbs();
+							});
+						} else if (window.buildBreadcrumbs) {
+							window.buildBreadcrumbs();
+						}
 					})
 					.catch((err) => console.error("Nav load failed:", err));
 			});

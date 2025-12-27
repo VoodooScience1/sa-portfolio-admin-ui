@@ -20,6 +20,7 @@
 	// CONFIG
 	// -------------------------
 	const DEFAULT_PAGE = "index.html";
+	const DIRTY_STORAGE_KEY = "cms-dirty-pages";
 
 	function getPagePathFromLocation() {
 		const raw = String(location.pathname || "").replace(/^\/+/, "");
@@ -46,6 +47,53 @@
 		);
 		return n;
 	};
+
+	function loadDirtyPagesFromStorage() {
+		try {
+			const raw = localStorage.getItem(DIRTY_STORAGE_KEY);
+			const parsed = raw ? JSON.parse(raw) : {};
+			return parsed && typeof parsed === "object" ? parsed : {};
+		} catch {
+			return {};
+		}
+	}
+
+	function saveDirtyPagesToStorage() {
+		try {
+			localStorage.setItem(DIRTY_STORAGE_KEY, JSON.stringify(state.dirtyPages));
+		} catch {
+			// Storage failures should not block editing.
+		}
+	}
+
+	function dirtyCount() {
+		return Object.keys(state.dirtyPages || {}).length;
+	}
+
+	function setDirtyPage(path, html) {
+		if (!path) return;
+		state.dirtyPages[path] = {
+			html,
+			updatedAt: Date.now(),
+		};
+		saveDirtyPagesToStorage();
+	}
+
+	function clearDirtyPage(path) {
+		if (!path) return;
+		delete state.dirtyPages[path];
+		saveDirtyPagesToStorage();
+	}
+
+	function getDirtyHtml(path) {
+		return state.dirtyPages[path]?.html || "";
+	}
+
+	function buildDirtyLabel() {
+		const count = dirtyCount();
+		if (!count) return "CONNECTED - CLEAN";
+		return `CONNECTED - DIRTY (${count} page${count === 1 ? "" : "s"})`;
+	}
 
 	async function loadPartialHtml(partialPath) {
 		const res = await fetch(partialPath, { headers: { Accept: "text/html" } });
@@ -135,8 +183,16 @@
 
 		normalizeBlocks();
 		rebuildPreviewHtml();
-		setUiState("dirty", "CONNECTED - DIRTY");
+		setDirtyPage(state.path, state.rebuiltHtml);
+		setUiState("dirty", buildDirtyLabel());
 		renderPageSurface();
+	}
+
+	function stashCurrentPageIfDirty() {
+		if (state.uiState !== "dirty") return;
+		rebuildPreviewHtml();
+		if (!state.rebuiltHtml) return;
+		setDirtyPage(state.path, state.rebuiltHtml);
 	}
 
 	// -------------------------
@@ -270,6 +326,7 @@
 		rebuiltHtml: "",
 		prUrl: "",
 		prNumber: null,
+		dirtyPages: loadDirtyPagesFromStorage(),
 
 		heroInner: "",
 		mainInner: "",
@@ -362,6 +419,19 @@
 			else pill.classList.add("err");
 
 			pill.textContent = state.uiState.toUpperCase();
+		}
+
+		const dirty = qs("#cms-dirty");
+		if (dirty) {
+			const count = dirtyCount();
+			if (count) {
+				dirty.textContent = `DIRTY: ${count} PAGE${count === 1 ? "" : "S"}`;
+				dirty.title = Object.keys(state.dirtyPages || {}).join("\n");
+				dirty.hidden = false;
+			} else {
+				dirty.title = "";
+				dirty.hidden = true;
+			}
 		}
 
 		// Enable/disable buttons based on state
@@ -551,6 +621,11 @@
 			["LOADING"],
 		);
 		const sub = el("div", { id: "cms-sub" }, ["LOADING / INITIALISING"]);
+		const dirtyPill = el(
+			"span",
+			{ id: "cms-dirty", class: "cms-pill cms-pill--dirty", hidden: "true" },
+			["DIRTY: 0 PAGES"],
+		);
 
 		const discardBtn = el(
 			"button",
@@ -581,7 +656,12 @@
 		stripHost.appendChild(
 			el("div", { class: "cms-strip" }, [
 				el("div", { class: "cms-strip-left" }, ["Development Portal"]),
-				el("div", { class: "cms-strip-mid" }, [statusPill, sub, prLink]),
+				el("div", { class: "cms-strip-mid" }, [
+					statusPill,
+					sub,
+					dirtyPill,
+					prLink,
+				]),
 				el("div", { class: "cms-strip-right cms-controls" }, [
 					discardBtn,
 					exitBtn,
@@ -609,15 +689,27 @@
 		const data = await res.json();
 		state.originalHtml = data.text || "";
 
-		const hero = extractRegion(state.originalHtml, "hero");
-		const main = extractRegion(state.originalHtml, "main");
+		// Load draft HTML if a dirty version exists for this path.
+		const dirtyHtml = getDirtyHtml(state.path);
+		const workingHtml = dirtyHtml || state.originalHtml;
 
-		state.loadedHeroInner = hero.found ? hero.inner : "";
-		state.loadedMainInner = main.found ? main.inner : "";
+		const hero = extractRegion(workingHtml, "hero");
+		const main = extractRegion(workingHtml, "main");
+
+		const origHero = extractRegion(state.originalHtml, "hero");
+		const origMain = extractRegion(state.originalHtml, "main");
+
+		state.loadedHeroInner = origHero.found ? origHero.inner : "";
+		state.loadedMainInner = origMain.found ? origMain.inner : "";
 
 		state.heroInner = state.loadedHeroInner;
 		state.mainInner = state.loadedMainInner;
 		state.blocks = parseBlocks(state.mainInner);
+		if (dirtyHtml) {
+			state.heroInner = hero.found ? hero.inner : state.heroInner;
+			state.mainInner = main.found ? main.inner : state.mainInner;
+			state.blocks = parseBlocks(state.mainInner);
+		}
 
 		// Debug signal: whitespace normalisation can make this false even when correct.
 		const rebuiltMain = serializeMainFromBlocks(state.blocks);
@@ -633,6 +725,8 @@
 
 		if (missing.length) {
 			setUiState("error", `Missing ${missing.join(" + ")}`);
+		} else if (dirtyCount()) {
+			setUiState("dirty", buildDirtyLabel());
 		} else {
 			setUiState("clean", "CONNECTED - CLEAN");
 		}
@@ -642,22 +736,32 @@
 
 	function bindUI() {
 		const handleCommitClick = async () => {
-			if (state.uiState !== "dirty") return;
+			stashCurrentPageIfDirty();
+			const dirtyPaths = Object.keys(state.dirtyPages || {});
+			if (!dirtyPaths.length) return;
 			try {
 				setUiState("loading", "CREATING PR…");
 				state.prUrl = "";
 				state.prNumber = null;
 
-				rebuildPreviewHtml();
-				if (!state.rebuiltHtml)
-					throw new Error("No rebuilt HTML available to commit");
+				const files = dirtyPaths.map((path) => ({
+					path,
+					text: state.dirtyPages[path]?.html || "",
+				}));
 
-				const payload = {
-					path: state.path,
-					text: state.rebuiltHtml,
-					title: `CMS: update ${state.path}`,
-					commitMessage: `CMS: update ${state.path}`,
-				};
+				const payload =
+					files.length === 1
+						? {
+								path: files[0].path,
+								text: files[0].text,
+								title: `CMS: update ${files[0].path}`,
+								commitMessage: `CMS: update ${files[0].path}`,
+							}
+						: {
+								files,
+								title: `CMS: update ${files.length} pages`,
+								commitMessage: `CMS: update ${files.length} pages`,
+							};
 
 				const res = await fetch("/api/pr", {
 					method: "POST",
@@ -672,6 +776,8 @@
 
 				state.prUrl = data?.pr?.url || "";
 				state.prNumber = data?.pr?.number || null;
+				state.dirtyPages = {};
+				saveDirtyPagesToStorage();
 
 				setUiState("pr", "PR OPEN (AWAITING MERGE)");
 				renderPageSurface();
@@ -698,10 +804,12 @@
 			state.prUrl = "";
 			state.prNumber = null;
 			stopPrPolling();
+			clearDirtyPage(state.path);
 
 			rebuildPreviewHtml(); // keeps pipeline consistent (optional but nice)
 
-			setUiState("clean", "CONNECTED - CLEAN");
+			if (dirtyCount()) setUiState("dirty", buildDirtyLabel());
+			else setUiState("clean", "CONNECTED - CLEAN");
 			renderPageSurface();
 		});
 
@@ -716,12 +824,20 @@
 				event.preventDefault();
 				handleCommitClick();
 			});
+
+			// Stash edits before leaving via nav links.
+			document.querySelectorAll(".main-nav a").forEach((a) => {
+				a.addEventListener("click", () => {
+					stashCurrentPageIfDirty();
+				});
+			});
 			return true;
 		};
 
 		const updateNavCommitState = () => {
 			const link = document.querySelector('a[data-role="admin-link"]');
 			if (!link) return;
+			const hasDirty = dirtyCount() > 0;
 			link.classList.remove(
 				"cms-nav-pr--ok",
 				"cms-nav-pr--warn",
@@ -729,15 +845,15 @@
 				"cms-nav-pr--pr",
 				"cms-nav-pr--readonly",
 			);
-			if (state.uiState === "clean") link.classList.add("cms-nav-pr--ok");
-			else if (state.uiState === "dirty")
-				link.classList.add("cms-nav-pr--warn");
-			else if (state.uiState === "pr") link.classList.add("cms-nav-pr--pr");
+			if (state.uiState === "pr") link.classList.add("cms-nav-pr--pr");
 			else if (state.uiState === "readonly")
 				link.classList.add("cms-nav-pr--readonly");
 			else if (state.uiState === "loading")
 				link.classList.add("cms-nav-pr--warn");
-			else link.classList.add("cms-nav-pr--err");
+			else if (state.uiState === "error")
+				link.classList.add("cms-nav-pr--err");
+			else if (hasDirty) link.classList.add("cms-nav-pr--warn");
+			else link.classList.add("cms-nav-pr--ok");
 		};
 
 		const waitForNav = () => {
@@ -776,6 +892,7 @@
 	}
 
 	window.addEventListener("beforeunload", () => {
+		stashCurrentPageIfDirty();
 		stopPrPolling();
 	});
 
