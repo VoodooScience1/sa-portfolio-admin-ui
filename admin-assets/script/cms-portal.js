@@ -455,11 +455,15 @@
 		setUiState("loading", "LOADING / INITIALISING");
 		renderPageSurface();
 
-		// IMPORTANT: this assumes you already have /api/content implemented somewhere.
-		const url = `/api/repo/file?path=${encodeURIComponent(path)}`;
-		const res = await fetch(url, { headers: { Accept: "text/html" } });
+		// Worker routing
+		const isDev = location.hostname.startsWith("dev.");
+		const ref = isDev ? "dev" : "master";
+		const url = `/api/repo/file?path=${encodeURIComponent(path)}&ref=${encodeURIComponent(ref)}`;
+		const res = await fetch(url, { headers: { Accept: "application/json" } });
 		if (!res.ok) throw new Error(`HTTP ${res.status}`);
-		state.originalHtml = await res.text();
+
+		const data = await res.json();
+		state.originalHtml = data.text || "";
 
 		const hero = extractRegion(state.originalHtml, "hero");
 		const main = extractRegion(state.originalHtml, "main");
