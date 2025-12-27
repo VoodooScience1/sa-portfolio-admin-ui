@@ -456,7 +456,7 @@
 		renderPageSurface();
 
 		// IMPORTANT: this assumes you already have /api/content implemented somewhere.
-		const url = `/api/content?path=${encodeURIComponent(path)}`;
+		const url = `/api/repo/file?path=${encodeURIComponent(path)}`;
 		const res = await fetch(url, { headers: { Accept: "text/html" } });
 		if (!res.ok) throw new Error(`HTTP ${res.status}`);
 		state.originalHtml = await res.text();
