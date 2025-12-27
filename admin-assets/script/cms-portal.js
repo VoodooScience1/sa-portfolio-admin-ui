@@ -19,9 +19,13 @@
 	// -------------------------
 	// CONFIG
 	// -------------------------
-	const MANAGED_PAGES = [
-		{ label: "Working Style", path: "about/working-style.html" },
-	];
+	const DEFAULT_PAGE = "about/working-style.html";
+
+	function getPagePathFromLocation() {
+		const raw = String(location.pathname || "").replace(/^\/+/, "");
+		if (!raw || raw === "index.html") return DEFAULT_PAGE;
+		return raw;
+	}
 
 	// -------------------------
 	// Tiny utilities
@@ -261,7 +265,7 @@
 	let prPollTimer = null;
 
 	const state = {
-		path: MANAGED_PAGES[0].path,
+		path: getPagePathFromLocation(),
 		originalHtml: "",
 		rebuiltHtml: "",
 		prUrl: "",
@@ -339,6 +343,8 @@
 		state.uiState = kind;
 		state.uiStateLabel = label;
 		updateStatusStrip();
+		if (typeof state._updateNavCommitState === "function")
+			state._updateNavCommitState();
 		renderBanner();
 	}
 
@@ -360,9 +366,6 @@
 		// Enable/disable buttons based on state
 		const discard = qs("#cms-discard");
 		if (discard) discard.disabled = state.uiState !== "dirty";
-
-		const commit = qs("#cms-commit");
-		if (commit) commit.disabled = state.uiState !== "dirty";
 
 		const prLink = qs("#cms-pr-link");
 		if (prLink) {
@@ -541,16 +544,6 @@
 	// UI Shell
 	// -------------------------
 	function mountShell() {
-		const pageSelect = el(
-			"select",
-			{ id: "cms-page", class: "cms-select" },
-			MANAGED_PAGES.map((p) => el("option", { value: p.path }, [p.label])),
-		);
-
-		const loadBtn = el("button", { class: "cms-btn", id: "cms-load" }, [
-			"Load",
-		]);
-
 		const statusPill = el(
 			"span",
 			{ id: "cms-status", class: "cms-pill warn" },
@@ -558,16 +551,16 @@
 		);
 		const sub = el("div", { id: "cms-sub" }, ["LOADING / INITIALISING"]);
 
-		const commitBtn = el(
-			"button",
-			{ class: "cms-btn", id: "cms-commit", disabled: "true" },
-			["Commit PR"],
-		);
-
 		const discardBtn = el(
 			"button",
 			{ class: "cms-btn", id: "cms-discard", disabled: "true" },
 			["Discard"],
+		);
+
+		const exitBtn = el(
+			"button",
+			{ class: "cms-btn", id: "cms-exit" },
+			["Exit Admin"],
 		);
 
 		const prLink = el(
@@ -591,10 +584,8 @@
 				el("div", { class: "cms-strip-left" }, ["Development Portal"]),
 				el("div", { class: "cms-strip-mid" }, [statusPill, sub, prLink]),
 				el("div", { class: "cms-strip-right cms-controls" }, [
-					pageSelect,
-					loadBtn,
-					commitBtn,
 					discardBtn,
+					exitBtn,
 				]),
 			]),
 		);
@@ -604,8 +595,7 @@
 	// Data load
 	// -------------------------
 	async function loadSelectedPage() {
-		const path = qs("#cms-page")?.value || state.path;
-		state.path = path;
+		state.path = getPagePathFromLocation();
 		state.prUrl = "";
 		state.prNumber = null;
 		stopPrPolling();
@@ -652,17 +642,7 @@
 	}
 
 	function bindUI() {
-		qs("#cms-load")?.addEventListener("click", async () => {
-			try {
-				await loadSelectedPage();
-			} catch (err) {
-				console.error(err);
-				setUiState("error", "DISCONNECTED / ERROR");
-				renderPageSurface();
-			}
-		});
-
-		qs("#cms-commit")?.addEventListener("click", async () => {
+		const handleCommitClick = async () => {
 			if (state.uiState !== "dirty") return;
 			try {
 				setUiState("loading", "CREATING PR…");
@@ -702,6 +682,14 @@
 				setUiState("error", "DISCONNECTED / ERROR");
 				renderPageSurface();
 			}
+		};
+
+		qs("#cms-exit")?.addEventListener("click", () => {
+			const host = location.hostname;
+			const target = host.startsWith("dev.")
+				? "https://dev.portfolio.tacsa.co.uk/"
+				: "https://portfolio.tacsa.co.uk/";
+			location.href = target;
 		});
 
 		qs("#cms-discard")?.addEventListener("click", () => {
@@ -717,6 +705,53 @@
 			setUiState("clean", "CONNECTED - CLEAN");
 			renderPageSurface();
 		});
+
+		const attachNavCommit = () => {
+			const link = document.querySelector('a[data-role="admin-link"]');
+			if (!link) return false;
+			link.textContent = "Commit PR";
+			link.classList.add("cms-nav-pr");
+			link.setAttribute("href", "#");
+			link.setAttribute("role", "button");
+			link.addEventListener("click", (event) => {
+				event.preventDefault();
+				handleCommitClick();
+			});
+			return true;
+		};
+
+		const updateNavCommitState = () => {
+			const link = document.querySelector('a[data-role="admin-link"]');
+			if (!link) return;
+			link.classList.remove(
+				"cms-nav-pr--ok",
+				"cms-nav-pr--warn",
+				"cms-nav-pr--err",
+				"cms-nav-pr--pr",
+				"cms-nav-pr--readonly",
+			);
+			if (state.uiState === "clean") link.classList.add("cms-nav-pr--ok");
+			else if (state.uiState === "dirty")
+				link.classList.add("cms-nav-pr--warn");
+			else if (state.uiState === "pr") link.classList.add("cms-nav-pr--pr");
+			else if (state.uiState === "readonly")
+				link.classList.add("cms-nav-pr--readonly");
+			else if (state.uiState === "loading")
+				link.classList.add("cms-nav-pr--warn");
+			else link.classList.add("cms-nav-pr--err");
+		};
+
+		const waitForNav = () => {
+			const ok = attachNavCommit();
+			if (ok) {
+				updateNavCommitState();
+				return;
+			}
+			requestAnimationFrame(waitForNav);
+		};
+
+		waitForNav();
+		state._updateNavCommitState = updateNavCommitState;
 	}
 
 	// -------------------------
@@ -734,7 +769,11 @@
 		renderPageSurface();
 
 		// auto-load
-		qs("#cms-load")?.click();
+		loadSelectedPage().catch((err) => {
+			console.error(err);
+			setUiState("error", "DISCONNECTED / ERROR");
+			renderPageSurface();
+		});
 	}
 
 	window.addEventListener("beforeunload", () => {
