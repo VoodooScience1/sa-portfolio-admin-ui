@@ -413,6 +413,12 @@
 			["Commit PR"],
 		);
 
+		const discardBtn = el(
+			"button",
+			{ class: "cms-btn", id: "cms-discard", disabled: "true" },
+			["Discard"],
+		);
+
 		const stripHost = qs("#cms-status-strip") || qs("#cms-portal");
 		stripHost.innerHTML = "";
 		stripHost.appendChild(
@@ -423,6 +429,7 @@
 					pageSelect,
 					loadBtn,
 					commitBtn,
+					discardBtn,
 				]),
 			]),
 		);
@@ -481,6 +488,16 @@
 				setUiState("error", "DISCONNECTED / ERROR");
 				renderPageSurface();
 			}
+		});
+
+		qs("#cms-discard")?.addEventListener("click", () => {
+			// restore last-loaded state
+			state.blocks = parseBlocks(state.mainInner);
+			state.uiState = "clean";
+			state.uiStateLabel = "CONNECTED - CLEAN";
+			updateStatusStrip();
+			renderBanner();
+			renderPageSurface();
 		});
 	}
 
