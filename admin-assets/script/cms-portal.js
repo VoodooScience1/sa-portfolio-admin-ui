@@ -473,7 +473,9 @@
 
 		state.heroInner = state.loadedHeroInner;
 		state.mainInner = state.loadedMainInner;
-		state.blocks = parseBlocks(state.mainInner);
+		state.blocks = parseBlocks(state.loadedMainInner);
+
+		updateControls();
 
 		// Debug signal: whitespace normalisation can make this false even when correct.
 		const rebuiltMain = serializeMainFromBlocks(state.blocks);
@@ -517,6 +519,15 @@
 			setUiState("clean", "CONNECTED - CLEAN");
 			renderPageSurface();
 		});
+
+		function updateControls() {
+			const discard = qs("#cms-discard");
+			const commit = qs("#cms-commit");
+
+			const dirty = state.uiState === "dirty";
+			if (discard) discard.toggleAttribute("disabled", !dirty);
+			if (commit) commit.toggleAttribute("disabled", !dirty);
+		}
 	}
 
 	// -------------------------

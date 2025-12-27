@@ -28,6 +28,11 @@ export async function onRequest(context) {
 	headers.delete("host");
 	headers.set("accept", "application/json");
 
+	// Tell the CMS Worker which repo branch to read/write against
+	// (dev Pages project sets GITHUB_DEFAULT_BRANCH=dev, prod sets =main)
+	const branch = String(env.GITHUB_DEFAULT_BRANCH || "").trim();
+	if (branch) headers.set("x-cms-branch", branch);
+
 	// Only attach the key server-side for PR writes
 	if (upstream.pathname === "/api/pr") {
 		if (!CMS_API_KEY) {
