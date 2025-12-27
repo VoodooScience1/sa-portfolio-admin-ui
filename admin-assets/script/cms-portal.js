@@ -455,10 +455,8 @@
 		setUiState("loading", "LOADING / INITIALISING");
 		renderPageSurface();
 
-		// Worker routing
-		const isDev = location.hostname.startsWith("dev.");
-		const ref = isDev ? "dev" : "master";
-		const url = `/api/repo/file?path=${encodeURIComponent(path)}&ref=${encodeURIComponent(ref)}`;
+		// Pages Function proxies to Worker and injects x-cms-branch
+		const url = `/api/repo/file?path=${encodeURIComponent(path)}`;
 		const res = await fetch(url, { headers: { Accept: "application/json" } });
 		if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
@@ -475,9 +473,7 @@
 		state.mainInner = state.loadedMainInner;
 		state.blocks = parseBlocks(state.loadedMainInner);
 
-		updateControls();
-
-		// Debug signal: whitespace normalisation can make this false even when correct.
+		// Debug signal
 		const rebuiltMain = serializeMainFromBlocks(state.blocks);
 		const originalMain = (state.mainInner || "").trim();
 		console.log(
@@ -489,11 +485,8 @@
 		if (!hero.found) missing.push("hero markers");
 		if (!main.found) missing.push("main markers");
 
-		if (missing.length) {
-			setUiState("error", `Missing ${missing.join(" + ")}`);
-		} else {
-			setUiState("clean", "CONNECTED - CLEAN");
-		}
+		if (missing.length) setUiState("error", `Missing ${missing.join(" + ")}`);
+		else setUiState("clean", "CONNECTED - CLEAN");
 
 		renderPageSurface();
 	}
@@ -519,15 +512,6 @@
 			setUiState("clean", "CONNECTED - CLEAN");
 			renderPageSurface();
 		});
-
-		function updateControls() {
-			const discard = qs("#cms-discard");
-			const commit = qs("#cms-commit");
-
-			const dirty = state.uiState === "dirty";
-			if (discard) discard.toggleAttribute("disabled", !dirty);
-			if (commit) commit.toggleAttribute("disabled", !dirty);
-		}
 	}
 
 	// -------------------------
