@@ -43,6 +43,26 @@
 		return n;
 	};
 
+	async function loadPartialHtml(partialPath) {
+		const res = await fetch(partialPath, { headers: { Accept: "text/html" } });
+		if (!res.ok) throw new Error(`Failed to load partial ${partialPath}`);
+		const text = await res.text();
+		return text.replace(/^\s*<!--[\s\S]*?-->\s*/, "").trim();
+	}
+
+	async function buildTestContainerHtml() {
+		const raw = await loadPartialHtml(
+			"/admin-assets/partials/CloudFlareCMS/std-container.html",
+		);
+
+		const doc = new DOMParser().parseFromString(raw, "text/html");
+		const h1 = doc.querySelector("h1");
+		const p = doc.querySelector("p");
+		if (h1) h1.textContent = "CMS Insert Test";
+		if (p) p.textContent = "Inserted via the Dev Portal";
+		return doc.body.innerHTML.trim();
+	}
+
 	// -------------------------
 	// Marker helpers
 	// -------------------------
@@ -360,20 +380,29 @@
 			// (The old DOM is deleted, so old handlers go with it.)
 			queueMicrotask(() => {
 				qs("#cms-add-first")?.addEventListener("click", () => {
-					state.blocks = [
-						{
-							idx: 0,
-							type: "std-container",
-							summary: "Divider",
-							html: `<div class="div-wrapper">\n\t<div class="default-div-wrapper">\n\t\t<hr class="divider" />\n\t</div>\n</div>`,
-						},
-					];
+					(async () => {
+						try {
+							const html = await buildTestContainerHtml();
+							state.blocks = [
+								{
+									idx: 0,
+									type: "std-container",
+									summary: "Standard container",
+									html,
+								},
+							];
 
-					// prove rebuild works (preview pipeline)
-					rebuildPreviewHtml();
+							// prove rebuild works (preview pipeline)
+							rebuildPreviewHtml();
 
-					setUiState("dirty", "CONNECTED - DIRTY");
-					renderPageSurface();
+							setUiState("dirty", "CONNECTED - DIRTY");
+							renderPageSurface();
+						} catch (err) {
+							console.error(err);
+							setUiState("error", "DISCONNECTED / ERROR");
+							renderPageSurface();
+						}
+					})();
 				});
 			});
 
