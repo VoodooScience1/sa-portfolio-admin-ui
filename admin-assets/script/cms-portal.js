@@ -19,7 +19,7 @@
 	// -------------------------
 	// CONFIG
 	// -------------------------
-	const DEFAULT_PAGE = "about/working-style.html";
+	const DEFAULT_PAGE = "index.html";
 
 	function getPagePathFromLocation() {
 		const raw = String(location.pathname || "").replace(/^\/+/, "");
@@ -302,7 +302,8 @@
 			headers: { Accept: "application/json" },
 		});
 		const data = await res.json().catch(() => ({}));
-		if (!res.ok) throw new Error(data?.error || `Status failed (${res.status})`);
+		if (!res.ok)
+			throw new Error(data?.error || `Status failed (${res.status})`);
 
 		if (data.state === "merged") {
 			state.prUrl = "";
@@ -557,11 +558,9 @@
 			["Discard"],
 		);
 
-		const exitBtn = el(
-			"button",
-			{ class: "cms-btn", id: "cms-exit" },
-			["Exit Admin"],
-		);
+		const exitBtn = el("button", { class: "cms-btn", id: "cms-exit" }, [
+			"Exit Admin",
+		]);
 
 		const prLink = el(
 			"a",
