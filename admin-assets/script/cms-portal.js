@@ -1,7 +1,7 @@
 /* cms-portal.js
  * MVP:
  * - Runs on /admin.html
- * - Loads rendered HTML via Pages Function: GET /api/content?path=about/working-style.html
+ * - Loads rendered HTML via Pages Function: GET /api/repo/file?path=about/working-style.html
  * - Extracts CMS regions using markers:
  *     <!-- CMS:START hero --> ... <!-- CMS:END hero -->
  *     <!-- CMS:START main --> ... <!-- CMS:END main -->
@@ -455,9 +455,6 @@
 		setUiState("loading", "LOADING / INITIALISING");
 		renderPageSurface();
 
-		// Worker routing
-		const isDev = location.hostname.startsWith("dev.");
-		const ref = isDev ? "dev" : "master";
 		const url = `/api/repo/file?path=${encodeURIComponent(path)}`;
 		const res = await fetch(url, { headers: { Accept: "application/json" } });
 		if (!res.ok) throw new Error(`HTTP ${res.status}`);
