@@ -223,6 +223,8 @@
 
 		heroInner: "",
 		mainInner: "",
+		loadedHeroInner: "",
+		loadedMainInner: "",
 
 		blocks: [],
 
@@ -254,6 +256,13 @@
 
 			pill.textContent = state.uiState.toUpperCase();
 		}
+
+		// Enable/disable buttons based on state
+		const discard = qs("#cms-discard");
+		if (discard) discard.disabled = state.uiState !== "dirty";
+
+		const commit = qs("#cms-commit");
+		if (commit) commit.disabled = state.uiState !== "dirty";
 	}
 
 	function renderBanner() {
@@ -419,7 +428,8 @@
 			["Discard"],
 		);
 
-		const stripHost = qs("#cms-status-strip") || qs("#cms-portal");
+		const stripHost = qs("#cms-status-strip");
+		if (!stripHost) throw new Error("Missing #cms-status-strip in admin.html");
 		stripHost.innerHTML = "";
 		stripHost.appendChild(
 			el("div", { class: "cms-strip" }, [
@@ -454,8 +464,11 @@
 		const hero = extractRegion(state.originalHtml, "hero");
 		const main = extractRegion(state.originalHtml, "main");
 
-		state.heroInner = hero.found ? hero.inner : "";
-		state.mainInner = main.found ? main.inner : "";
+		state.loadedHeroInner = hero.found ? hero.inner : "";
+		state.loadedMainInner = main.found ? main.inner : "";
+
+		state.heroInner = state.loadedHeroInner;
+		state.mainInner = state.loadedMainInner;
 		state.blocks = parseBlocks(state.mainInner);
 
 		// Debug signal: whitespace normalisation can make this false even when correct.
@@ -491,12 +504,13 @@
 		});
 
 		qs("#cms-discard")?.addEventListener("click", () => {
-			// restore last-loaded state
-			state.blocks = parseBlocks(state.mainInner);
-			state.uiState = "clean";
-			state.uiStateLabel = "CONNECTED - CLEAN";
-			updateStatusStrip();
-			renderBanner();
+			state.heroInner = state.loadedHeroInner;
+			state.mainInner = state.loadedMainInner;
+			state.blocks = parseBlocks(state.loadedMainInner);
+
+			rebuildPreviewHtml(); // keeps pipeline consistent (optional but nice)
+
+			setUiState("clean", "CONNECTED - CLEAN");
 			renderPageSurface();
 		});
 	}
