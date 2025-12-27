@@ -54,6 +54,29 @@
 		return parseBlocks(main.inner).map((b) => b.summary || b.type || "Block");
 	}
 
+	function buildDiffSummary(baseHtml, dirtyHtml) {
+		const baseMain = extractRegion(baseHtml, "main");
+		const dirtyMain = extractRegion(dirtyHtml, "main");
+		if (!dirtyMain.found) return [];
+
+		const baseBlocks = baseMain.found ? parseBlocks(baseMain.inner) : [];
+		const dirtyBlocks = parseBlocks(dirtyMain.inner);
+
+		const baseHtmlList = baseBlocks.map((b) => (b.html || "").trim());
+		const added = [];
+		const modified = [];
+
+		dirtyBlocks.forEach((block) => {
+			const html = (block.html || "").trim();
+			const idx = baseHtmlList.indexOf(html);
+			if (idx >= 0) baseHtmlList.splice(idx, 1);
+			else added.push(block.summary || block.type || "Block");
+		});
+
+		// Modified detection is pending; return an empty list for now.
+		return { added, modified };
+	}
+
 	function ensureModalRoot() {
 		let root = qs("#cms-modal");
 		if (root) return root;
@@ -177,6 +200,32 @@
 		else setUiState("clean", "CONNECTED - CLEAN");
 	}
 
+	async function buildDiffSummaryMap(paths) {
+		const summaryMap = {};
+		await Promise.all(
+			paths.map(async (path) => {
+				try {
+					const res = await fetch(
+						`/api/repo/file?path=${encodeURIComponent(path)}`,
+						{ headers: { Accept: "application/json" } },
+					);
+					if (!res.ok) throw new Error("repo fetch failed");
+					const data = await res.json();
+					const baseHtml = String(data.text || "");
+					const dirtyHtml = String(state.dirtyPages[path]?.html || "");
+					summaryMap[path] = buildDiffSummary(baseHtml, dirtyHtml);
+				} catch {
+					const dirtyHtml = String(state.dirtyPages[path]?.html || "");
+					summaryMap[path] = {
+						added: buildSummaryForHtml(dirtyHtml),
+						modified: [],
+					};
+				}
+			}),
+		);
+		return summaryMap;
+	}
+
 	function purgeCleanDirtyPages() {
 		Object.keys(state.dirtyPages || {}).forEach((path) => {
 			const entry = state.dirtyPages[path];
@@ -209,7 +258,7 @@
 		);
 	}
 
-	function renderDirtyPageList(selected) {
+	function renderDirtyPageList(selected, summaryMap, modes) {
 		const wrap = el("div", { class: "cms-modal__list" }, []);
 		const paths = Object.keys(state.dirtyPages || {}).sort();
 		paths.forEach((path, idx) => {
@@ -219,9 +268,15 @@
 			const label = el("label", { for: id, class: "cms-modal__label" }, [path]);
 			const row = el("div", { class: "cms-modal__row" }, [checkbox, label]);
 
-			const summaryItems = buildSummaryForHtml(
-				state.dirtyPages[path]?.html || "",
-			);
+			let summaryItems = [];
+			if (modes.has("all")) {
+				summaryItems = buildSummaryForHtml(state.dirtyPages[path]?.html || "");
+			} else {
+				const entry = summaryMap?.[path] || { added: [], modified: [] };
+				if (modes.has("new")) summaryItems = summaryItems.concat(entry.added);
+				if (modes.has("modified"))
+					summaryItems = summaryItems.concat(entry.modified);
+			}
 			const items =
 				summaryItems.length > 0 ? summaryItems : ["No blocks detected"];
 			const list = el(
@@ -237,6 +292,56 @@
 				else selected.delete(path);
 			});
 		});
+		return wrap;
+	}
+
+	function buildModalToggleBar(onChange) {
+		const wrap = el("div", { class: "cms-modal__toggle" }, []);
+		const newBtn = el(
+			"button",
+			{ class: "cms-modal__toggle-btn is-active", type: "button" },
+			["New blocks"],
+		);
+		const modifiedBtn = el(
+			"button",
+			{ class: "cms-modal__toggle-btn", type: "button" },
+			["Modified blocks"],
+		);
+		const allBtn = el("button", { class: "cms-modal__toggle-btn", type: "button" }, [
+			"All blocks",
+		]);
+
+		const modes = new Set(["new"]);
+		const syncButtons = () => {
+			newBtn.classList.toggle("is-active", modes.has("new"));
+			modifiedBtn.classList.toggle("is-active", modes.has("modified"));
+			allBtn.classList.toggle("is-active", modes.has("all"));
+		};
+
+		const setAll = () => {
+			modes.clear();
+			modes.add("all");
+			syncButtons();
+			onChange(new Set(modes));
+		};
+
+		const toggleMode = (mode) => {
+			if (modes.has("all")) modes.delete("all");
+			if (modes.has(mode)) modes.delete(mode);
+			else modes.add(mode);
+			if (!modes.size) modes.add("new");
+			syncButtons();
+			onChange(new Set(modes));
+		};
+
+		newBtn.addEventListener("click", () => toggleMode("new"));
+		modifiedBtn.addEventListener("click", () => toggleMode("modified"));
+		allBtn.addEventListener("click", () => setAll());
+
+		wrap.appendChild(newBtn);
+		wrap.appendChild(modifiedBtn);
+		wrap.appendChild(allBtn);
+		onChange(new Set(modes));
 		return wrap;
 	}
 
@@ -950,7 +1055,18 @@
 		if (!dirtyCount()) return;
 
 		const selected = new Set(Object.keys(state.dirtyPages || {}));
-		const list = renderDirtyPageList(selected);
+		const summaryMap = await buildDiffSummaryMap(
+			Object.keys(state.dirtyPages || {}),
+		);
+		let list = renderDirtyPageList(selected, summaryMap, new Set(["new"]));
+		const toggle = buildModalToggleBar((modes) => {
+			const next = renderDirtyPageList(selected, summaryMap, modes);
+			list.replaceWith(next);
+			list = next;
+			list.querySelectorAll("input[type=checkbox]").forEach((box) => {
+				box.addEventListener("change", updateAction);
+			});
+		});
 		const divider = el("div", { class: "cms-modal__divider" }, []);
 		const note = el("p", { class: "cms-modal__text" }, [
 			"Confirm discarding the selected pages from memory.",
@@ -1014,7 +1130,7 @@
 
 		openModal({
 			title: "Discard changes",
-			bodyNodes: [list, divider, note, confirmRow, codeLabel, codeInput],
+			bodyNodes: [toggle, list, divider, note, confirmRow, codeLabel, codeInput],
 			footerNodes: [action],
 		});
 	}
@@ -1106,7 +1222,16 @@
 		if (!dirtyPaths.length) return;
 
 		const selected = new Set(dirtyPaths);
-		const list = renderDirtyPageList(selected);
+		const summaryMap = await buildDiffSummaryMap(dirtyPaths);
+		let list = renderDirtyPageList(selected, summaryMap, new Set(["new"]));
+		const toggle = buildModalToggleBar((modes) => {
+			const next = renderDirtyPageList(selected, summaryMap, modes);
+			list.replaceWith(next);
+			list = next;
+			list.querySelectorAll("input[type=checkbox]").forEach((box) => {
+				box.addEventListener("change", updateAction);
+			});
+		});
 
 		const noteLabel = el(
 			"label",
@@ -1183,6 +1308,7 @@
 		openModal({
 			title: "Create Pull Request",
 			bodyNodes: [
+				toggle,
 				list,
 				divider,
 				noteLabel,
