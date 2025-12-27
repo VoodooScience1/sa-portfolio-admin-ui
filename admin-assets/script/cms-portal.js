@@ -602,7 +602,7 @@
 		setUiState("loading", "LOADING / INITIALISING");
 		renderPageSurface();
 
-		const url = `/api/repo/file?path=${encodeURIComponent(path)}`;
+		const url = `/api/repo/file?path=${encodeURIComponent(state.path)}`;
 		const res = await fetch(url, { headers: { Accept: "application/json" } });
 		if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
