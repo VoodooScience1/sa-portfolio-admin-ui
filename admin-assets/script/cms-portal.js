@@ -127,6 +127,15 @@
 		}
 	}
 
+	function hashText(input) {
+		let hash = 5381;
+		const text = String(input || "");
+		for (let i = 0; i < text.length; i += 1) {
+			hash = (hash << 5) + hash + text.charCodeAt(i);
+		}
+		return String(hash >>> 0);
+	}
+
 	function dirtyCount() {
 		return Object.keys(state.dirtyPages || {}).length;
 	}
@@ -139,6 +148,8 @@
 		if (!path) return;
 		state.dirtyPages[path] = {
 			html,
+			baseHash: hashText(state.originalHtml),
+			dirtyHash: hashText(html),
 			updatedAt: Date.now(),
 		};
 		saveDirtyPagesToStorage();
@@ -164,6 +175,38 @@
 		if (["loading", "error", "pr", "readonly"].includes(state.uiState)) return;
 		if (dirtyCount()) setUiState("dirty", buildDirtyLabel());
 		else setUiState("clean", "CONNECTED - CLEAN");
+	}
+
+	function purgeCleanDirtyPages() {
+		Object.keys(state.dirtyPages || {}).forEach((path) => {
+			const entry = state.dirtyPages[path];
+			if (!entry) return;
+			if (entry.baseHash && entry.dirtyHash && entry.baseHash === entry.dirtyHash)
+				clearDirtyPage(path);
+		});
+	}
+
+	async function purgeDirtyPagesFromRepo() {
+		const paths = Object.keys(state.dirtyPages || {});
+		if (!paths.length) return;
+		await Promise.all(
+			paths.map(async (path) => {
+				try {
+					const res = await fetch(
+						`/api/repo/file?path=${encodeURIComponent(path)}`,
+						{ headers: { Accept: "application/json" } },
+					);
+					if (!res.ok) return;
+					const data = await res.json();
+					const remoteText = String(data.text || "").trim();
+					const entryText = String(state.dirtyPages[path]?.html || "").trim();
+					if (remoteText && entryText && remoteText === entryText)
+						clearDirtyPage(path);
+				} catch {
+					// Remote compare failure should not block modal flow.
+				}
+			}),
+		);
 	}
 
 	function renderDirtyPageList(selected) {
@@ -199,8 +242,11 @@
 
 	function setActionState(button, enabled) {
 		button.disabled = !enabled;
-		if (enabled) button.classList.add("cms-btn--danger");
-		else button.classList.remove("cms-btn--danger");
+		button.classList.remove("cms-btn--danger", "cms-btn--success");
+		if (!enabled) return;
+		const variant = button.getAttribute("data-variant");
+		if (variant === "success") button.classList.add("cms-btn--success");
+		else button.classList.add("cms-btn--danger");
 	}
 
 	function discardSelectedPages(paths) {
@@ -259,8 +305,8 @@
 
 			state.prUrl = data?.pr?.url || "";
 			state.prNumber = data?.pr?.number || null;
-			state.dirtyPages = {};
-			saveDirtyPagesToStorage();
+			paths.forEach((path) => clearDirtyPage(path));
+			purgeCleanDirtyPages();
 
 			setUiState("pr", "PR OPEN (AWAITING MERGE)");
 			renderPageSurface();
@@ -890,6 +936,7 @@
 			setUiState("error", `Missing ${missing.join(" + ")}`);
 		} else {
 			if (dirtyHtml && !state.currentDirty) clearDirtyPage(state.path);
+			purgeCleanDirtyPages();
 			if (dirtyCount()) setUiState("dirty", buildDirtyLabel());
 			else setUiState("clean", "CONNECTED - CLEAN");
 		}
@@ -897,7 +944,9 @@
 		renderPageSurface();
 	}
 
-	function openDiscardModal() {
+	async function openDiscardModal() {
+		await purgeDirtyPagesFromRepo();
+		purgeCleanDirtyPages();
 		if (!dirtyCount()) return;
 
 		const selected = new Set(Object.keys(state.dirtyPages || {}));
@@ -932,7 +981,12 @@
 
 		const action = el(
 			"button",
-			{ class: "cms-btn cms-modal__action", type: "button", disabled: "true" },
+			{
+				class: "cms-btn cms-modal__action",
+				type: "button",
+				disabled: "true",
+				"data-variant": "danger",
+			},
 			["Discard selected"],
 		);
 
@@ -965,7 +1019,9 @@
 		});
 	}
 
-	function openExitModal() {
+	async function openExitModal() {
+		await purgeDirtyPagesFromRepo();
+		purgeCleanDirtyPages();
 		if (!dirtyCount()) {
 			const host = location.hostname;
 			const target = host.startsWith("dev.")
@@ -1005,7 +1061,12 @@
 
 		const action = el(
 			"button",
-			{ class: "cms-btn cms-modal__action", type: "button", disabled: "true" },
+			{
+				class: "cms-btn cms-modal__action",
+				type: "button",
+				disabled: "true",
+				"data-variant": "danger",
+			},
 			["Exit Admin"],
 		);
 
@@ -1037,8 +1098,10 @@
 		});
 	}
 
-	function openPrModal() {
+	async function openPrModal() {
 		stashCurrentPageIfDirty();
+		await purgeDirtyPagesFromRepo();
+		purgeCleanDirtyPages();
 		const dirtyPaths = Object.keys(state.dirtyPages || {});
 		if (!dirtyPaths.length) return;
 
@@ -1062,7 +1125,12 @@
 
 		const action = el(
 			"button",
-			{ class: "cms-btn cms-modal__action", type: "button", disabled: "true" },
+			{
+				class: "cms-btn cms-modal__action",
+				type: "button",
+				disabled: "true",
+				"data-variant": "success",
+			},
 			["Create PR"],
 		);
 
@@ -1129,10 +1197,16 @@
 	}
 
 	function bindUI() {
-		const handleCommitClick = () => openPrModal();
+		const handleCommitClick = () => {
+			openPrModal().catch((err) => console.error(err));
+		};
 
-		qs("#cms-exit")?.addEventListener("click", openExitModal);
-		qs("#cms-discard")?.addEventListener("click", openDiscardModal);
+		qs("#cms-exit")?.addEventListener("click", () => {
+			openExitModal().catch((err) => console.error(err));
+		});
+		qs("#cms-discard")?.addEventListener("click", () => {
+			openDiscardModal().catch((err) => console.error(err));
+		});
 
 		const attachNavCommit = () => {
 			const link = document.querySelector('a[data-role="admin-link"]');
