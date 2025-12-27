@@ -240,6 +240,8 @@
 		path: MANAGED_PAGES[0].path,
 		originalHtml: "",
 		rebuiltHtml: "",
+		prUrl: "",
+		prNumber: null,
 
 		heroInner: "",
 		mainInner: "",
@@ -283,6 +285,17 @@
 
 		const commit = qs("#cms-commit");
 		if (commit) commit.disabled = state.uiState !== "dirty";
+
+		const prLink = qs("#cms-pr-link");
+		if (prLink) {
+			if (state.prUrl) {
+				prLink.href = state.prUrl;
+				prLink.textContent = `PR #${state.prNumber || "?"}`;
+				prLink.hidden = false;
+			} else {
+				prLink.hidden = true;
+			}
+		}
 	}
 
 	function renderBanner() {
@@ -457,13 +470,26 @@
 			["Discard"],
 		);
 
+		const prLink = el(
+			"a",
+			{
+				id: "cms-pr-link",
+				class: "cms-pr-link",
+				href: "#",
+				target: "_blank",
+				rel: "noopener noreferrer",
+				hidden: "true",
+			},
+			["PR"],
+		);
+
 		const stripHost = qs("#cms-status-strip");
 		if (!stripHost) throw new Error("Missing #cms-status-strip in admin.html");
 		stripHost.innerHTML = "";
 		stripHost.appendChild(
 			el("div", { class: "cms-strip" }, [
 				el("div", { class: "cms-strip-left" }, ["Development Portal"]),
-				el("div", { class: "cms-strip-mid" }, [statusPill, sub]),
+				el("div", { class: "cms-strip-mid" }, [statusPill, sub, prLink]),
 				el("div", { class: "cms-strip-right cms-controls" }, [
 					pageSelect,
 					loadBtn,
@@ -526,6 +552,48 @@
 		qs("#cms-load")?.addEventListener("click", async () => {
 			try {
 				await loadSelectedPage();
+			} catch (err) {
+				console.error(err);
+				setUiState("error", "DISCONNECTED / ERROR");
+				renderPageSurface();
+			}
+		});
+
+		qs("#cms-commit")?.addEventListener("click", async () => {
+			if (state.uiState !== "dirty") return;
+			try {
+				setUiState("loading", "CREATING PR…");
+				state.prUrl = "";
+				state.prNumber = null;
+
+				rebuildPreviewHtml();
+				if (!state.rebuiltHtml)
+					throw new Error("No rebuilt HTML available to commit");
+
+				const payload = {
+					path: state.path,
+					text: state.rebuiltHtml,
+					title: `CMS: update ${state.path}`,
+					body: `Created by Portfolio CMS\n\n@VoodooScience1 please review + merge.`,
+					commitMessage: `CMS: update ${state.path}`,
+				};
+
+				const res = await fetch("/api/pr", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify(payload),
+				});
+
+				const data = await res.json().catch(() => ({}));
+				if (!res.ok) {
+					throw new Error(data?.error || `PR failed (HTTP ${res.status})`);
+				}
+
+				state.prUrl = data?.pr?.url || "";
+				state.prNumber = data?.pr?.number || null;
+
+				setUiState("pr", "PR OPEN (AWAITING MERGE)");
+				renderPageSurface();
 			} catch (err) {
 				console.error(err);
 				setUiState("error", "DISCONNECTED / ERROR");
