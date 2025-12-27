@@ -132,6 +132,16 @@
 		});
 	}
 
+	function openLoadingModal(title = "Loading…") {
+		openModal({
+			title,
+			bodyNodes: [
+				el("div", { class: "cms-modal__loading" }, ["Fetching changes…"]),
+			],
+			footerNodes: [],
+		});
+	}
+
 	function loadDirtyPagesFromStorage() {
 		try {
 			const raw = localStorage.getItem(DIRTY_STORAGE_KEY);
@@ -167,11 +177,12 @@
 		state.currentDirty = true;
 	}
 
-	function setDirtyPage(path, html) {
+	function setDirtyPage(path, html, baseHtmlOverride = "") {
 		if (!path) return;
+		const baseHtml = baseHtmlOverride || state.originalHtml;
 		state.dirtyPages[path] = {
 			html,
-			baseHash: hashText(state.originalHtml),
+			baseHash: hashText(baseHtml),
 			dirtyHash: hashText(html),
 			updatedAt: Date.now(),
 		};
@@ -336,6 +347,16 @@
 		if (!html) return "";
 		html = replaceRegion(html, "main", mainHtml);
 		return html;
+	}
+
+	function applyHtmlToCurrentPage(updatedHtml) {
+		if (!updatedHtml || !updatedHtml.trim()) return;
+		const hero = extractRegion(updatedHtml, "hero");
+		const main = extractRegion(updatedHtml, "main");
+		if (hero.found) state.heroInner = hero.inner;
+		if (main.found) state.mainInner = main.inner;
+		state.blocks = parseBlocks(state.mainInner);
+		state.currentDirty = updatedHtml.trim() !== state.originalHtml.trim();
 	}
 
 	function renderDirtyPageList({
@@ -1180,9 +1201,15 @@
 	}
 
 	async function openDiscardModal() {
+		openLoadingModal("Loading changes");
 		await purgeDirtyPagesFromRepo();
 		purgeCleanDirtyPages();
-		if (!dirtyCount()) return;
+		if (!dirtyCount()) {
+			qs("#cms-modal").classList.remove("is-open");
+			document.documentElement.classList.remove("cms-lock");
+			document.body.classList.remove("cms-lock");
+			return;
+		}
 
 		const paths = Object.keys(state.dirtyPages || {});
 		const blockData = await buildBlockDataMap(paths);
@@ -1306,7 +1333,8 @@
 				const updatedHtml = buildHtmlForSelection(entry, selectedIds, "discard");
 				if (!updatedHtml || updatedHtml.trim() === entry.baseHtml.trim())
 					clearDirtyPage(path);
-				else setDirtyPage(path, updatedHtml);
+				else setDirtyPage(path, updatedHtml, entry.baseHtml);
+				if (path === state.path) applyHtmlToCurrentPage(updatedHtml);
 			});
 			purgeCleanDirtyPages();
 			qs("#cms-modal").classList.remove("is-open");
@@ -1412,11 +1440,17 @@
 	}
 
 	async function openPrModal() {
+		openLoadingModal("Loading changes");
 		stashCurrentPageIfDirty();
 		await purgeDirtyPagesFromRepo();
 		purgeCleanDirtyPages();
 		const dirtyPaths = Object.keys(state.dirtyPages || {});
-		if (!dirtyPaths.length) return;
+		if (!dirtyPaths.length) {
+			qs("#cms-modal").classList.remove("is-open");
+			document.documentElement.classList.remove("cms-lock");
+			document.body.classList.remove("cms-lock");
+			return;
+		}
 
 		const blockData = await buildBlockDataMap(dirtyPaths);
 		const selectedPages = new Set();
@@ -1556,7 +1590,8 @@
 				}
 				if (!remainingHtml || remainingHtml.trim() === entry.baseHtml.trim())
 					clearDirtyPage(path);
-				else setDirtyPage(path, remainingHtml);
+				else setDirtyPage(path, remainingHtml, entry.baseHtml);
+				if (path === state.path) applyHtmlToCurrentPage(remainingHtml);
 			});
 
 			qs("#cms-modal").classList.remove("is-open");
@@ -1564,11 +1599,7 @@
 			document.body.classList.remove("cms-lock");
 
 			if (!payloads.length) return;
-			submitPr(
-				payloads.map((p) => p.path),
-				noteInput.value,
-				payloads,
-			);
+			submitPr(payloads.map((p) => p.path), noteInput.value, payloads);
 		});
 
 		openModal({
