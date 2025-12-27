@@ -471,7 +471,7 @@
 
 		state.heroInner = state.loadedHeroInner;
 		state.mainInner = state.loadedMainInner;
-		state.blocks = parseBlocks(state.loadedMainInner);
+		state.blocks = parseBlocks(state.mainInner);
 
 		// Debug signal
 		const rebuiltMain = serializeMainFromBlocks(state.blocks);
