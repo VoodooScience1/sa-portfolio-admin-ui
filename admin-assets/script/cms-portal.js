@@ -93,12 +93,16 @@
 		(bodyNodes || []).forEach((n) => body.appendChild(n));
 		(footerNodes || []).forEach((n) => footer.appendChild(n));
 		root.classList.add("is-open");
+		document.documentElement.classList.add("cms-lock");
+		document.body.classList.add("cms-lock");
 
 		root.querySelectorAll("[data-close='true']").forEach((btn) => {
 			btn.addEventListener(
 				"click",
 				() => {
 					root.classList.remove("is-open");
+					document.documentElement.classList.remove("cms-lock");
+					document.body.classList.remove("cms-lock");
 				},
 				{ once: true },
 			);
@@ -127,13 +131,8 @@
 		return Object.keys(state.dirtyPages || {}).length;
 	}
 
-	function isCurrentPageDirty() {
-		if (!state.originalHtml) return false;
-		rebuildPreviewHtml();
-		return (
-			state.rebuiltHtml &&
-			state.rebuiltHtml.trim() !== state.originalHtml.trim()
-		);
+	function markCurrentDirty() {
+		state.currentDirty = true;
 	}
 
 	function setDirtyPage(path, html) {
@@ -198,12 +197,19 @@
 		return wrap;
 	}
 
+	function setActionState(button, enabled) {
+		button.disabled = !enabled;
+		if (enabled) button.classList.add("cms-btn--danger");
+		else button.classList.remove("cms-btn--danger");
+	}
+
 	function discardSelectedPages(paths) {
 		paths.forEach((p) => clearDirtyPage(p));
 		if (paths.includes(state.path)) {
 			state.heroInner = state.loadedHeroInner;
 			state.mainInner = state.loadedMainInner;
 			state.blocks = parseBlocks(state.loadedMainInner);
+			state.currentDirty = false;
 			rebuildPreviewHtml();
 			renderPageSurface();
 		}
@@ -354,17 +360,19 @@
 
 		normalizeBlocks();
 		rebuildPreviewHtml();
+		markCurrentDirty();
 		setDirtyPage(state.path, state.rebuiltHtml);
 		refreshUiStateForDirty();
 		renderPageSurface();
 	}
 
 	function stashCurrentPageIfDirty() {
-		if (!isCurrentPageDirty()) {
+		if (!state.currentDirty) {
 			clearDirtyPage(state.path);
 			refreshUiStateForDirty();
 			return;
 		}
+		rebuildPreviewHtml();
 		if (!state.rebuiltHtml) return;
 		setDirtyPage(state.path, state.rebuiltHtml);
 		refreshUiStateForDirty();
@@ -502,6 +510,7 @@
 		prUrl: "",
 		prNumber: null,
 		dirtyPages: loadDirtyPagesFromStorage(),
+		currentDirty: false,
 
 		heroInner: "",
 		mainInner: "",
@@ -838,7 +847,11 @@
 		state.originalHtml = data.text || "";
 
 		// Load draft HTML if a dirty version exists for this path.
-		const dirtyHtml = getDirtyHtml(state.path);
+		let dirtyHtml = getDirtyHtml(state.path);
+		if (dirtyHtml && dirtyHtml.trim() === state.originalHtml.trim()) {
+			clearDirtyPage(state.path);
+			dirtyHtml = "";
+		}
 		const workingHtml = dirtyHtml || state.originalHtml;
 
 		const hero = extractRegion(workingHtml, "hero");
@@ -853,10 +866,12 @@
 		state.heroInner = state.loadedHeroInner;
 		state.mainInner = state.loadedMainInner;
 		state.blocks = parseBlocks(state.mainInner);
+		state.currentDirty = false;
 		if (dirtyHtml) {
 			state.heroInner = hero.found ? hero.inner : state.heroInner;
 			state.mainInner = main.found ? main.inner : state.mainInner;
 			state.blocks = parseBlocks(state.mainInner);
+			state.currentDirty = true;
 		}
 
 		// Debug signal: whitespace normalisation can make this false even when correct.
@@ -874,7 +889,7 @@
 		if (missing.length) {
 			setUiState("error", `Missing ${missing.join(" + ")}`);
 		} else {
-			if (dirtyHtml && !isCurrentPageDirty()) clearDirtyPage(state.path);
+			if (dirtyHtml && !state.currentDirty) clearDirtyPage(state.path);
 			if (dirtyCount()) setUiState("dirty", buildDirtyLabel());
 			else setUiState("clean", "CONNECTED - CLEAN");
 		}
@@ -887,11 +902,16 @@
 
 		const selected = new Set(Object.keys(state.dirtyPages || {}));
 		const list = renderDirtyPageList(selected);
+		const divider = el("div", { class: "cms-modal__divider" }, []);
+		const note = el("p", { class: "cms-modal__text" }, [
+			"Confirm discarding the selected pages from memory.",
+		]);
+
 		const confirm = el("input", { type: "checkbox", id: "cms-confirm-discard" });
 		const confirmLabel = el(
 			"label",
 			{ for: "cms-confirm-discard", class: "cms-modal__label" },
-			["Confirm discard of selected pages"],
+			["I understand all selected pages will be deleted"],
 		);
 		const confirmRow = el("div", { class: "cms-modal__row" }, [
 			confirm,
@@ -919,7 +939,7 @@
 		const updateAction = () => {
 			const hasSelection = selected.size > 0;
 			const confirmed = confirm.checked && codeInput.value === "DISCARD";
-			action.disabled = !(hasSelection && confirmed);
+			setActionState(action, hasSelection && confirmed);
 		};
 
 		confirm.addEventListener("change", updateAction);
@@ -927,25 +947,20 @@
 		list.querySelectorAll("input[type=checkbox]").forEach((box) => {
 			box.addEventListener("change", updateAction);
 		});
+		updateAction();
 
 		action.addEventListener("click", () => {
 			const paths = Array.from(selected);
 			if (!paths.length) return;
 			discardSelectedPages(paths);
 			qs("#cms-modal").classList.remove("is-open");
+			document.documentElement.classList.remove("cms-lock");
+			document.body.classList.remove("cms-lock");
 		});
 
 		openModal({
 			title: "Discard changes",
-			bodyNodes: [
-				el("p", { class: "cms-modal__text" }, [
-					"Select pages to discard from memory.",
-				]),
-				list,
-				confirmRow,
-				codeLabel,
-				codeInput,
-			],
+			bodyNodes: [list, divider, note, confirmRow, codeLabel, codeInput],
 			footerNodes: [action],
 		});
 	}
@@ -960,29 +975,54 @@
 			return;
 		}
 
+		const divider = el("div", { class: "cms-modal__divider" }, []);
+		const note = el("p", { class: "cms-modal__text" }, [
+			"Exit will discard all staged changes across pages.",
+		]);
+
 		const confirm = el("input", { type: "checkbox", id: "cms-confirm-exit" });
 		const confirmLabel = el(
 			"label",
 			{ for: "cms-confirm-exit", class: "cms-modal__label" },
-			["Confirm exit and discard all pending changes"],
+			["I understand all staged changes will be deleted"],
 		);
 		const confirmRow = el("div", { class: "cms-modal__row" }, [
 			confirm,
 			confirmLabel,
 		]);
+
+		const codeLabel = el(
+			"label",
+			{ for: "cms-exit-code", class: "cms-modal__label" },
+			["Type EXIT to confirm"],
+		);
+		const codeInput = el("input", {
+			id: "cms-exit-code",
+			class: "cms-modal__input",
+			type: "text",
+			placeholder: "EXIT",
+		});
+
 		const action = el(
 			"button",
 			{ class: "cms-btn cms-modal__action", type: "button", disabled: "true" },
 			["Exit Admin"],
 		);
 
-		confirm.addEventListener("change", () => {
-			action.disabled = !confirm.checked;
-		});
+		const updateAction = () => {
+			const confirmed = confirm.checked && codeInput.value === "EXIT";
+			setActionState(action, confirmed);
+		};
+
+		confirm.addEventListener("change", updateAction);
+		codeInput.addEventListener("input", updateAction);
+		updateAction();
 
 		action.addEventListener("click", () => {
 			state.dirtyPages = {};
+			state.currentDirty = false;
 			saveDirtyPagesToStorage();
+			localStorage.removeItem(DIRTY_STORAGE_KEY);
 			const host = location.hostname;
 			const target = host.startsWith("dev.")
 				? "https://dev.portfolio.tacsa.co.uk/"
@@ -992,12 +1032,7 @@
 
 		openModal({
 			title: "Exit Admin",
-			bodyNodes: [
-				el("p", { class: "cms-modal__text" }, [
-					"Exiting will discard all staged changes.",
-				]),
-				confirmRow,
-			],
+			bodyNodes: [divider, note, confirmRow, codeLabel, codeInput],
 			footerNodes: [action],
 		});
 	}
@@ -1031,25 +1066,64 @@
 			["Create PR"],
 		);
 
+		const divider = el("div", { class: "cms-modal__divider" }, []);
+		const confirm = el("input", { type: "checkbox", id: "cms-confirm-pr" });
+		const confirmLabel = el(
+			"label",
+			{ for: "cms-confirm-pr", class: "cms-modal__label" },
+			["I understand the selected pages will be committed"],
+		);
+		const confirmRow = el("div", { class: "cms-modal__row" }, [
+			confirm,
+			confirmLabel,
+		]);
+
+		const codeLabel = el(
+			"label",
+			{ for: "cms-pr-code", class: "cms-modal__label" },
+			["Type CREATE to confirm"],
+		);
+		const codeInput = el("input", {
+			id: "cms-pr-code",
+			class: "cms-modal__input",
+			type: "text",
+			placeholder: "CREATE",
+		});
+
 		const updateAction = () => {
-			action.disabled = selected.size === 0;
+			const hasSelection = selected.size > 0;
+			const confirmed = confirm.checked && codeInput.value === "CREATE";
+			setActionState(action, hasSelection && confirmed);
 		};
 
 		list.querySelectorAll("input[type=checkbox]").forEach((box) => {
 			box.addEventListener("change", updateAction);
 		});
+		confirm.addEventListener("change", updateAction);
+		codeInput.addEventListener("input", updateAction);
 		updateAction();
 
 		action.addEventListener("click", () => {
 			const paths = Array.from(selected);
 			if (!paths.length) return;
 			qs("#cms-modal").classList.remove("is-open");
+			document.documentElement.classList.remove("cms-lock");
+			document.body.classList.remove("cms-lock");
 			submitPr(paths, noteInput.value);
 		});
 
 		openModal({
 			title: "Create Pull Request",
-			bodyNodes: [list, noteLabel, noteInput, mention],
+			bodyNodes: [
+				list,
+				divider,
+				noteLabel,
+				noteInput,
+				mention,
+				confirmRow,
+				codeLabel,
+				codeInput,
+			],
 			footerNodes: [action],
 		});
 	}
