@@ -113,6 +113,28 @@
 			.join("\n\n");
 	}
 
+	function normalizeBlocks() {
+		state.blocks = (state.blocks || []).map((b, idx) => ({
+			...b,
+			idx,
+		}));
+	}
+
+	async function insertTestBlockAt(index) {
+		const html = await buildTestContainerHtml();
+		state.blocks.splice(index, 0, {
+			idx: index,
+			type: "std-container",
+			summary: "Standard container",
+			html,
+		});
+
+		normalizeBlocks();
+		rebuildPreviewHtml();
+		setUiState("dirty", "CONNECTED - DIRTY");
+		renderPageSurface();
+	}
+
 	// -------------------------
 	// Block parsing (top-level children only)
 	// -------------------------
@@ -236,6 +258,8 @@
 	// -------------------------
 	// State
 	// -------------------------
+	let prPollTimer = null;
+
 	const state = {
 		path: MANAGED_PAGES[0].path,
 		originalHtml: "",
@@ -253,6 +277,60 @@
 		uiState: "loading",
 		uiStateLabel: "LOADING / INITIALISING",
 	};
+
+	function stopPrPolling() {
+		if (prPollTimer) {
+			clearInterval(prPollTimer);
+			prPollTimer = null;
+		}
+	}
+
+	function extractPrNumber(url) {
+		const m = String(url || "").match(/\/pull\/(\d+)/);
+		return m ? Number(m[1]) : null;
+	}
+
+	async function refreshPrStatus() {
+		const number = state.prNumber || extractPrNumber(state.prUrl);
+		if (!number) return;
+
+		const res = await fetch(`/api/pr/status?number=${number}`, {
+			headers: { Accept: "application/json" },
+		});
+		const data = await res.json().catch(() => ({}));
+		if (!res.ok) throw new Error(data?.error || `Status failed (${res.status})`);
+
+		if (data.state === "merged") {
+			state.prUrl = "";
+			state.prNumber = null;
+			stopPrPolling();
+			setUiState("clean", "PR MERGED");
+			renderPageSurface();
+			return;
+		}
+
+		if (data.state === "closed") {
+			state.prUrl = "";
+			state.prNumber = null;
+			stopPrPolling();
+			setUiState("clean", "PR CLOSED");
+			renderPageSurface();
+			return;
+		}
+
+		state.prUrl = data.url || state.prUrl;
+		state.prNumber = data.number || state.prNumber;
+		setUiState("pr", "PR OPEN (AWAITING MERGE)");
+		renderPageSurface();
+	}
+
+	function startPrPolling() {
+		stopPrPolling();
+		refreshPrStatus().catch((err) => console.error(err));
+		prPollTimer = setInterval(() => {
+			refreshPrStatus().catch((err) => console.error(err));
+		}, 20000);
+	}
 
 	// -------------------------
 	// Render helpers
@@ -395,21 +473,7 @@
 				qs("#cms-add-first")?.addEventListener("click", () => {
 					(async () => {
 						try {
-							const html = await buildTestContainerHtml();
-							state.blocks = [
-								{
-									idx: 0,
-									type: "std-container",
-									summary: "Standard container",
-									html,
-								},
-							];
-
-							// prove rebuild works (preview pipeline)
-							rebuildPreviewHtml();
-
-							setUiState("dirty", "CONNECTED - DIRTY");
-							renderPageSurface();
+							await insertTestBlockAt(0);
 						} catch (err) {
 							console.error(err);
 							setUiState("error", "DISCONNECTED / ERROR");
@@ -423,14 +487,50 @@
 			return;
 		}
 
+		const insertDivider = (index, label = "Insert block") =>
+			el(
+				"button",
+				{
+					class: "cms-divider-btn",
+					type: "button",
+					"data-insert": String(index),
+				},
+				[
+					el("span", { class: "cms-divider-line", "aria-hidden": "true" }),
+					el("span", { class: "cms-divider-plus", "aria-hidden": "true" }, [
+						"＋",
+					]),
+					el("span", { class: "cms-divider-text" }, [label]),
+					el("span", { class: "cms-divider-line", "aria-hidden": "true" }),
+				],
+			);
+
+		mainWrap.appendChild(insertDivider(0, "Insert block"));
+
 		// Render from state.blocks (raw HTML),
 		// then run sections/lightbox for parity (same as your live site).
-		state.blocks.forEach((b) => {
+		state.blocks.forEach((b, idx) => {
 			const frag = new DOMParser().parseFromString(b.html, "text/html").body;
 			Array.from(frag.children).forEach((n) => mainWrap.appendChild(n));
+			mainWrap.appendChild(insertDivider(idx + 1, "Insert block"));
 		});
 
 		root.appendChild(mainWrap);
+
+		queueMicrotask(() => {
+			mainWrap.querySelectorAll(".cms-divider-btn").forEach((btn) => {
+				btn.addEventListener("click", async () => {
+					const at = Number(btn.getAttribute("data-insert") || "0");
+					try {
+						await insertTestBlockAt(at);
+					} catch (err) {
+						console.error(err);
+						setUiState("error", "DISCONNECTED / ERROR");
+						renderPageSurface();
+					}
+				});
+			});
+		});
 
 		// Parity behaviours
 		window.runSections?.();
@@ -506,6 +606,9 @@
 	async function loadSelectedPage() {
 		const path = qs("#cms-page")?.value || state.path;
 		state.path = path;
+		state.prUrl = "";
+		state.prNumber = null;
+		stopPrPolling();
 
 		setUiState("loading", "LOADING / INITIALISING");
 		renderPageSurface();
@@ -574,7 +677,6 @@
 					path: state.path,
 					text: state.rebuiltHtml,
 					title: `CMS: update ${state.path}`,
-					body: `Created by Portfolio CMS\n\n@VoodooScience1 please review + merge.`,
 					commitMessage: `CMS: update ${state.path}`,
 				};
 
@@ -594,6 +696,7 @@
 
 				setUiState("pr", "PR OPEN (AWAITING MERGE)");
 				renderPageSurface();
+				startPrPolling();
 			} catch (err) {
 				console.error(err);
 				setUiState("error", "DISCONNECTED / ERROR");
@@ -605,6 +708,9 @@
 			state.heroInner = state.loadedHeroInner;
 			state.mainInner = state.loadedMainInner;
 			state.blocks = parseBlocks(state.loadedMainInner);
+			state.prUrl = "";
+			state.prNumber = null;
+			stopPrPolling();
 
 			rebuildPreviewHtml(); // keeps pipeline consistent (optional but nice)
 
@@ -630,6 +736,10 @@
 		// auto-load
 		qs("#cms-load")?.click();
 	}
+
+	window.addEventListener("beforeunload", () => {
+		stopPrPolling();
+	});
 
 	if (document.readyState === "loading")
 		document.addEventListener("DOMContentLoaded", boot);
