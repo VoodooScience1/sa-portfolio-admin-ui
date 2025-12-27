@@ -200,10 +200,11 @@
 		else setUiState("clean", "CONNECTED - CLEAN");
 	}
 
-	async function buildDiffSummaryMap(paths) {
-		const summaryMap = {};
+	async function buildBlockDataMap(paths) {
+		const blockMap = {};
 		await Promise.all(
 			paths.map(async (path) => {
+				const dirtyHtml = String(state.dirtyPages[path]?.html || "");
 				try {
 					const res = await fetch(
 						`/api/repo/file?path=${encodeURIComponent(path)}`,
@@ -212,18 +213,65 @@
 					if (!res.ok) throw new Error("repo fetch failed");
 					const data = await res.json();
 					const baseHtml = String(data.text || "");
-					const dirtyHtml = String(state.dirtyPages[path]?.html || "");
-					summaryMap[path] = buildDiffSummary(baseHtml, dirtyHtml);
+
+					const baseMain = extractRegion(baseHtml, "main");
+					const dirtyMain = extractRegion(dirtyHtml, "main");
+					const baseBlocks = baseMain.found ? parseBlocks(baseMain.inner) : [];
+					const dirtyBlocks = dirtyMain.found
+						? parseBlocks(dirtyMain.inner)
+						: [];
+
+					const baseHtmlList = baseBlocks.map((b) => (b.html || "").trim());
+					const all = [];
+					const added = [];
+
+					dirtyBlocks.forEach((block, idx) => {
+						const html = (block.html || "").trim();
+						const summary = block.summary || block.type || "Block";
+						const match = baseHtmlList.indexOf(html);
+						const isBase = match >= 0;
+						if (match >= 0) baseHtmlList.splice(match, 1);
+						const item = {
+							id: `${path}::${idx}`,
+							html,
+							summary,
+							selectable: !isBase,
+						};
+						all.push(item);
+						if (!isBase) added.push(item);
+					});
+
+					blockMap[path] = {
+						baseHtml,
+						dirtyHtml,
+						all,
+						added,
+						modified: [],
+					};
 				} catch {
-					const dirtyHtml = String(state.dirtyPages[path]?.html || "");
-					summaryMap[path] = {
-						added: buildSummaryForHtml(dirtyHtml),
+					const main = extractRegion(dirtyHtml, "main");
+					const dirtyBlocks = main.found ? parseBlocks(main.inner) : [];
+					blockMap[path] = {
+						baseHtml: "",
+						dirtyHtml,
+						all: dirtyBlocks.map((block, idx) => ({
+							id: `${path}::${idx}`,
+							html: (block.html || "").trim(),
+							summary: block.summary || block.type || "Block",
+							selectable: true,
+						})),
+						added: dirtyBlocks.map((block, idx) => ({
+							id: `${path}::${idx}`,
+							html: (block.html || "").trim(),
+							summary: block.summary || block.type || "Block",
+							selectable: true,
+						})),
 						modified: [],
 					};
 				}
 			}),
 		);
-		return summaryMap;
+		return blockMap;
 	}
 
 	function purgeCleanDirtyPages() {
@@ -258,38 +306,115 @@
 		);
 	}
 
-	function renderDirtyPageList(selected, summaryMap, modes) {
+	function getBlocksForModes(entry, modes) {
+		if (!entry) return [];
+		if (modes.has("all")) return entry.all || [];
+		let blocks = [];
+		if (modes.has("new")) blocks = blocks.concat(entry.added || []);
+		if (modes.has("modified")) blocks = blocks.concat(entry.modified || []);
+		return blocks;
+	}
+
+	function countSelectedBlocks(selectedBlocks) {
+		let total = 0;
+		selectedBlocks.forEach((set) => {
+			total += set.size;
+		});
+		return total;
+	}
+
+	function buildHtmlForSelection(entry, selectedIds, action) {
+		const all = entry?.all || [];
+		const keepAdded = action === "commit";
+		const kept = all.filter((block) => {
+			if (!block.selectable) return true;
+			const isSelected = selectedIds.has(block.id);
+			return keepAdded ? isSelected : !isSelected;
+		});
+		const mainHtml = kept.map((b) => b.html).join("\n\n");
+		let html = entry.baseHtml || entry.dirtyHtml || "";
+		if (!html) return "";
+		html = replaceRegion(html, "main", mainHtml);
+		return html;
+	}
+
+	function renderDirtyPageList({
+		selectedPages,
+		selectedBlocks,
+		blockData,
+		modes,
+		onSelectionChange,
+	}) {
 		const wrap = el("div", { class: "cms-modal__list" }, []);
 		const paths = Object.keys(state.dirtyPages || {}).sort();
 		paths.forEach((path, idx) => {
 			const id = `cms-page-${idx}`;
 			const checkbox = el("input", { type: "checkbox", id });
-			checkbox.checked = selected.has(path);
+			checkbox.checked = selectedPages.has(path);
 			const label = el("label", { for: id, class: "cms-modal__label" }, [path]);
 			const row = el("div", { class: "cms-modal__row" }, [checkbox, label]);
 
-			let summaryItems = [];
-			if (modes.has("all")) {
-				summaryItems = buildSummaryForHtml(state.dirtyPages[path]?.html || "");
-			} else {
-				const entry = summaryMap?.[path] || { added: [], modified: [] };
-				if (modes.has("new")) summaryItems = summaryItems.concat(entry.added);
-				if (modes.has("modified"))
-					summaryItems = summaryItems.concat(entry.modified);
-			}
-			const items =
-				summaryItems.length > 0 ? summaryItems : ["No blocks detected"];
-			const list = el(
-				"ul",
-				{ class: "cms-modal__sublist" },
-				items.map((text) => el("li", {}, [text])),
-			);
+			const entry = blockData[path];
+			const blocks = getBlocksForModes(entry, modes);
+			const blockSet = selectedBlocks.get(path) || new Set();
 
-			wrap.appendChild(el("div", { class: "cms-modal__group" }, [row, list]));
+			const group = el("div", { class: "cms-modal__group" }, [row]);
+			if (selectedPages.has(path)) {
+				const list = el(
+					"ul",
+					{ class: "cms-modal__sublist" },
+					blocks.length
+						? blocks.map((block) => {
+								const item = el("li", {}, []);
+								const bid = `${id}-block-${block.id}`;
+								const box = el("input", {
+									type: "checkbox",
+									id: bid,
+									disabled: block.selectable ? null : "true",
+								});
+								box.checked = block.selectable && blockSet.has(block.id);
+								const text = el(
+									"label",
+									{ for: bid, class: "cms-modal__label" },
+									[block.summary],
+								);
+								item.appendChild(box);
+								item.appendChild(text);
+
+								box.addEventListener("change", () => {
+									const set = selectedBlocks.get(path) || new Set();
+									if (box.checked) set.add(block.id);
+									else set.delete(block.id);
+									if (set.size) selectedBlocks.set(path, set);
+									else {
+										selectedBlocks.delete(path);
+										selectedPages.delete(path);
+									}
+									onSelectionChange();
+								});
+								return item;
+							})
+						: [el("li", {}, ["No blocks detected"])],
+				);
+				group.appendChild(list);
+			}
+
+			wrap.appendChild(group);
 
 			checkbox.addEventListener("change", () => {
-				if (checkbox.checked) selected.add(path);
-				else selected.delete(path);
+				if (checkbox.checked) {
+					selectedPages.add(path);
+					if (!selectedBlocks.has(path)) {
+						const selectable = blocks
+							.filter((b) => b.selectable)
+							.map((b) => b.id);
+						selectedBlocks.set(path, new Set(selectable));
+					}
+				} else {
+					selectedPages.delete(path);
+					selectedBlocks.delete(path);
+				}
+				onSelectionChange();
 			});
 		});
 		return wrap;
@@ -367,16 +492,19 @@
 		refreshUiStateForDirty();
 	}
 
-	async function submitPr(paths, note) {
+	async function submitPr(paths, note, payloads = null) {
 		try {
 			setUiState("loading", "CREATING PR…");
 			state.prUrl = "";
 			state.prNumber = null;
 
-			const files = paths.map((path) => ({
-				path,
-				text: state.dirtyPages[path]?.html || "",
-			}));
+			const files =
+				Array.isArray(payloads) && payloads.length
+					? payloads
+					: paths.map((path) => ({
+							path,
+							text: state.dirtyPages[path]?.html || "",
+						}));
 
 			const baseNote = String(note || "Created by Portfolio CMS").trim();
 			const body = `${baseNote}\n\n@VoodooScience1 please review + merge.`;
@@ -410,8 +538,10 @@
 
 			state.prUrl = data?.pr?.url || "";
 			state.prNumber = data?.pr?.number || null;
-			paths.forEach((path) => clearDirtyPage(path));
-			purgeCleanDirtyPages();
+			if (!payloads) {
+				paths.forEach((path) => clearDirtyPage(path));
+				purgeCleanDirtyPages();
+			}
 
 			setUiState("pr", "PR OPEN (AWAITING MERGE)");
 			renderPageSurface();
@@ -1054,19 +1184,47 @@
 		purgeCleanDirtyPages();
 		if (!dirtyCount()) return;
 
-		const selected = new Set(Object.keys(state.dirtyPages || {}));
-		const summaryMap = await buildDiffSummaryMap(
-			Object.keys(state.dirtyPages || {}),
-		);
-		let list = renderDirtyPageList(selected, summaryMap, new Set(["new"]));
-		const toggle = buildModalToggleBar((modes) => {
-			const next = renderDirtyPageList(selected, summaryMap, modes);
+		const paths = Object.keys(state.dirtyPages || {});
+		const blockData = await buildBlockDataMap(paths);
+		const selectedPages = new Set();
+		const selectedBlocks = new Map();
+		let activeModes = new Set(["new"]);
+		let list = renderDirtyPageList({
+			selectedPages,
+			selectedBlocks,
+			blockData,
+			modes: activeModes,
+			onSelectionChange: () => rerenderList(),
+		});
+
+		const rerenderList = () => {
+			const next = renderDirtyPageList({
+				selectedPages,
+				selectedBlocks,
+				blockData,
+				modes: activeModes,
+				onSelectionChange: () => rerenderList(),
+			});
 			list.replaceWith(next);
 			list = next;
-			list.querySelectorAll("input[type=checkbox]").forEach((box) => {
-				box.addEventListener("change", updateAction);
-			});
+			updateAction();
+		};
+
+		const toggle = buildModalToggleBar((modes) => {
+			activeModes = modes;
+			rerenderList();
 		});
+
+		const selectAll = el("input", { type: "checkbox", id: "cms-select-all" });
+		const selectAllLabel = el(
+			"label",
+			{ for: "cms-select-all", class: "cms-modal__label" },
+			["Select all pages"],
+		);
+		const selectAllRow = el("div", { class: "cms-modal__row" }, [
+			selectAll,
+			selectAllLabel,
+		]);
 		const divider = el("div", { class: "cms-modal__divider" }, []);
 		const note = el("p", { class: "cms-modal__text" }, [
 			"Confirm discarding the selected pages from memory.",
@@ -1106,31 +1264,75 @@
 			["Discard selected"],
 		);
 
+		const updateSelectAll = () => {
+			const totalSelectable = paths.reduce((sum, path) => {
+				const entry = blockData[path];
+				const blocks = getBlocksForModes(entry, activeModes).filter(
+					(b) => b.selectable,
+				);
+				return sum + blocks.length;
+			}, 0);
+			const totalSelected = countSelectedBlocks(selectedBlocks);
+			selectAll.checked = totalSelectable > 0 && totalSelected === totalSelectable;
+		};
+
 		const updateAction = () => {
-			const hasSelection = selected.size > 0;
+			const hasSelection = countSelectedBlocks(selectedBlocks) > 0;
 			const confirmed = confirm.checked && codeInput.value === "DISCARD";
 			setActionState(action, hasSelection && confirmed);
+			updateSelectAll();
 		};
+
+		selectAll.addEventListener("change", () => {
+			selectedPages.clear();
+			selectedBlocks.clear();
+			if (selectAll.checked) {
+				paths.forEach((path) => {
+					const entry = blockData[path];
+					const blocks = getBlocksForModes(entry, activeModes);
+					const selectable = blocks.filter((b) => b.selectable).map((b) => b.id);
+					selectedPages.add(path);
+					selectedBlocks.set(path, new Set(selectable));
+				});
+			}
+			rerenderList();
+		});
 
 		confirm.addEventListener("change", updateAction);
 		codeInput.addEventListener("input", updateAction);
-		list.querySelectorAll("input[type=checkbox]").forEach((box) => {
-			box.addEventListener("change", updateAction);
-		});
 		updateAction();
 
 		action.addEventListener("click", () => {
-			const paths = Array.from(selected);
-			if (!paths.length) return;
-			discardSelectedPages(paths);
+			const pathsToProcess = Array.from(selectedPages);
+			if (!pathsToProcess.length) return;
+			pathsToProcess.forEach((path) => {
+				const entry = blockData[path];
+				const selectedIds = selectedBlocks.get(path) || new Set();
+				const updatedHtml = buildHtmlForSelection(entry, selectedIds, "discard");
+				if (!updatedHtml || updatedHtml.trim() === entry.baseHtml.trim())
+					clearDirtyPage(path);
+				else setDirtyPage(path, updatedHtml);
+			});
+			purgeCleanDirtyPages();
 			qs("#cms-modal").classList.remove("is-open");
 			document.documentElement.classList.remove("cms-lock");
 			document.body.classList.remove("cms-lock");
+			refreshUiStateForDirty();
+			renderPageSurface();
 		});
 
 		openModal({
 			title: "Discard changes",
-			bodyNodes: [toggle, list, divider, note, confirmRow, codeLabel, codeInput],
+			bodyNodes: [
+				toggle,
+				selectAllRow,
+				list,
+				divider,
+				note,
+				confirmRow,
+				codeLabel,
+				codeInput,
+			],
 			footerNodes: [action],
 		});
 	}
@@ -1221,17 +1423,47 @@
 		const dirtyPaths = Object.keys(state.dirtyPages || {});
 		if (!dirtyPaths.length) return;
 
-		const selected = new Set(dirtyPaths);
-		const summaryMap = await buildDiffSummaryMap(dirtyPaths);
-		let list = renderDirtyPageList(selected, summaryMap, new Set(["new"]));
-		const toggle = buildModalToggleBar((modes) => {
-			const next = renderDirtyPageList(selected, summaryMap, modes);
+		const blockData = await buildBlockDataMap(dirtyPaths);
+		const selectedPages = new Set();
+		const selectedBlocks = new Map();
+		let activeModes = new Set(["new"]);
+
+		let list = renderDirtyPageList({
+			selectedPages,
+			selectedBlocks,
+			blockData,
+			modes: activeModes,
+			onSelectionChange: () => rerenderList(),
+		});
+
+		const rerenderList = () => {
+			const next = renderDirtyPageList({
+				selectedPages,
+				selectedBlocks,
+				blockData,
+				modes: activeModes,
+				onSelectionChange: () => rerenderList(),
+			});
 			list.replaceWith(next);
 			list = next;
-			list.querySelectorAll("input[type=checkbox]").forEach((box) => {
-				box.addEventListener("change", updateAction);
-			});
+			updateAction();
+		};
+
+		const toggle = buildModalToggleBar((modes) => {
+			activeModes = modes;
+			rerenderList();
 		});
+
+		const selectAll = el("input", { type: "checkbox", id: "cms-select-all-pr" });
+		const selectAllLabel = el(
+			"label",
+			{ for: "cms-select-all-pr", class: "cms-modal__label" },
+			["Select all pages"],
+		);
+		const selectAllRow = el("div", { class: "cms-modal__row" }, [
+			selectAll,
+			selectAllLabel,
+		]);
 
 		const noteLabel = el(
 			"label",
@@ -1283,32 +1515,78 @@
 			placeholder: "CREATE",
 		});
 
-		const updateAction = () => {
-			const hasSelection = selected.size > 0;
-			const confirmed = confirm.checked && codeInput.value === "CREATE";
-			setActionState(action, hasSelection && confirmed);
+		const updateSelectAll = () => {
+			const totalSelectable = dirtyPaths.reduce((sum, path) => {
+				const entry = blockData[path];
+				const blocks = getBlocksForModes(entry, activeModes).filter(
+					(b) => b.selectable,
+				);
+				return sum + blocks.length;
+			}, 0);
+			const totalSelected = countSelectedBlocks(selectedBlocks);
+			selectAll.checked = totalSelectable > 0 && totalSelected === totalSelectable;
 		};
 
-		list.querySelectorAll("input[type=checkbox]").forEach((box) => {
-			box.addEventListener("change", updateAction);
+		const updateAction = () => {
+			const hasSelection = countSelectedBlocks(selectedBlocks) > 0;
+			const confirmed = confirm.checked && codeInput.value === "CREATE";
+			setActionState(action, hasSelection && confirmed);
+			updateSelectAll();
+		};
+
+		selectAll.addEventListener("change", () => {
+			selectedPages.clear();
+			selectedBlocks.clear();
+			if (selectAll.checked) {
+				dirtyPaths.forEach((path) => {
+					const entry = blockData[path];
+					const blocks = getBlocksForModes(entry, activeModes);
+					const selectable = blocks.filter((b) => b.selectable).map((b) => b.id);
+					selectedPages.add(path);
+					selectedBlocks.set(path, new Set(selectable));
+				});
+			}
+			rerenderList();
 		});
+
 		confirm.addEventListener("change", updateAction);
 		codeInput.addEventListener("input", updateAction);
 		updateAction();
 
 		action.addEventListener("click", () => {
-			const paths = Array.from(selected);
-			if (!paths.length) return;
+			const pathsToProcess = Array.from(selectedPages);
+			if (!pathsToProcess.length) return;
+			const payloads = [];
+			pathsToProcess.forEach((path) => {
+				const entry = blockData[path];
+				const selectedIds = selectedBlocks.get(path) || new Set();
+				const commitHtml = buildHtmlForSelection(entry, selectedIds, "commit");
+				const remainingHtml = buildHtmlForSelection(entry, selectedIds, "discard");
+				if (commitHtml) {
+					payloads.push({ path, text: commitHtml });
+				}
+				if (!remainingHtml || remainingHtml.trim() === entry.baseHtml.trim())
+					clearDirtyPage(path);
+				else setDirtyPage(path, remainingHtml);
+			});
+
 			qs("#cms-modal").classList.remove("is-open");
 			document.documentElement.classList.remove("cms-lock");
 			document.body.classList.remove("cms-lock");
-			submitPr(paths, noteInput.value);
+
+			if (!payloads.length) return;
+			submitPr(
+				payloads.map((p) => p.path),
+				noteInput.value,
+				payloads,
+			);
 		});
 
 		openModal({
 			title: "Create Pull Request",
 			bodyNodes: [
 				toggle,
+				selectAllRow,
 				list,
 				divider,
 				noteLabel,
