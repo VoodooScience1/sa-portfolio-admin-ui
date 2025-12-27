@@ -387,7 +387,7 @@
 					blocks.length
 						? blocks.map((block) => {
 								const item = el("li", {}, []);
-								const bid = `${id}-block-${block.id}`;
+								const bid = `cms-block-${hashText(block.id)}`;
 								const box = el("input", {
 									type: "checkbox",
 									id: bid,
