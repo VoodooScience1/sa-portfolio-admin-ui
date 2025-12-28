@@ -241,6 +241,7 @@
 		state.prList = list.filter((item) => item?.number !== number);
 		savePrState();
 		syncActivePrState();
+		resetPendingBlocksIfNoPr();
 	}
 
 	function hashText(input) {
@@ -292,6 +293,28 @@
 			status: "staged",
 			prNumber: null,
 		}));
+	}
+
+	function resetPendingBlocksIfNoPr() {
+		if ((state.prList || []).length) return;
+		let changed = false;
+		Object.keys(state.dirtyPages || {}).forEach((path) => {
+			const entry = state.dirtyPages[path];
+			if (!entry) return;
+			const normalized = normalizeLocalBlocks(entry.localBlocks || []);
+			let localChanged = false;
+			const updated = normalized.map((item) => {
+				if (item.status !== "pending") return item;
+				localChanged = true;
+				return { ...item, status: "staged", prNumber: null };
+			});
+			if (localChanged) {
+				entry.localBlocks = updated;
+				entry.updatedAt = Date.now();
+				changed = true;
+			}
+		});
+		if (changed) saveDirtyPagesToStorage();
 	}
 
 	function setDirtyPage(path, html, baseHtmlOverride = "", localBlocksOverride) {
