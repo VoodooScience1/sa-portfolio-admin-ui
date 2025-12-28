@@ -336,6 +336,9 @@
 	}
 
 	function buildHtmlForSelection(entry, selectedIds, action) {
+		if (action === "discard" && (!selectedIds || !selectedIds.size)) {
+			return entry?.baseHtml || entry?.dirtyHtml || "";
+		}
 		const all = entry?.all || [];
 		const keepAdded = action === "commit";
 		const kept = all.filter((block) => {
@@ -407,8 +410,8 @@
 								const toggle = () => {
 									if (!block.selectable) return;
 									const set = selectedBlocks.get(path) || new Set();
-									if (set.has(block.id)) set.delete(block.id);
-									else set.add(block.id);
+									if (box.checked) set.add(block.id);
+									else set.delete(block.id);
 									if (set.size) selectedBlocks.set(path, set);
 									else {
 										selectedBlocks.delete(path);
@@ -417,10 +420,15 @@
 									onSelectionChange();
 								};
 
-								box.addEventListener("change", toggle);
+								box.addEventListener("click", (event) => {
+									event.stopPropagation();
+									if (box.disabled) return;
+									toggle();
+								});
 								item.addEventListener("click", (event) => {
 									if (event.target === box) return;
 									if (box.disabled) return;
+									box.checked = !box.checked;
 									toggle();
 								});
 
@@ -452,12 +460,15 @@
 				onSelectionChange();
 			};
 
-			checkbox.addEventListener("change", togglePage);
+			checkbox.addEventListener("click", (event) => {
+				event.stopPropagation();
+				togglePage();
+			});
 			row.addEventListener("click", (event) => {
 				if (event.target === checkbox) return;
 				if (checkbox.disabled) return;
 				checkbox.checked = !checkbox.checked;
-				checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+				togglePage();
 			});
 		});
 		return wrap;
@@ -1246,7 +1257,7 @@
 			{ for: "cms-select-all", class: "cms-modal__label" },
 			["Select all pages"],
 		);
-		const selectAllRow = el("div", { class: "cms-modal__row" }, [
+		const selectAllRow = el("div", { class: "cms-modal__row cms-modal__page" }, [
 			selectAll,
 			selectAllLabel,
 		]);
@@ -1261,7 +1272,7 @@
 			{ for: "cms-confirm-discard", class: "cms-modal__label" },
 			["I understand all selected pages will be deleted"],
 		);
-		const confirmRow = el("div", { class: "cms-modal__row" }, [
+		const confirmRow = el("div", { class: "cms-modal__row cms-modal__page" }, [
 			confirm,
 			confirmLabel,
 		]);
@@ -1327,7 +1338,8 @@
 			rerenderList();
 		});
 
-		selectAll.addEventListener("change", () => {
+		selectAll.addEventListener("click", (event) => {
+			event.stopPropagation();
 			selectedPages.clear();
 			selectedBlocks.clear();
 			if (selectAll.checked) {
@@ -1343,7 +1355,21 @@
 			rerenderList();
 		});
 
-		confirm.addEventListener("change", updateAction);
+		selectAllRow.addEventListener("click", (event) => {
+			if (event.target === selectAll) return;
+			selectAll.checked = !selectAll.checked;
+			selectAll.dispatchEvent(new Event("click", { bubbles: true }));
+		});
+
+		confirm.addEventListener("click", (event) => {
+			event.stopPropagation();
+			updateAction();
+		});
+		confirmRow.addEventListener("click", (event) => {
+			if (event.target === confirm) return;
+			confirm.checked = !confirm.checked;
+			updateAction();
+		});
 		codeInput.addEventListener("input", updateAction);
 		updateAction();
 
@@ -1487,7 +1513,7 @@
 			{ for: "cms-select-all-pr", class: "cms-modal__label" },
 			["Select all pages"],
 		);
-		const selectAllRow = el("div", { class: "cms-modal__row" }, [
+		const selectAllRow = el("div", { class: "cms-modal__row cms-modal__page" }, [
 			selectAll,
 			selectAllLabel,
 		]);
@@ -1525,7 +1551,7 @@
 			{ for: "cms-confirm-pr", class: "cms-modal__label" },
 			["I understand the selected pages will be committed"],
 		);
-		const confirmRow = el("div", { class: "cms-modal__row" }, [
+		const confirmRow = el("div", { class: "cms-modal__row cms-modal__page" }, [
 			confirm,
 			confirmLabel,
 		]);
@@ -1580,7 +1606,8 @@
 			rerenderList();
 		});
 
-		selectAll.addEventListener("change", () => {
+		selectAll.addEventListener("click", (event) => {
+			event.stopPropagation();
 			selectedPages.clear();
 			selectedBlocks.clear();
 			if (selectAll.checked) {
@@ -1596,7 +1623,21 @@
 			rerenderList();
 		});
 
-		confirm.addEventListener("change", updateAction);
+		selectAllRow.addEventListener("click", (event) => {
+			if (event.target === selectAll) return;
+			selectAll.checked = !selectAll.checked;
+			selectAll.dispatchEvent(new Event("click", { bubbles: true }));
+		});
+
+		confirm.addEventListener("click", (event) => {
+			event.stopPropagation();
+			updateAction();
+		});
+		confirmRow.addEventListener("click", (event) => {
+			if (event.target === confirm) return;
+			confirm.checked = !confirm.checked;
+			updateAction();
+		});
 		codeInput.addEventListener("input", updateAction);
 		updateAction();
 
