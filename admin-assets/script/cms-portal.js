@@ -180,7 +180,11 @@
 		try {
 			const raw = localStorage.getItem(DIRTY_STORAGE_KEY);
 			const parsed = raw ? JSON.parse(raw) : {};
-			return parsed && typeof parsed === "object" ? parsed : {};
+			if (!parsed || typeof parsed !== "object") return {};
+			Object.values(parsed).forEach((entry) => {
+				entry.localBlocks = normalizeLocalBlocks(entry.localBlocks || []);
+			});
+			return parsed;
 		} catch {
 			return {};
 		}
@@ -256,6 +260,24 @@
 		state.currentDirty = true;
 	}
 
+	function normalizeLocalBlocks(items) {
+		if (!Array.isArray(items)) return [];
+		return items
+			.map((item, idx) => {
+				if (typeof item === "string") {
+					return { html: item, pos: null, legacyIdx: idx };
+				}
+				if (item && typeof item === "object") {
+					return {
+						html: String(item.html || ""),
+						pos: Number.isInteger(item.pos) ? item.pos : null,
+					};
+				}
+				return null;
+			})
+			.filter(Boolean);
+	}
+
 	function setDirtyPage(path, html, baseHtmlOverride = "", localBlocksOverride) {
 		if (!path) return;
 		const baseHtml = baseHtmlOverride || state.originalHtml;
@@ -269,7 +291,7 @@
 			baseHash: hashText(normalizeHtmlForCompare(baseHtml)),
 			dirtyHash: hashText(normalizeHtmlForCompare(html)),
 			updatedAt: Date.now(),
-			localBlocks: Array.isArray(localBlocks) ? localBlocks : [],
+			localBlocks: normalizeLocalBlocks(localBlocks),
 		};
 		saveDirtyPagesToStorage();
 	}
@@ -309,8 +331,8 @@
 		const useLocal = Array.isArray(localBlocks) && localBlocks.length;
 		const dirtyOnly = [];
 		if (useLocal) {
-			localBlocks.forEach((html) => {
-				if (html) dirtyOnly.push({ html: String(html) });
+			localBlocks.forEach((item) => {
+				if (item && item.html) dirtyOnly.push(item);
 			});
 		} else {
 			const dirtyBlocks = parseBlocks(dirtyMain.inner);
@@ -323,10 +345,24 @@
 			});
 		}
 
-		const mergedMain = baseBlocks
-			.concat(dirtyOnly)
-			.map((b) => b.html)
-			.join("\n\n");
+		const mergedBlocks = baseBlocks.map((block) => ({ html: block.html }));
+		const withPos = dirtyOnly
+			.filter((item) => Number.isInteger(item.pos))
+			.sort((a, b) => a.pos - b.pos);
+		const withoutPos = dirtyOnly.filter((item) => !Number.isInteger(item.pos));
+		let offset = 0;
+		withPos.forEach((item) => {
+			const insertAt = Math.max(
+				0,
+				Math.min(item.pos + offset, mergedBlocks.length),
+			);
+			mergedBlocks.splice(insertAt, 0, { html: item.html });
+			offset += 1;
+		});
+		withoutPos.forEach((item) => {
+			mergedBlocks.push({ html: item.html });
+		});
+		const mergedMain = mergedBlocks.map((b) => b.html).join("\n\n");
 
 		let merged = baseHtml || "";
 		const dirtyHero = extractRegion(dirtyHtml, "hero");
@@ -369,23 +405,51 @@
 						: [];
 
 					const baseHtmlList = baseBlocks.map((b) => (b.html || "").trim());
-					const localQueue = (state.dirtyPages[path]?.localBlocks || []).map(
-						(html) => String(html || "").trim(),
+					const localBlocks = normalizeLocalBlocks(
+						state.dirtyPages[path]?.localBlocks || [],
 					);
+					const localPositions = new Map();
+					const localQueue = [];
+					localBlocks.forEach((item) => {
+						if (Number.isInteger(item.pos)) {
+							const list = localPositions.get(item.pos) || [];
+							list.push(item.html.trim());
+							localPositions.set(item.pos, list);
+						} else {
+							localQueue.push(item.html.trim());
+						}
+					});
 					const all = [];
 					const added = [];
 
 					dirtyBlocks.forEach((block, idx) => {
 						const html = (block.html || "").trim();
 						const summary = block.summary || block.type || "Block";
+						let isLocal = false;
+						if (localPositions.has(idx)) {
+							const list = localPositions.get(idx) || [];
+							if (!list.length) localPositions.delete(idx);
+							else {
+								const matchIdx = list.indexOf(html);
+								if (matchIdx >= 0) {
+									list.splice(matchIdx, 1);
+									isLocal = true;
+								}
+								if (!list.length) localPositions.delete(idx);
+								else localPositions.set(idx, list);
+							}
+						}
 						const match = baseHtmlList.indexOf(html);
-						const localMatch = localQueue.indexOf(html);
-						const isLocal = localMatch >= 0;
+						const localMatch = !isLocal ? localQueue.indexOf(html) : -1;
+						if (!isLocal && localMatch >= 0) {
+							isLocal = true;
+							localQueue.splice(localMatch, 1);
+						}
 						const isBase = match >= 0 && !isLocal;
 						if (match >= 0 && !isLocal) baseHtmlList.splice(match, 1);
-						if (localMatch >= 0) localQueue.splice(localMatch, 1);
 						const item = {
 							id: `${path}::${idx}`,
+							idx,
 							html,
 							summary,
 							selectable: !isBase,
@@ -863,6 +927,15 @@
 
 	async function insertTestBlockAt(index) {
 		const html = await buildTestContainerHtml();
+		const localEntry = state.dirtyPages[state.path] || {};
+		const localBlocks = normalizeLocalBlocks(localEntry.localBlocks || []);
+		const updatedLocal = localBlocks.map((item) => {
+			if (Number.isInteger(item.pos) && item.pos >= index) {
+				return { ...item, pos: item.pos + 1 };
+			}
+			return item;
+		});
+		updatedLocal.push({ html, pos: index });
 		state.blocks.splice(index, 0, {
 			idx: index,
 			type: "std-container",
@@ -873,7 +946,7 @@
 		normalizeBlocks();
 		rebuildPreviewHtml();
 		markCurrentDirty();
-		setDirtyPage(state.path, state.rebuiltHtml);
+		setDirtyPage(state.path, state.rebuiltHtml, "", updatedLocal);
 		refreshUiStateForDirty();
 		renderPageSurface();
 	}
@@ -1621,7 +1694,7 @@
 				const selectedIds = selectedBlocks.get(path) || new Set();
 				const remainingLocal = (entry.all || [])
 					.filter((block) => block.selectable && !selectedIds.has(block.id))
-					.map((block) => block.html);
+					.map((block) => ({ html: block.html, pos: block.idx }));
 				const updatedHtml = mergeDirtyWithBase(
 					entry.baseHtml || entry.dirtyHtml || "",
 					entry.dirtyHtml || entry.baseHtml || "",
@@ -1912,7 +1985,7 @@
 				const commitHtml = buildHtmlForSelection(entry, selectedIds, "commit");
 				const remainingLocal = (entry.all || [])
 					.filter((block) => block.selectable && !selectedIds.has(block.id))
-					.map((block) => block.html);
+					.map((block) => ({ html: block.html, pos: block.idx }));
 				const commitBase = commitHtml || entry.baseHtml || entry.dirtyHtml || "";
 				const remainingHtml = mergeDirtyWithBase(
 					commitBase,
