@@ -40,6 +40,7 @@
 			else if (k === "html") n.innerHTML = v;
 			else if (k.startsWith("on") && typeof v === "function")
 				n.addEventListener(k.slice(2), v);
+			else if (v === null || v === undefined) return;
 			else n.setAttribute(k, String(v));
 		});
 		(children || []).forEach((c) =>
@@ -373,11 +374,20 @@
 			const checkbox = el("input", { type: "checkbox", id });
 			checkbox.checked = selectedPages.has(path);
 			const label = el("label", { for: id, class: "cms-modal__label" }, [path]);
-			const row = el("div", { class: "cms-modal__row" }, [checkbox, label]);
+			const row = el("div", { class: "cms-modal__row cms-modal__page" }, [
+				checkbox,
+				label,
+			]);
 
 			const entry = blockData[path];
 			const blocks = getBlocksForModes(entry, modes);
 			const blockSet = selectedBlocks.get(path) || new Set();
+			const selectable = blocks.filter((b) => b.selectable);
+			if (!selectable.length) {
+				selectedPages.delete(path);
+				selectedBlocks.delete(path);
+			}
+			checkbox.disabled = selectable.length === 0;
 
 			const group = el("div", { class: "cms-modal__group" }, [row]);
 			if (selectedPages.has(path)) {
@@ -387,10 +397,8 @@
 					blocks.length
 						? blocks.map((block) => {
 								const item = el("li", { class: "cms-modal__block" }, []);
-								const box = el("input", {
-									type: "checkbox",
-									disabled: block.selectable ? null : "true",
-								});
+								const box = el("input", { type: "checkbox" });
+								box.disabled = !block.selectable;
 								box.checked = block.selectable && blockSet.has(block.id);
 								const text = el("span", { class: "cms-modal__label" }, [
 									block.summary,
@@ -412,6 +420,7 @@
 								box.addEventListener("change", toggle);
 								item.addEventListener("click", (event) => {
 									if (event.target === box) return;
+									if (box.disabled) return;
 									toggle();
 								});
 
@@ -426,20 +435,29 @@
 
 			wrap.appendChild(group);
 
-			checkbox.addEventListener("change", () => {
+			const togglePage = () => {
+				if (checkbox.disabled) return;
 				if (checkbox.checked) {
 					selectedPages.add(path);
 					if (!selectedBlocks.has(path)) {
-						const selectable = blocks
-							.filter((b) => b.selectable)
-							.map((b) => b.id);
-						selectedBlocks.set(path, new Set(selectable));
+						selectedBlocks.set(
+							path,
+							new Set(selectable.map((b) => b.id)),
+						);
 					}
 				} else {
 					selectedPages.delete(path);
 					selectedBlocks.delete(path);
 				}
 				onSelectionChange();
+			};
+
+			checkbox.addEventListener("change", togglePage);
+			row.addEventListener("click", (event) => {
+				if (event.target === checkbox) return;
+				if (checkbox.disabled) return;
+				checkbox.checked = !checkbox.checked;
+				checkbox.dispatchEvent(new Event("change", { bubbles: true }));
 			});
 		});
 		return wrap;
@@ -1317,6 +1335,7 @@
 					const entry = blockData[path];
 					const blocks = getBlocksForModes(entry, activeModes);
 					const selectable = blocks.filter((b) => b.selectable).map((b) => b.id);
+					if (!selectable.length) return;
 					selectedPages.add(path);
 					selectedBlocks.set(path, new Set(selectable));
 				});
@@ -1569,6 +1588,7 @@
 					const entry = blockData[path];
 					const blocks = getBlocksForModes(entry, activeModes);
 					const selectable = blocks.filter((b) => b.selectable).map((b) => b.id);
+					if (!selectable.length) return;
 					selectedPages.add(path);
 					selectedBlocks.set(path, new Set(selectable));
 				});
