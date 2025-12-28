@@ -1485,15 +1485,28 @@
 		// Render from state.blocks (raw HTML),
 		// then run sections/lightbox for parity (same as your live site).
 		const pendingByPos = new Map();
+		const localByPos = new Map();
 		const localBlocks = normalizeLocalBlocks(
 			state.dirtyPages[state.path]?.localBlocks || [],
 		);
 		localBlocks.forEach((item) => {
-			if (item.status !== "pending") return;
 			if (!Number.isInteger(item.pos)) return;
+			const list = localByPos.get(item.pos) || [];
+			list.push(item);
+			localByPos.set(item.pos, list);
+			if (item.status !== "pending") return;
 			const list = pendingByPos.get(item.pos) || [];
 			list.push({ html: item.html, prNumber: item.prNumber || null });
 			pendingByPos.set(item.pos, list);
+		});
+
+		const baseMain = extractRegion(state.originalHtml || "", "main");
+		const baseBlocks = baseMain.found ? parseBlocks(baseMain.inner) : [];
+		const baseCounts = new Map();
+		baseBlocks.forEach((block) => {
+			const sig = normalizeFragmentHtml(block.html || "");
+			if (!sig) return;
+			baseCounts.set(sig, (baseCounts.get(sig) || 0) + 1);
 		});
 
 		state.blocks.forEach((b, idx) => {
@@ -1511,10 +1524,42 @@
 				else pendingByPos.set(idx, pendingList);
 			}
 
-			const wrapper = el("div", {
-				class: isPending ? "cms-block cms-block--pending" : "cms-block",
-			});
+			const localList = localByPos.get(idx) || [];
+			const localIdx = localList.findIndex(
+				(item) => (item.html || "").trim() === html,
+			);
+			const localItem = localIdx >= 0 ? localList[localIdx] : null;
+			if (localIdx >= 0) {
+				localList.splice(localIdx, 1);
+				if (!localList.length) localByPos.delete(idx);
+				else localByPos.set(idx, localList);
+			}
+
+			let status = "baseline";
+			if (localItem) {
+				status = localItem.status === "pending" ? "pending" : "new";
+			} else {
+				// Heuristic match against the current repo baseline.
+				const sig = normalizeFragmentHtml(html);
+				const remaining = sig ? baseCounts.get(sig) || 0 : 0;
+				if (remaining > 0) baseCounts.set(sig, remaining - 1);
+				else status = "modified";
+			}
+
+			const classes = ["cms-block"];
+			if (status === "pending") classes.push("cms-block--pending");
+			else classes.push(`cms-block--${status}`);
+			const wrapper = el("div", { class: classes.join(" ") });
 			Array.from(frag.children).forEach((n) => wrapper.appendChild(n));
+			if (status !== "pending") {
+				const label =
+					status === "new" ? "New block" : status === "modified" ? "Edited" : "Baseline";
+				wrapper.appendChild(
+					el("div", { class: `cms-block__badge cms-block__badge--${status}` }, [
+						label,
+					]),
+				);
+			}
 			if (isPending) {
 				const label = pendingItem?.prNumber
 					? `Pending PR #${pendingItem.prNumber}`
