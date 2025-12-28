@@ -237,6 +237,23 @@
 		return normalizeFragmentHtml(html || "");
 	}
 
+	function buildBaseBlocksWithOcc(baseHtml) {
+		const main = extractRegion(baseHtml || "", "main");
+		const blocks = main.found ? parseBlocks(main.inner) : [];
+		const occMap = new Map();
+		return blocks.map((block) => {
+			const sig = signatureForHtml(block.html || "");
+			const occ = sig ? occMap.get(sig) || 0 : 0;
+			if (sig) occMap.set(sig, occ + 1);
+			return { html: block.html, sig, occ };
+		});
+	}
+
+	function anchorKey(anchor) {
+		if (!anchor?.sig && anchor?.sig !== "") return "";
+		return `${anchor.sig}::${anchor.occ ?? 0}`;
+	}
+
 	function ensureSessionBaseline(path, baseHtml) {
 		if (!path || state.session.baselines[path]) return;
 		const main = extractRegion(baseHtml || "", "main");
@@ -342,6 +359,8 @@
 					return {
 						html: item,
 						pos: null,
+						anchor: null,
+						placement: "after",
 						status: "staged",
 						kind: "new",
 						legacyIdx: idx,
@@ -351,6 +370,8 @@
 					return {
 						html: String(item.html || ""),
 						pos: Number.isInteger(item.pos) ? item.pos : null,
+						anchor: item.anchor || null,
+						placement: item.placement === "before" ? "before" : "after",
 						status: item.status === "pending" ? "pending" : "staged",
 						prNumber: item.prNumber || null,
 						kind: item.kind === "edited" ? "edited" : "new",
@@ -365,26 +386,69 @@
 		const baseMain = extractRegion(baseHtml || "", "main");
 		const dirtyMain = extractRegion(dirtyHtml || "", "main");
 		if (!baseMain.found || !dirtyMain.found) return [];
-		const baseBlocks = parseBlocks(baseMain.inner).map((b) =>
-			(b.html || "").trim(),
-		);
+		const baseBlocks = buildBaseBlocksWithOcc(baseHtml || "");
 		const dirtyBlocks = parseBlocks(dirtyMain.inner);
+		let baseIndex = 0;
+		let lastBaseline = null;
 		const locals = [];
 		dirtyBlocks.forEach((block, idx) => {
 			const html = (block.html || "").trim();
 			if (!html) return;
-			const matchIdx = baseBlocks.indexOf(html);
-			if (matchIdx >= 0) baseBlocks.splice(matchIdx, 1);
-			else
-					locals.push({
-						html,
-						pos: idx,
-						status: "staged",
-						prNumber: null,
-						kind: "new",
-					});
+			const sig = signatureForHtml(html);
+			const baseSig = baseBlocks[baseIndex]?.sig || "";
+			if (sig && baseIndex < baseBlocks.length && sig === baseSig) {
+				lastBaseline = baseBlocks[baseIndex];
+				baseIndex += 1;
+				return;
+			}
+			let anchor = null;
+			let placement = "after";
+			if (baseIndex < baseBlocks.length) {
+				anchor = { sig: baseBlocks[baseIndex].sig, occ: baseBlocks[baseIndex].occ };
+				placement = "before";
+			} else if (lastBaseline) {
+				anchor = { sig: lastBaseline.sig, occ: lastBaseline.occ };
+				placement = "after";
+			}
+			locals.push({
+				html,
+				pos: idx,
+				anchor,
+				placement,
+				status: "staged",
+				prNumber: null,
+				kind: "new",
+			});
 		});
 		return locals;
+	}
+
+	function applyAnchoredInserts(baseBlocks, localBlocks) {
+		const beforeMap = new Map();
+		const afterMap = new Map();
+		const orphans = [];
+		localBlocks.forEach((item) => {
+			const key = anchorKey(item.anchor);
+			if (!key) {
+				orphans.push(item);
+				return;
+			}
+			const map = item.placement === "before" ? beforeMap : afterMap;
+			const list = map.get(key) || [];
+			list.push(item);
+			map.set(key, list);
+		});
+		const merged = [];
+		baseBlocks.forEach((block) => {
+			const key = anchorKey(block);
+			const before = beforeMap.get(key) || [];
+			before.forEach((item) => merged.push({ html: item.html, _local: item }));
+			merged.push({ html: block.html, _base: true });
+			const after = afterMap.get(key) || [];
+			after.forEach((item) => merged.push({ html: item.html, _local: item }));
+		});
+		orphans.forEach((item) => merged.push({ html: item.html, _local: item }));
+		return merged;
 	}
 
 	function remapLocalPositionsFromHtml(mergedHtml, localBlocks) {
@@ -530,7 +594,7 @@
 		const dirtyMain = extractRegion(dirtyHtml, "main");
 		if (!baseMain.found || !dirtyMain.found) return dirtyHtml;
 
-		const baseBlocks = parseBlocks(baseMain.inner);
+		const baseBlocks = buildBaseBlocksWithOcc(baseHtml || "");
 
 		const useLocal = Array.isArray(localBlocks) && localBlocks.length;
 		const dirtyOnly = [];
@@ -539,35 +603,42 @@
 				if (item && item.html) dirtyOnly.push(item);
 			});
 			// Ignore dirtyHtml main when localBlocks are present to avoid duplication.
-			const mergedBlocks = [];
-			const withPos = dirtyOnly.filter((item) => Number.isInteger(item.pos));
-			const withoutPos = dirtyOnly.filter((item) => !Number.isInteger(item.pos));
-			const posMap = new Map();
-			withPos.forEach((item) => {
-				const list = posMap.get(item.pos) || [];
-				list.push(item);
-				posMap.set(item.pos, list);
-			});
-			const slots = baseBlocks.length + withPos.length;
-			let baseIndex = 0;
-			for (let i = 0; i < slots; i += 1) {
-				const localsAt = posMap.get(i);
-				if (localsAt && localsAt.length) {
-					localsAt.forEach((item) => mergedBlocks.push({ html: item.html }));
-					continue;
+			const hasAnchors = dirtyOnly.some((item) => item.anchor && item.anchor.sig);
+			let mergedBlocks = [];
+			if (hasAnchors) {
+				mergedBlocks = applyAnchoredInserts(baseBlocks, dirtyOnly);
+			} else {
+				const withPos = dirtyOnly.filter((item) => Number.isInteger(item.pos));
+				const withoutPos = dirtyOnly.filter((item) => !Number.isInteger(item.pos));
+				const posMap = new Map();
+				withPos.forEach((item) => {
+					const list = posMap.get(item.pos) || [];
+					list.push(item);
+					posMap.set(item.pos, list);
+				});
+				const slots = baseBlocks.length + withPos.length;
+				let baseIndex = 0;
+				for (let i = 0; i < slots; i += 1) {
+					const localsAt = posMap.get(i);
+					if (localsAt && localsAt.length) {
+						localsAt.forEach((item) =>
+							mergedBlocks.push({ html: item.html, _local: item }),
+						);
+						continue;
+					}
+					if (baseIndex < baseBlocks.length) {
+						mergedBlocks.push({ html: baseBlocks[baseIndex].html, _base: true });
+						baseIndex += 1;
+					}
 				}
-				if (baseIndex < baseBlocks.length) {
-					mergedBlocks.push({ html: baseBlocks[baseIndex].html });
+				while (baseIndex < baseBlocks.length) {
+					mergedBlocks.push({ html: baseBlocks[baseIndex].html, _base: true });
 					baseIndex += 1;
 				}
+				withoutPos.forEach((item) => {
+					mergedBlocks.push({ html: item.html, _local: item });
+				});
 			}
-			while (baseIndex < baseBlocks.length) {
-				mergedBlocks.push({ html: baseBlocks[baseIndex].html });
-				baseIndex += 1;
-			}
-			withoutPos.forEach((item) => {
-				mergedBlocks.push({ html: item.html });
-			});
 
 			let merged = baseHtml || "";
 			const dirtyHero = extractRegion(dirtyHtml, "hero");
@@ -788,10 +859,10 @@
 						entry.html || "",
 						cleanedLocal,
 					);
-					const remappedLocal = remapLocalPositionsFromHtml(
-						merged,
-						cleanedLocal,
-					);
+					const remappedLocal =
+						(state.prList || []).length
+							? cleanedLocal
+							: deriveLocalBlocksFromDiff(data.text || "", merged);
 					const remoteText = normalizeHtmlForCompare(data.text || "");
 					const entryText = normalizeHtmlForCompare(merged || "");
 					if (!cleanedLocal.length && !normalizeLocalBlocks(entry.localBlocks || []).length) {
@@ -1221,13 +1292,41 @@
 		const html = await buildTestContainerHtml();
 		const localEntry = state.dirtyPages[state.path] || {};
 		const localBlocks = normalizeLocalBlocks(localEntry.localBlocks || []);
-		const updatedLocal = localBlocks.map((item) => {
-			if (Number.isInteger(item.pos) && item.pos >= index) {
-				return { ...item, pos: item.pos + 1 };
+		const baseBlocks = buildBaseBlocksWithOcc(state.originalHtml || "");
+		const rendered = state.blocks.map((b) => signatureForHtml(b.html || ""));
+		const baseIndex = baseBlocks.map((b) => b.sig);
+		const baselineMap = [];
+		let basePtr = 0;
+		rendered.forEach((sig, idx) => {
+			if (basePtr < baseIndex.length && sig === baseIndex[basePtr]) {
+				baselineMap[idx] = baseBlocks[basePtr];
+				basePtr += 1;
+			} else {
+				baselineMap[idx] = null;
 			}
-			return item;
 		});
-		updatedLocal.push({ html, pos: index });
+		let anchor = null;
+		let placement = "after";
+		for (let i = index - 1; i >= 0; i -= 1) {
+			if (baselineMap[i]) {
+				anchor = { sig: baselineMap[i].sig, occ: baselineMap[i].occ };
+				placement = "after";
+				break;
+			}
+		}
+		if (!anchor) {
+			for (let i = index; i < baselineMap.length; i += 1) {
+				if (baselineMap[i]) {
+					anchor = { sig: baselineMap[i].sig, occ: baselineMap[i].occ };
+					placement = "before";
+					break;
+				}
+			}
+		}
+		const updatedLocal = [
+			...localBlocks,
+			{ html, anchor, placement, status: "staged", kind: "new", pos: index },
+		];
 		state.blocks.splice(index, 0, {
 			idx: index,
 			type: "std-container",
