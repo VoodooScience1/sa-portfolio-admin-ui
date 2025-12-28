@@ -1910,9 +1910,10 @@
 				const remainingLocal = (entry.all || [])
 					.filter((block) => block.selectable && !selectedIds.has(block.id))
 					.map((block) => block.html);
+				const commitBase = commitHtml || entry.baseHtml || entry.dirtyHtml || "";
 				const remainingHtml = mergeDirtyWithBase(
-					entry.baseHtml || entry.dirtyHtml || "",
-					entry.dirtyHtml || entry.baseHtml || "",
+					commitBase,
+					commitBase,
 					remainingLocal,
 				);
 				if (commitHtml) {
