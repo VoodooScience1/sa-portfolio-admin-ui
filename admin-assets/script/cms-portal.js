@@ -1408,6 +1408,25 @@
 	}
 
 	function renderPageSurface() {
+		const localEntry = state.dirtyPages[state.path];
+		const localBlocks = normalizePendingBlocks(
+			localEntry?.localBlocks || [],
+		);
+		if (localBlocks.length) {
+			const merged = mergeDirtyWithBase(
+				state.originalHtml || "",
+				localEntry?.html || state.originalHtml || "",
+				localBlocks,
+			);
+			const hero = extractRegion(merged, "hero");
+			const main = extractRegion(merged, "main");
+			if (hero.found) state.heroInner = hero.inner;
+			if (main.found) {
+				state.mainInner = main.inner;
+				state.blocks = parseBlocks(state.mainInner);
+			}
+		}
+
 		const root = qs("#cms-portal");
 		root.innerHTML = "";
 
