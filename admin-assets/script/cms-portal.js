@@ -651,11 +651,15 @@
 			return entry?.baseHtml || entry?.dirtyHtml || "";
 		}
 		const all = entry?.all || [];
-		const keepAdded = action === "commit";
 		const kept = all.filter((block) => {
+			if (action === "commit") {
+				if (block.localStatus === "pending") return false;
+				if (block.selectable) return selectedIds.has(block.id);
+				return true;
+			}
 			if (!block.selectable) return true;
 			const isSelected = selectedIds.has(block.id);
-			return keepAdded ? isSelected : !isSelected;
+			return !isSelected;
 		});
 		const mainHtml = kept.map((b) => b.html).join("\n\n");
 		let html = entry.baseHtml || entry.dirtyHtml || "";
