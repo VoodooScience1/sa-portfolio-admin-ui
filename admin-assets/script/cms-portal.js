@@ -387,6 +387,22 @@
 		return html;
 	}
 
+	// Remove only the selected blocks from the current dirty HTML (keep everything else).
+	function buildDirtyAfterSelection(entry, selectedIds) {
+		if (!selectedIds || !selectedIds.size) {
+			return entry?.dirtyHtml || entry?.baseHtml || "";
+		}
+		const all = entry?.all || [];
+		const kept = all.filter(
+			(block) => !block.selectable || !selectedIds.has(block.id),
+		);
+		const mainHtml = kept.map((b) => b.html).join("\n\n");
+		let html = entry?.dirtyHtml || entry?.baseHtml || "";
+		if (!html) return "";
+		html = replaceRegion(html, "main", mainHtml);
+		return html;
+	}
+
 	function applyHtmlToCurrentPage(updatedHtml) {
 		if (!updatedHtml || !updatedHtml.trim()) return;
 		const hero = extractRegion(updatedHtml, "hero");
@@ -1587,6 +1603,9 @@
 		const mention = el("div", { class: "cms-modal__note" }, [
 			"@VoodooScience1 please review + merge.",
 		]);
+		const keepNote = el("div", { class: "cms-modal__note" }, [
+			"Unchecked blocks remain staged in memory.",
+		]);
 
 		const action = el(
 			"button",
@@ -1712,7 +1731,7 @@
 				const entry = blockData[path];
 				const selectedIds = selectedBlocks.get(path) || new Set();
 				const commitHtml = buildHtmlForSelection(entry, selectedIds, "commit");
-				const remainingHtml = buildHtmlForSelection(entry, selectedIds, "discard");
+				const remainingHtml = buildDirtyAfterSelection(entry, selectedIds);
 				if (commitHtml) {
 					payloads.push({ path, text: commitHtml });
 				}
@@ -1740,6 +1759,7 @@
 				noteLabel,
 				noteInput,
 				mention,
+				keepNote,
 				confirmRow,
 				codeLabel,
 				codeInput,
