@@ -512,16 +512,16 @@
 			.sort((a, b) => a - b);
 
 		return items.filter((item) => {
-			if (item.status !== "pending") return true;
 			const html = (item.html || "").trim();
 			if (!html) return false;
 			if (Number.isInteger(item.pos)) {
 				const beforeCount = localsWithPos.filter((pos) => pos < item.pos).length;
 				const baseIndex = item.pos - beforeCount;
 				const baseAt = baseByPos[baseIndex] || "";
+				// Drop any local block that now exactly matches the repo at its mapped position.
 				return baseAt.trim() !== html;
 			}
-			return !baseSet.has(html);
+			return true;
 		});
 	}
 
