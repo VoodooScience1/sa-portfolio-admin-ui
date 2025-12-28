@@ -58,6 +58,7 @@
 	function normalizeHtmlForCompare(html) {
 		return String(html || "")
 			.replace(/\r\n/g, "\n")
+			.replace(/^[ \t]+/gm, "")
 			.replace(/[ \t]+$/gm, "")
 			.replace(/\n{3,}/g, "\n\n")
 			.trim();
