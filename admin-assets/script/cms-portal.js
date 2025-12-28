@@ -55,6 +55,28 @@
 		return parseBlocks(main.inner).map((b) => b.summary || b.type || "Block");
 	}
 
+	function normalizeFragmentHtml(html) {
+		const doc = new DOMParser().parseFromString(
+			`<div id="__wrap__">${String(html || "")}</div>`,
+			"text/html",
+		);
+		const wrap = doc.querySelector("#__wrap__");
+		if (!wrap) return "";
+
+		const parts = [];
+		wrap.childNodes.forEach((node) => {
+			if (node.nodeType === Node.ELEMENT_NODE) {
+				parts.push(node.outerHTML);
+				return;
+			}
+			if (node.nodeType === Node.TEXT_NODE) {
+				const text = (node.textContent || "").replace(/\s+/g, " ").trim();
+				if (text) parts.push(`#text:${text}`);
+			}
+		});
+		return parts.join("\n");
+	}
+
 	function normalizeHtmlForCompare(html) {
 		const text = String(html || "");
 		const hero = extractRegion(text, "hero");
@@ -62,15 +84,7 @@
 		const heroInner = hero.found ? hero.inner : "";
 		const mainInner = main.found ? main.inner : "";
 
-		const normalize = (value) =>
-			String(value || "")
-				.replace(/\r\n/g, "\n")
-				.replace(/^[ \t]+/gm, "")
-				.replace(/[ \t]+$/gm, "")
-				.replace(/\n{3,}/g, "\n\n")
-				.trim();
-
-		return `${normalize(heroInner)}\n---\n${normalize(mainInner)}`;
+		return `${normalizeFragmentHtml(heroInner)}\n---\n${normalizeFragmentHtml(mainInner)}`;
 	}
 
 	function buildDiffSummary(baseHtml, dirtyHtml) {
@@ -1389,47 +1403,27 @@
 		});
 
 		selectAllRow.addEventListener("click", (event) => {
-			if (event.target === selectAll) return;
-			selectAll.checked = !selectAll.checked;
-			selectAll.dispatchEvent(new Event("click", { bubbles: true }));
-		});
-
-		selectAllLabel.addEventListener("click", (event) => {
-			event.preventDefault();
-			event.stopPropagation();
-			selectAll.checked = !selectAll.checked;
-			selectAll.dispatchEvent(new Event("click", { bubbles: true }));
-		});
-
-		selectAllLabel.addEventListener("click", (event) => {
-			event.preventDefault();
-			event.stopPropagation();
-			selectAll.checked = !selectAll.checked;
-			selectAll.dispatchEvent(new Event("click", { bubbles: true }));
+			if (
+				event.target === selectAll ||
+				event.target === selectAllLabel ||
+				selectAllLabel.contains(event.target)
+			)
+				return;
+			selectAll.click();
 		});
 
 		confirm.addEventListener("click", (event) => {
 			event.stopPropagation();
 			updateAction();
 		});
-		confirmLabel.addEventListener("click", (event) => {
-			event.preventDefault();
-			event.stopPropagation();
-			confirm.checked = !confirm.checked;
-			updateAction();
-		});
-
-		confirmLabel.addEventListener("click", (event) => {
-			event.preventDefault();
-			event.stopPropagation();
-			confirm.checked = !confirm.checked;
-			updateAction();
-		});
-
 		confirmRow.addEventListener("click", (event) => {
-			if (event.target === confirm) return;
-			confirm.checked = !confirm.checked;
-			updateAction();
+			if (
+				event.target === confirm ||
+				event.target === confirmLabel ||
+				confirmLabel.contains(event.target)
+			)
+				return;
+			confirm.click();
 		});
 		codeInput.addEventListener("input", updateAction);
 		updateAction();
@@ -1685,9 +1679,13 @@
 		});
 
 		selectAllRow.addEventListener("click", (event) => {
-			if (event.target === selectAll) return;
-			selectAll.checked = !selectAll.checked;
-			selectAll.dispatchEvent(new Event("click", { bubbles: true }));
+			if (
+				event.target === selectAll ||
+				event.target === selectAllLabel ||
+				selectAllLabel.contains(event.target)
+			)
+				return;
+			selectAll.click();
 		});
 
 		confirm.addEventListener("click", (event) => {
@@ -1695,9 +1693,13 @@
 			updateAction();
 		});
 		confirmRow.addEventListener("click", (event) => {
-			if (event.target === confirm) return;
-			confirm.checked = !confirm.checked;
-			updateAction();
+			if (
+				event.target === confirm ||
+				event.target === confirmLabel ||
+				confirmLabel.contains(event.target)
+			)
+				return;
+			confirm.click();
 		});
 		codeInput.addEventListener("input", updateAction);
 		updateAction();
