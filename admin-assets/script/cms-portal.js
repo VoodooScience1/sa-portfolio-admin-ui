@@ -56,14 +56,21 @@
 	}
 
 	function normalizeHtmlForCompare(html) {
-		return String(html || "")
-			.replace(/\r\n/g, "\n")
-			.replace(/^[ \t]+/gm, "")
-			.replace(/[ \t]+$/gm, "")
-			.replace(/\n{3,}/g, "\n\n")
-			.replace(/<!--\s*CMS:START/g, "<!-- CMS:START")
-			.replace(/<!--\s*CMS:END/g, "<!-- CMS:END")
-			.trim();
+		const text = String(html || "");
+		const hero = extractRegion(text, "hero");
+		const main = extractRegion(text, "main");
+		const heroInner = hero.found ? hero.inner : "";
+		const mainInner = main.found ? main.inner : "";
+
+		const normalize = (value) =>
+			String(value || "")
+				.replace(/\r\n/g, "\n")
+				.replace(/^[ \t]+/gm, "")
+				.replace(/[ \t]+$/gm, "")
+				.replace(/\n{3,}/g, "\n\n")
+				.trim();
+
+		return `${normalize(heroInner)}\n---\n${normalize(mainInner)}`;
 	}
 
 	function buildDiffSummary(baseHtml, dirtyHtml) {
@@ -477,6 +484,14 @@
 				event.stopPropagation();
 				togglePage();
 			});
+			label.addEventListener("click", (event) => {
+				event.preventDefault();
+				event.stopPropagation();
+				if (checkbox.disabled) return;
+				checkbox.checked = !checkbox.checked;
+				togglePage();
+			});
+
 			row.addEventListener("click", (event) => {
 				if (event.target === checkbox) return;
 				if (checkbox.disabled) return;
@@ -1379,10 +1394,38 @@
 			selectAll.dispatchEvent(new Event("click", { bubbles: true }));
 		});
 
+		selectAllLabel.addEventListener("click", (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			selectAll.checked = !selectAll.checked;
+			selectAll.dispatchEvent(new Event("click", { bubbles: true }));
+		});
+
+		selectAllLabel.addEventListener("click", (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			selectAll.checked = !selectAll.checked;
+			selectAll.dispatchEvent(new Event("click", { bubbles: true }));
+		});
+
 		confirm.addEventListener("click", (event) => {
 			event.stopPropagation();
 			updateAction();
 		});
+		confirmLabel.addEventListener("click", (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			confirm.checked = !confirm.checked;
+			updateAction();
+		});
+
+		confirmLabel.addEventListener("click", (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			confirm.checked = !confirm.checked;
+			updateAction();
+		});
+
 		confirmRow.addEventListener("click", (event) => {
 			if (event.target === confirm) return;
 			confirm.checked = !confirm.checked;
