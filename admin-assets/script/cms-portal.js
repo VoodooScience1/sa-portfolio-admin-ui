@@ -658,6 +658,12 @@
 					);
 					const remoteText = normalizeHtmlForCompare(data.text || "");
 					const entryText = normalizeHtmlForCompare(merged || "");
+					if (!cleanedLocal.length && !normalizeLocalBlocks(entry.localBlocks || []).length) {
+						if (remoteText && entryText && remoteText !== entryText) {
+							clearDirtyPage(path);
+							return;
+						}
+					}
 					if (!cleanedLocal.length && remoteText && entryText && remoteText === entryText) {
 						clearDirtyPage(path);
 						return;
