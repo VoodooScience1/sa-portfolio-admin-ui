@@ -1495,9 +1495,9 @@
 			list.push(item);
 			localByPos.set(item.pos, list);
 			if (item.status !== "pending") return;
-			const list = pendingByPos.get(item.pos) || [];
-			list.push({ html: item.html, prNumber: item.prNumber || null });
-			pendingByPos.set(item.pos, list);
+			const pendingList = pendingByPos.get(item.pos) || [];
+			pendingList.push({ html: item.html, prNumber: item.prNumber || null });
+			pendingByPos.set(item.pos, pendingList);
 		});
 
 		const baseMain = extractRegion(state.originalHtml || "", "main");
