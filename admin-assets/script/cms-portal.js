@@ -382,7 +382,7 @@
 						const localMatch = localQueue.indexOf(html);
 						const isLocal = localMatch >= 0;
 						const isBase = match >= 0 && !isLocal;
-						if (match >= 0) baseHtmlList.splice(match, 1);
+						if (match >= 0 && !isLocal) baseHtmlList.splice(match, 1);
 						if (localMatch >= 0) localQueue.splice(localMatch, 1);
 						const item = {
 							id: `${path}::${idx}`,
@@ -1630,7 +1630,10 @@
 				if (!updatedHtml || updatedHtml.trim() === entry.baseHtml.trim())
 					clearDirtyPage(path);
 				else setDirtyPage(path, updatedHtml, entry.baseHtml, remainingLocal);
-				if (path === state.path) applyHtmlToCurrentPage(updatedHtml);
+				if (path === state.path) {
+					applyHtmlToCurrentPage(updatedHtml);
+					renderPageSurface();
+				}
 			});
 			purgeCleanDirtyPages();
 			qs("#cms-modal").classList.remove("is-open");
@@ -1922,7 +1925,10 @@
 				if (!remainingHtml || remainingHtml.trim() === entry.baseHtml.trim())
 					clearDirtyPage(path);
 				else setDirtyPage(path, remainingHtml, entry.baseHtml, remainingLocal);
-				if (path === state.path) applyHtmlToCurrentPage(remainingHtml);
+				if (path === state.path) {
+					applyHtmlToCurrentPage(remainingHtml);
+					renderPageSurface();
+				}
 			});
 
 			qs("#cms-modal").classList.remove("is-open");
