@@ -302,12 +302,17 @@
 			localBlocksOverride !== undefined
 				? localBlocksOverride
 				: existing.localBlocks;
+		const normalizedLocal = normalizeLocalBlocks(localBlocks);
+		const canonicalHtml =
+			normalizedLocal.length > 0
+				? mergeDirtyWithBase(baseHtml || "", baseHtml || "", normalizedLocal)
+				: html;
 		state.dirtyPages[path] = {
-			html,
+			html: canonicalHtml,
 			baseHash: hashText(normalizeHtmlForCompare(baseHtml)),
-			dirtyHash: hashText(normalizeHtmlForCompare(html)),
+			dirtyHash: hashText(normalizeHtmlForCompare(canonicalHtml)),
 			updatedAt: Date.now(),
-			localBlocks: normalizeLocalBlocks(localBlocks),
+			localBlocks: normalizedLocal,
 		};
 		saveDirtyPagesToStorage();
 	}
