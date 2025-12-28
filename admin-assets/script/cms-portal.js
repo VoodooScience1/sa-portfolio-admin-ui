@@ -61,6 +61,8 @@
 			.replace(/^[ \t]+/gm, "")
 			.replace(/[ \t]+$/gm, "")
 			.replace(/\n{3,}/g, "\n\n")
+			.replace(/<!--\s*CMS:START/g, "<!-- CMS:START")
+			.replace(/<!--\s*CMS:END/g, "<!-- CMS:END")
 			.trim();
 	}
 
@@ -1202,6 +1204,7 @@
 			clearDirtyPage(state.path);
 			dirtyHtml = "";
 		}
+		await purgeDirtyPagesFromRepo();
 		const workingHtml = dirtyHtml || state.originalHtml;
 
 		const hero = extractRegion(workingHtml, "hero");
