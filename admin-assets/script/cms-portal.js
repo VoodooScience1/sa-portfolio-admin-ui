@@ -351,13 +351,19 @@
 		const baseBlocks = parseBlocks(main.inner);
 		const baseByPos = baseBlocks.map((b) => (b.html || "").trim());
 		const baseSet = new Set(baseByPos.filter(Boolean));
+		const localsWithPos = items
+			.filter((item) => Number.isInteger(item.pos))
+			.map((item) => item.pos)
+			.sort((a, b) => a - b);
 
 		return items.filter((item) => {
 			if (item.status !== "pending") return true;
 			const html = (item.html || "").trim();
 			if (!html) return false;
 			if (Number.isInteger(item.pos)) {
-				const baseAt = baseByPos[item.pos] || "";
+				const beforeCount = localsWithPos.filter((pos) => pos < item.pos).length;
+				const baseIndex = item.pos - beforeCount;
+				const baseAt = baseByPos[baseIndex] || "";
 				return baseAt.trim() !== html;
 			}
 			return !baseSet.has(html);
@@ -378,20 +384,32 @@
 				if (item && item.html) dirtyOnly.push(item);
 			});
 			// Ignore dirtyHtml main when localBlocks are present to avoid duplication.
-			const mergedBlocks = baseBlocks.map((block) => ({ html: block.html }));
-			const withPos = dirtyOnly
-				.filter((item) => Number.isInteger(item.pos))
-				.sort((a, b) => a.pos - b.pos);
+			const mergedBlocks = [];
+			const withPos = dirtyOnly.filter((item) => Number.isInteger(item.pos));
 			const withoutPos = dirtyOnly.filter((item) => !Number.isInteger(item.pos));
-			let offset = 0;
+			const posMap = new Map();
 			withPos.forEach((item) => {
-				const insertAt = Math.max(
-					0,
-					Math.min(item.pos + offset, mergedBlocks.length),
-				);
-				mergedBlocks.splice(insertAt, 0, { html: item.html });
-				offset += 1;
+				const list = posMap.get(item.pos) || [];
+				list.push(item);
+				posMap.set(item.pos, list);
 			});
+			const slots = baseBlocks.length + withPos.length;
+			let baseIndex = 0;
+			for (let i = 0; i < slots; i += 1) {
+				const localsAt = posMap.get(i);
+				if (localsAt && localsAt.length) {
+					localsAt.forEach((item) => mergedBlocks.push({ html: item.html }));
+					continue;
+				}
+				if (baseIndex < baseBlocks.length) {
+					mergedBlocks.push({ html: baseBlocks[baseIndex].html });
+					baseIndex += 1;
+				}
+			}
+			while (baseIndex < baseBlocks.length) {
+				mergedBlocks.push({ html: baseBlocks[baseIndex].html });
+				baseIndex += 1;
+			}
 			withoutPos.forEach((item) => {
 				mergedBlocks.push({ html: item.html });
 			});
