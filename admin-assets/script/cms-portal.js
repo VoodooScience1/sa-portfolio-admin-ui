@@ -311,6 +311,33 @@
 		return locals;
 	}
 
+	function remapLocalPositionsFromHtml(mergedHtml, localBlocks) {
+		const main = extractRegion(mergedHtml || "", "main");
+		if (!main.found) return localBlocks;
+		const blocks = parseBlocks(main.inner).map((b) => (b.html || "").trim());
+		const pool = new Map();
+		normalizeLocalBlocks(localBlocks).forEach((item) => {
+			const key = (item.html || "").trim();
+			if (!key) return;
+			const list = pool.get(key) || [];
+			list.push(item);
+			pool.set(key, list);
+		});
+		const updated = [];
+		blocks.forEach((html, idx) => {
+			const list = pool.get(html);
+			if (!list || !list.length) return;
+			const item = list.shift();
+			updated.push({ ...item, pos: idx });
+			if (!list.length) pool.delete(html);
+			else pool.set(html, list);
+		});
+		pool.forEach((list) => {
+			list.forEach((item) => updated.push({ ...item, pos: null }));
+		});
+		return updated;
+	}
+
 	function normalizePendingBlocks(localBlocks) {
 		if ((state.prList || []).length) return localBlocks;
 		return normalizeLocalBlocks(localBlocks).map((item) => ({
@@ -2003,9 +2030,13 @@
 					entry.dirtyHtml || entry.baseHtml || "",
 					remainingLocal,
 				);
+				const remappedLocal = remapLocalPositionsFromHtml(
+					updatedHtml,
+					remainingLocal,
+				);
 				if (!updatedHtml || updatedHtml.trim() === entry.baseHtml.trim())
 					clearDirtyPage(path);
-				else setDirtyPage(path, updatedHtml, entry.baseHtml, remainingLocal);
+				else setDirtyPage(path, updatedHtml, entry.baseHtml, remappedLocal);
 				if (path === state.path) {
 					applyHtmlToCurrentPage(updatedHtml);
 					renderPageSurface();
@@ -2354,14 +2385,23 @@
 					remainingBase,
 					remainingLocal,
 				);
+				const remappedLocal = remapLocalPositionsFromHtml(
+					remainingHtml,
+					remainingLocal,
+				);
 				if (commitHtml) {
 					payloads.push({ path, text: commitHtml });
 				}
 				if (!remainingHtml || remainingHtml.trim() === entry.baseHtml.trim())
 					clearDirtyPage(path);
 				else {
-					setDirtyPage(path, remainingHtml, entry.baseHtml, remainingLocal);
-					postPrUpdates.push({ path, entry, selectedIds, remainingLocal });
+					setDirtyPage(path, remainingHtml, entry.baseHtml, remappedLocal);
+					postPrUpdates.push({
+						path,
+						entry,
+						selectedIds,
+						remainingLocal: remappedLocal,
+					});
 				}
 				if (path === state.path) {
 					applyHtmlToCurrentPage(remainingHtml);
