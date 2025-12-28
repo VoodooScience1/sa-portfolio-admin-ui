@@ -286,6 +286,31 @@
 			.filter(Boolean);
 	}
 
+	function deriveLocalBlocksFromDiff(baseHtml, dirtyHtml) {
+		const baseMain = extractRegion(baseHtml || "", "main");
+		const dirtyMain = extractRegion(dirtyHtml || "", "main");
+		if (!baseMain.found || !dirtyMain.found) return [];
+		const baseBlocks = parseBlocks(baseMain.inner).map((b) =>
+			(b.html || "").trim(),
+		);
+		const dirtyBlocks = parseBlocks(dirtyMain.inner);
+		const locals = [];
+		dirtyBlocks.forEach((block, idx) => {
+			const html = (block.html || "").trim();
+			if (!html) return;
+			const matchIdx = baseBlocks.indexOf(html);
+			if (matchIdx >= 0) baseBlocks.splice(matchIdx, 1);
+			else
+				locals.push({
+					html,
+					pos: idx,
+					status: "staged",
+					prNumber: null,
+				});
+		});
+		return locals;
+	}
+
 	function normalizePendingBlocks(localBlocks) {
 		if ((state.prList || []).length) return localBlocks;
 		return normalizeLocalBlocks(localBlocks).map((item) => ({
@@ -325,7 +350,11 @@
 			localBlocksOverride !== undefined
 				? localBlocksOverride
 				: existing.localBlocks;
-		const normalizedLocal = normalizeLocalBlocks(localBlocks);
+		let normalizedLocal = normalizeLocalBlocks(localBlocks);
+		if (!normalizedLocal.length && html && baseHtml) {
+			const derived = deriveLocalBlocksFromDiff(baseHtml, html);
+			if (derived.length) normalizedLocal = derived;
+		}
 		const canonicalHtml =
 			normalizedLocal.length > 0
 				? mergeDirtyWithBase(baseHtml || "", baseHtml || "", normalizedLocal)
