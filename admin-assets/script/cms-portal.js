@@ -410,7 +410,10 @@
 		if (hero.found) state.heroInner = hero.inner;
 		if (main.found) state.mainInner = main.inner;
 		state.blocks = parseBlocks(state.mainInner);
-		state.currentDirty = updatedHtml.trim() !== state.originalHtml.trim();
+		// Use the same normaliser as the dirty store to avoid whitespace drift.
+		state.currentDirty =
+			normalizeHtmlForCompare(updatedHtml) !==
+			normalizeHtmlForCompare(state.originalHtml);
 	}
 
 	function renderDirtyPageList({
@@ -943,7 +946,8 @@
 			state.prUrl = "";
 			state.prNumber = null;
 			stopPrPolling();
-			setUiState("clean", "PR MERGED");
+			if (dirtyCount()) setUiState("dirty", buildDirtyLabel());
+			else setUiState("clean", "PR MERGED");
 			renderPageSurface();
 			return;
 		}
@@ -952,7 +956,8 @@
 			state.prUrl = "";
 			state.prNumber = null;
 			stopPrPolling();
-			setUiState("clean", "PR CLOSED");
+			if (dirtyCount()) setUiState("dirty", buildDirtyLabel());
+			else setUiState("clean", "PR CLOSED");
 			renderPageSurface();
 			return;
 		}
@@ -986,10 +991,11 @@
 	function updateStatusStrip() {
 		const pill = qs("#cms-status");
 		if (pill) {
-			pill.classList.remove("ok", "warn", "err");
+			pill.classList.remove("ok", "warn", "err", "pr");
 			if (state.uiState === "clean") pill.classList.add("ok");
 			else if (state.uiState === "loading") pill.classList.add("warn");
 			else if (state.uiState === "dirty") pill.classList.add("warn");
+			else if (state.uiState === "pr") pill.classList.add("pr");
 			else pill.classList.add("err");
 
 			pill.textContent = state.uiStateLabel || state.uiState.toUpperCase();
@@ -1603,7 +1609,7 @@
 		const mention = el("div", { class: "cms-modal__note" }, [
 			"@VoodooScience1 please review + merge.",
 		]);
-		const keepNote = el("div", { class: "cms-modal__note" }, [
+		const keepNote = el("div", { class: "cms-modal__note cms-modal__note--subtle" }, [
 			"Unchecked blocks remain staged in memory.",
 		]);
 
