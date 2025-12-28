@@ -788,6 +788,10 @@
 						entry.html || "",
 						cleanedLocal,
 					);
+					const remappedLocal = remapLocalPositionsFromHtml(
+						merged,
+						cleanedLocal,
+					);
 					const remoteText = normalizeHtmlForCompare(data.text || "");
 					const entryText = normalizeHtmlForCompare(merged || "");
 					if (!cleanedLocal.length && !normalizeLocalBlocks(entry.localBlocks || []).length) {
@@ -800,7 +804,7 @@
 						clearDirtyPage(path);
 						return;
 					}
-					setDirtyPage(path, merged, data.text || "", cleanedLocal);
+					setDirtyPage(path, merged, data.text || "", remappedLocal);
 				} catch {
 					// Remote compare failure should not block modal flow.
 				}
