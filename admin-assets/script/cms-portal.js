@@ -247,13 +247,14 @@
 		saveSessionState();
 	}
 
-	function addSessionCommitted(prNumber, path, htmlList) {
-		if (!prNumber || !path || !Array.isArray(htmlList) || !htmlList.length) return;
+	function addSessionCommitted(prNumber, path, blockList) {
+		if (!prNumber || !path || !Array.isArray(blockList) || !blockList.length) return;
 		const bucket = state.session.committedByPr[prNumber] || {};
 		const list = bucket[path] || [];
-		htmlList.forEach((html) => {
-			const sig = signatureForHtml(html);
-			if (sig) list.push(sig);
+		blockList.forEach((item) => {
+			const sig = signatureForHtml(item?.html || "");
+			if (!sig) return;
+			list.push({ sig, pos: Number.isInteger(item.pos) ? item.pos : null });
 		});
 		bucket[path] = list;
 		state.session.committedByPr[prNumber] = bucket;
@@ -266,16 +267,23 @@
 		saveSessionState();
 	}
 
-	function committedCountsForPath(path) {
+	function committedMatchesForPath(path) {
 		const counts = new Map();
+		const byPos = new Map();
 		Object.values(state.session.committedByPr || {}).forEach((byPath) => {
 			const list = byPath?.[path] || [];
-			list.forEach((sig) => {
+			list.forEach((item) => {
+				const sig = item?.sig || item;
 				if (!sig) return;
+				if (Number.isInteger(item?.pos)) {
+					const slot = byPos.get(item.pos) || [];
+					slot.push(sig);
+					byPos.set(item.pos, slot);
+				}
 				counts.set(sig, (counts.get(sig) || 0) + 1);
 			});
 		});
-		return counts;
+		return { counts, byPos };
 	}
 	function getActivePr() {
 		return (state.prList || [])[0] || null;
@@ -1681,7 +1689,9 @@
 			if (!sig) return;
 			sessionCounts.set(sig, (sessionCounts.get(sig) || 0) + 1);
 		});
-		const committedCounts = committedCountsForPath(state.path);
+		const committedState = committedMatchesForPath(state.path);
+		const committedCounts = committedState.counts;
+		const committedByPos = committedState.byPos;
 
 		state.blocks.forEach((b, idx) => {
 			const frag = new DOMParser().parseFromString(b.html, "text/html").body;
@@ -1715,14 +1725,25 @@
 				else status = localItem.kind === "edited" ? "edited" : "new";
 			} else {
 				const sig = signatureForHtml(html);
-				const committedRemaining = sig ? committedCounts.get(sig) || 0 : 0;
-				if (committedRemaining > 0) {
-					committedCounts.set(sig, committedRemaining - 1);
+				const committedAtPos = sig
+					? (committedByPos.get(idx) || []).findIndex((s) => s === sig)
+					: -1;
+				if (committedAtPos >= 0) {
+					const list = committedByPos.get(idx) || [];
+					list.splice(committedAtPos, 1);
+					if (!list.length) committedByPos.delete(idx);
+					else committedByPos.set(idx, list);
 					status = "committed";
 				} else {
-					const remaining = sig ? sessionCounts.get(sig) || 0 : 0;
-					if (remaining > 0) sessionCounts.set(sig, remaining - 1);
-					else status = "edited";
+					const committedRemaining = sig ? committedCounts.get(sig) || 0 : 0;
+					if (committedRemaining > 0) {
+						committedCounts.set(sig, committedRemaining - 1);
+						status = "committed";
+					} else {
+						const remaining = sig ? sessionCounts.get(sig) || 0 : 0;
+						if (remaining > 0) sessionCounts.set(sig, remaining - 1);
+						else status = "edited";
+					}
 				}
 			}
 
@@ -2475,10 +2496,10 @@
 			);
 			if (!pr?.number) return;
 			commitSelections.forEach(({ path, entry, selectedIds }) => {
-				const selectedHtml = (entry.all || [])
+				const selectedBlocks = (entry.all || [])
 					.filter((block) => selectedIds.has(block.id))
-					.map((block) => block.html);
-				addSessionCommitted(pr.number, path, selectedHtml);
+					.map((block) => ({ html: block.html, pos: block.idx }));
+				addSessionCommitted(pr.number, path, selectedBlocks);
 			});
 			postPrUpdates.forEach(({ path, entry, remainingLocal }) => {
 				const updated = remainingLocal.map((item) => {
