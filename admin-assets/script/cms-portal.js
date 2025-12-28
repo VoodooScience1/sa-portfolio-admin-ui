@@ -2272,10 +2272,10 @@
 						});
 					}
 				});
-				const commitBase = commitHtml || entry.baseHtml || entry.dirtyHtml || "";
+				const remainingBase = entry.baseHtml || entry.dirtyHtml || "";
 				const remainingHtml = mergeDirtyWithBase(
-					commitBase,
-					commitBase,
+					remainingBase,
+					remainingBase,
 					remainingLocal,
 				);
 				if (commitHtml) {
