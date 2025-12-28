@@ -285,6 +285,15 @@
 			.filter(Boolean);
 	}
 
+	function normalizePendingBlocks(localBlocks) {
+		if ((state.prList || []).length) return localBlocks;
+		return normalizeLocalBlocks(localBlocks).map((item) => ({
+			...item,
+			status: "staged",
+			prNumber: null,
+		}));
+	}
+
 	function setDirtyPage(path, html, baseHtmlOverride = "", localBlocksOverride) {
 		if (!path) return;
 		const baseHtml = baseHtmlOverride || state.originalHtml;
@@ -363,6 +372,36 @@
 			localBlocks.forEach((item) => {
 				if (item && item.html) dirtyOnly.push(item);
 			});
+			// Ignore dirtyHtml main when localBlocks are present to avoid duplication.
+			const mergedBlocks = baseBlocks.map((block) => ({ html: block.html }));
+			const withPos = dirtyOnly
+				.filter((item) => Number.isInteger(item.pos))
+				.sort((a, b) => a.pos - b.pos);
+			const withoutPos = dirtyOnly.filter((item) => !Number.isInteger(item.pos));
+			let offset = 0;
+			withPos.forEach((item) => {
+				const insertAt = Math.max(
+					0,
+					Math.min(item.pos + offset, mergedBlocks.length),
+				);
+				mergedBlocks.splice(insertAt, 0, { html: item.html });
+				offset += 1;
+			});
+			withoutPos.forEach((item) => {
+				mergedBlocks.push({ html: item.html });
+			});
+
+			let merged = baseHtml || "";
+			const dirtyHero = extractRegion(dirtyHtml, "hero");
+			if (dirtyHero.found && normalizeFragmentHtml(dirtyHero.inner)) {
+				merged = replaceRegion(merged, "hero", dirtyHero.inner);
+			}
+			merged = replaceRegion(
+				merged,
+				"main",
+				mergedBlocks.map((b) => b.html).join("\n\n"),
+			);
+			return merged;
 		} else {
 			const dirtyBlocks = parseBlocks(dirtyMain.inner);
 			const baseHtmlList = baseBlocks.map((b) => (b.html || "").trim());
@@ -550,9 +589,11 @@
 					if (!res.ok) return;
 					const data = await res.json();
 					const entry = state.dirtyPages[path] || {};
-					const cleanedLocal = filterLocalBlocksAgainstBase(
-						data.text || "",
-						entry.localBlocks,
+					const cleanedLocal = normalizePendingBlocks(
+						filterLocalBlocksAgainstBase(
+							data.text || "",
+							entry.localBlocks,
+						),
 					);
 					const merged = mergeDirtyWithBase(
 						data.text || "",
@@ -1582,9 +1623,11 @@
 		const dirtyEntry = state.dirtyPages[state.path] || {};
 		let dirtyHtml = dirtyEntry.html || "";
 		if (dirtyHtml) {
-			const cleanedLocal = filterLocalBlocksAgainstBase(
-				state.originalHtml,
-				dirtyEntry.localBlocks,
+			const cleanedLocal = normalizePendingBlocks(
+				filterLocalBlocksAgainstBase(
+					state.originalHtml,
+					dirtyEntry.localBlocks,
+				),
 			);
 			const mergedDirty = mergeDirtyWithBase(
 				state.originalHtml,
