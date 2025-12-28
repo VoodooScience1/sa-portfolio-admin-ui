@@ -55,6 +55,14 @@
 		return parseBlocks(main.inner).map((b) => b.summary || b.type || "Block");
 	}
 
+	function normalizeHtmlForCompare(html) {
+		return String(html || "")
+			.replace(/\r\n/g, "\n")
+			.replace(/[ \t]+$/gm, "")
+			.replace(/\n{3,}/g, "\n\n")
+			.trim();
+	}
+
 	function buildDiffSummary(baseHtml, dirtyHtml) {
 		const baseMain = extractRegion(baseHtml, "main");
 		const dirtyMain = extractRegion(dirtyHtml, "main");
@@ -183,8 +191,8 @@
 		const baseHtml = baseHtmlOverride || state.originalHtml;
 		state.dirtyPages[path] = {
 			html,
-			baseHash: hashText(baseHtml),
-			dirtyHash: hashText(html),
+			baseHash: hashText(normalizeHtmlForCompare(baseHtml)),
+			dirtyHash: hashText(normalizeHtmlForCompare(html)),
 			updatedAt: Date.now(),
 		};
 		saveDirtyPagesToStorage();
@@ -307,8 +315,10 @@
 					);
 					if (!res.ok) return;
 					const data = await res.json();
-					const remoteText = String(data.text || "").trim();
-					const entryText = String(state.dirtyPages[path]?.html || "").trim();
+					const remoteText = normalizeHtmlForCompare(data.text || "");
+					const entryText = normalizeHtmlForCompare(
+						state.dirtyPages[path]?.html || "",
+					);
 					if (remoteText && entryText && remoteText === entryText)
 						clearDirtyPage(path);
 				} catch {
@@ -1183,7 +1193,11 @@
 
 		// Load draft HTML if a dirty version exists for this path.
 		let dirtyHtml = getDirtyHtml(state.path);
-		if (dirtyHtml && dirtyHtml.trim() === state.originalHtml.trim()) {
+		if (
+			dirtyHtml &&
+			normalizeHtmlForCompare(dirtyHtml) ===
+				normalizeHtmlForCompare(state.originalHtml)
+		) {
 			clearDirtyPage(state.path);
 			dirtyHtml = "";
 		}
