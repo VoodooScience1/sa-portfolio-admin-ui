@@ -1997,46 +1997,14 @@
 			pathsToProcess.forEach((path) => {
 				const entry = blockData[path];
 				const selectedIds = selectedBlocks.get(path) || new Set();
-				const pendingExisting = (entry.all || [])
-					.filter((block) => block.localStatus === "pending")
-					.map((block) => ({
-						html: block.html,
-						pos: block.idx,
-						status: "pending",
-						prNumber: block.prNumber || null,
-					}));
-				const remainingLocal = [];
-				const seen = new Set();
-				const pushLocal = (item) => {
-					const key = `${item.pos ?? "x"}::${item.status}::${item.html}`;
-					if (seen.has(key)) return;
-					seen.add(key);
-					remainingLocal.push(item);
-				};
-
-				pendingExisting.forEach(pushLocal);
-				(entry.all || []).forEach((block) => {
-					if (!block.selectable) return;
-					if (selectedIds.has(block.id)) return;
-					pushLocal({
-						html: block.html,
-						pos: block.idx,
-						status: "staged",
-						prNumber: null,
-					});
-				});
-				const updatedHtml = mergeDirtyWithBase(
+				const updatedHtml = buildHtmlForSelection(entry, selectedIds, "discard");
+				const remainingLocal = deriveLocalBlocksFromDiff(
 					entry.baseHtml || entry.dirtyHtml || "",
-					entry.dirtyHtml || entry.baseHtml || "",
-					remainingLocal,
-				);
-				const remappedLocal = remapLocalPositionsFromHtml(
 					updatedHtml,
-					remainingLocal,
 				);
 				if (!updatedHtml || updatedHtml.trim() === entry.baseHtml.trim())
 					clearDirtyPage(path);
-				else setDirtyPage(path, updatedHtml, entry.baseHtml, remappedLocal);
+				else setDirtyPage(path, updatedHtml, entry.baseHtml, remainingLocal);
 				if (path === state.path) {
 					applyHtmlToCurrentPage(updatedHtml);
 					renderPageSurface();
