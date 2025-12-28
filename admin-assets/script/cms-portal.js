@@ -22,6 +22,7 @@
 	const DEFAULT_PAGE = "index.html";
 	const DIRTY_STORAGE_KEY = "cms-dirty-pages";
 	const PR_STORAGE_KEY = "cms-pr-state";
+	const SESSION_STORAGE_KEY = "cms-session-state";
 
 	function getPagePathFromLocation() {
 		const raw = String(location.pathname || "").replace(/^\/+/, "");
@@ -212,6 +213,70 @@
 		localStorage.setItem(PR_STORAGE_KEY, JSON.stringify(state.prList || []));
 	}
 
+	function loadSessionState() {
+		try {
+			const raw = sessionStorage.getItem(SESSION_STORAGE_KEY);
+			const data = raw ? JSON.parse(raw) : {};
+			return {
+				baselines: data.baselines && typeof data.baselines === "object" ? data.baselines : {},
+				committedByPr:
+					data.committedByPr && typeof data.committedByPr === "object"
+						? data.committedByPr
+						: {},
+			};
+		} catch {
+			return { baselines: {}, committedByPr: {} };
+		}
+	}
+
+	function saveSessionState() {
+		sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(state.session));
+	}
+
+	function signatureForHtml(html) {
+		return normalizeFragmentHtml(html || "");
+	}
+
+	function ensureSessionBaseline(path, baseHtml) {
+		if (!path || state.session.baselines[path]) return;
+		const main = extractRegion(baseHtml || "", "main");
+		const blocks = main.found ? parseBlocks(main.inner) : [];
+		state.session.baselines[path] = blocks.map((b) =>
+			signatureForHtml(b.html || ""),
+		);
+		saveSessionState();
+	}
+
+	function addSessionCommitted(prNumber, path, htmlList) {
+		if (!prNumber || !path || !Array.isArray(htmlList) || !htmlList.length) return;
+		const bucket = state.session.committedByPr[prNumber] || {};
+		const list = bucket[path] || [];
+		htmlList.forEach((html) => {
+			const sig = signatureForHtml(html);
+			if (sig) list.push(sig);
+		});
+		bucket[path] = list;
+		state.session.committedByPr[prNumber] = bucket;
+		saveSessionState();
+	}
+
+	function removeSessionCommitted(prNumber) {
+		if (!prNumber) return;
+		delete state.session.committedByPr[prNumber];
+		saveSessionState();
+	}
+
+	function committedCountsForPath(path) {
+		const counts = new Map();
+		Object.values(state.session.committedByPr || {}).forEach((byPath) => {
+			const list = byPath?.[path] || [];
+			list.forEach((sig) => {
+				if (!sig) return;
+				counts.set(sig, (counts.get(sig) || 0) + 1);
+			});
+		});
+		return counts;
+	}
 	function getActivePr() {
 		return (state.prList || [])[0] || null;
 	}
@@ -270,6 +335,7 @@
 						html: item,
 						pos: null,
 						status: "staged",
+						kind: "new",
 						legacyIdx: idx,
 					};
 				}
@@ -279,6 +345,7 @@
 						pos: Number.isInteger(item.pos) ? item.pos : null,
 						status: item.status === "pending" ? "pending" : "staged",
 						prNumber: item.prNumber || null,
+						kind: item.kind === "edited" ? "edited" : "new",
 					};
 				}
 				return null;
@@ -301,12 +368,13 @@
 			const matchIdx = baseBlocks.indexOf(html);
 			if (matchIdx >= 0) baseBlocks.splice(matchIdx, 1);
 			else
-				locals.push({
-					html,
-					pos: idx,
-					status: "staged",
-					prNumber: null,
-				});
+					locals.push({
+						html,
+						pos: idx,
+						status: "staged",
+						prNumber: null,
+						kind: "new",
+					});
 		});
 		return locals;
 	}
@@ -1309,6 +1377,7 @@
 		prList: loadPrState(),
 		dirtyPages: loadDirtyPagesFromStorage(),
 		currentDirty: false,
+		session: loadSessionState(),
 
 		heroInner: "",
 		mainInner: "",
@@ -1345,6 +1414,7 @@
 			throw new Error(data?.error || `Status failed (${res.status})`);
 
 		if (data.state === "merged") {
+			// Keep committed markers for this session after merge.
 			removePrFromState(number);
 			stopPrPolling();
 			if (state.prUrl) {
@@ -1361,6 +1431,8 @@
 		}
 
 		if (data.state === "closed") {
+			// Drop committed markers when a PR is closed without merge.
+			removeSessionCommitted(number);
 			removePrFromState(number);
 			stopPrPolling();
 			if (state.prUrl) {
@@ -1603,14 +1675,13 @@
 			pendingByPos.set(item.pos, pendingList);
 		});
 
-		const baseMain = extractRegion(state.originalHtml || "", "main");
-		const baseBlocks = baseMain.found ? parseBlocks(baseMain.inner) : [];
-		const baseCounts = new Map();
-		baseBlocks.forEach((block) => {
-			const sig = normalizeFragmentHtml(block.html || "");
+		const sessionList = state.session.baselines[state.path] || [];
+		const sessionCounts = new Map();
+		sessionList.forEach((sig) => {
 			if (!sig) return;
-			baseCounts.set(sig, (baseCounts.get(sig) || 0) + 1);
+			sessionCounts.set(sig, (sessionCounts.get(sig) || 0) + 1);
 		});
+		const committedCounts = committedCountsForPath(state.path);
 
 		state.blocks.forEach((b, idx) => {
 			const frag = new DOMParser().parseFromString(b.html, "text/html").body;
@@ -1640,13 +1711,19 @@
 
 			let status = "baseline";
 			if (localItem) {
-				status = localItem.status === "pending" ? "pending" : "new";
+				if (localItem.status === "pending") status = "pending";
+				else status = localItem.kind === "edited" ? "edited" : "new";
 			} else {
-				// Heuristic match against the current repo baseline.
-				const sig = normalizeFragmentHtml(html);
-				const remaining = sig ? baseCounts.get(sig) || 0 : 0;
-				if (remaining > 0) baseCounts.set(sig, remaining - 1);
-				else status = "modified";
+				const sig = signatureForHtml(html);
+				const committedRemaining = sig ? committedCounts.get(sig) || 0 : 0;
+				if (committedRemaining > 0) {
+					committedCounts.set(sig, committedRemaining - 1);
+					status = "committed";
+				} else {
+					const remaining = sig ? sessionCounts.get(sig) || 0 : 0;
+					if (remaining > 0) sessionCounts.set(sig, remaining - 1);
+					else status = "edited";
+				}
 			}
 
 			const classes = ["cms-block"];
@@ -1656,7 +1733,13 @@
 			Array.from(frag.children).forEach((n) => wrapper.appendChild(n));
 			if (status !== "pending") {
 				const label =
-					status === "new" ? "New block" : status === "modified" ? "Edited" : "Baseline";
+					status === "new"
+						? "New block"
+						: status === "edited"
+							? "Edited"
+							: status === "committed"
+								? "Committed"
+								: "Baseline";
 				wrapper.appendChild(
 					el("div", { class: `cms-block__badge cms-block__badge--${status}` }, [
 						label,
@@ -1665,8 +1748,8 @@
 			}
 			if (isPending) {
 				const label = pendingItem?.prNumber
-					? `Pending PR #${pendingItem.prNumber}`
-					: "Pending PR";
+					? `Committed PR #${pendingItem.prNumber}`
+					: "Committed PR";
 				wrapper.appendChild(
 					el("div", { class: "cms-block__overlay" }, [label]),
 				);
@@ -1763,6 +1846,7 @@
 
 		const data = await res.json();
 		state.originalHtml = data.text || "";
+		ensureSessionBaseline(state.path, state.originalHtml);
 
 		// Load draft HTML if a dirty version exists for this path.
 		const dirtyEntry = state.dirtyPages[state.path] || {};
@@ -2303,12 +2387,14 @@
 
 		action.addEventListener("click", async () => {
 			const pathsToProcess = Array.from(selectedPages);
+			const commitSelections = [];
 			if (!pathsToProcess.length) return;
 			const payloads = [];
 			const postPrUpdates = [];
 			pathsToProcess.forEach((path) => {
 				const entry = blockData[path];
 				const selectedIds = selectedBlocks.get(path) || new Set();
+				commitSelections.push({ path, entry, selectedIds });
 				const commitHtml = buildHtmlForSelection(entry, selectedIds, "commit");
 				const remainingLocal = [];
 				const seen = new Set();
@@ -2388,6 +2474,12 @@
 				payloads,
 			);
 			if (!pr?.number) return;
+			commitSelections.forEach(({ path, entry, selectedIds }) => {
+				const selectedHtml = (entry.all || [])
+					.filter((block) => selectedIds.has(block.id))
+					.map((block) => block.html);
+				addSessionCommitted(pr.number, path, selectedHtml);
+			});
 			postPrUpdates.forEach(({ path, entry, remainingLocal }) => {
 				const updated = remainingLocal.map((item) => {
 					if (item.status === "pending" && !item.prNumber) {
