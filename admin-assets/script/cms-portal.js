@@ -256,14 +256,20 @@
 		state.currentDirty = true;
 	}
 
-	function setDirtyPage(path, html, baseHtmlOverride = "") {
+	function setDirtyPage(path, html, baseHtmlOverride = "", localBlocksOverride) {
 		if (!path) return;
 		const baseHtml = baseHtmlOverride || state.originalHtml;
+		const existing = state.dirtyPages[path] || {};
+		const localBlocks =
+			localBlocksOverride !== undefined
+				? localBlocksOverride
+				: existing.localBlocks;
 		state.dirtyPages[path] = {
 			html,
 			baseHash: hashText(normalizeHtmlForCompare(baseHtml)),
 			dirtyHash: hashText(normalizeHtmlForCompare(html)),
 			updatedAt: Date.now(),
+			localBlocks: Array.isArray(localBlocks) ? localBlocks : [],
 		};
 		saveDirtyPagesToStorage();
 	}
@@ -293,22 +299,29 @@
 		return `${base} \u2022 DIRTY (${dirty} page${dirty === 1 ? "" : "s"})`;
 	}
 
-	function mergeDirtyWithBase(baseHtml, dirtyHtml) {
+	function mergeDirtyWithBase(baseHtml, dirtyHtml, localBlocks = []) {
 		const baseMain = extractRegion(baseHtml, "main");
 		const dirtyMain = extractRegion(dirtyHtml, "main");
 		if (!baseMain.found || !dirtyMain.found) return dirtyHtml;
 
 		const baseBlocks = parseBlocks(baseMain.inner);
-		const dirtyBlocks = parseBlocks(dirtyMain.inner);
-		const baseHtmlList = baseBlocks.map((b) => (b.html || "").trim());
-		const dirtyOnly = [];
 
-		dirtyBlocks.forEach((block) => {
-			const html = (block.html || "").trim();
-			const match = baseHtmlList.indexOf(html);
-			if (match >= 0) baseHtmlList.splice(match, 1);
-			else dirtyOnly.push(block);
-		});
+		const useLocal = Array.isArray(localBlocks) && localBlocks.length;
+		const dirtyOnly = [];
+		if (useLocal) {
+			localBlocks.forEach((html) => {
+				if (html) dirtyOnly.push({ html: String(html) });
+			});
+		} else {
+			const dirtyBlocks = parseBlocks(dirtyMain.inner);
+			const baseHtmlList = baseBlocks.map((b) => (b.html || "").trim());
+			dirtyBlocks.forEach((block) => {
+				const html = (block.html || "").trim();
+				const match = baseHtmlList.indexOf(html);
+				if (match >= 0) baseHtmlList.splice(match, 1);
+				else dirtyOnly.push(block);
+			});
+		}
 
 		const mergedMain = baseBlocks
 			.concat(dirtyOnly)
@@ -316,7 +329,6 @@
 			.join("\n\n");
 
 		let merged = baseHtml || "";
-		const baseHero = extractRegion(baseHtml, "hero");
 		const dirtyHero = extractRegion(dirtyHtml, "hero");
 		if (dirtyHero.found && normalizeFragmentHtml(dirtyHero.inner)) {
 			merged = replaceRegion(merged, "hero", dirtyHero.inner);
@@ -357,6 +369,9 @@
 						: [];
 
 					const baseHtmlList = baseBlocks.map((b) => (b.html || "").trim());
+					const localQueue = (state.dirtyPages[path]?.localBlocks || []).map(
+						(html) => String(html || "").trim(),
+					);
 					const all = [];
 					const added = [];
 
@@ -364,8 +379,11 @@
 						const html = (block.html || "").trim();
 						const summary = block.summary || block.type || "Block";
 						const match = baseHtmlList.indexOf(html);
-						const isBase = match >= 0;
+						const localMatch = localQueue.indexOf(html);
+						const isLocal = localMatch >= 0;
+						const isBase = match >= 0 && !isLocal;
 						if (match >= 0) baseHtmlList.splice(match, 1);
+						if (localMatch >= 0) localQueue.splice(localMatch, 1);
 						const item = {
 							id: `${path}::${idx}`,
 							html,
@@ -431,12 +449,19 @@
 					);
 					if (!res.ok) return;
 					const data = await res.json();
-					const remoteText = normalizeHtmlForCompare(data.text || "");
-					const entryText = normalizeHtmlForCompare(
-						state.dirtyPages[path]?.html || "",
+					const entry = state.dirtyPages[path] || {};
+					const merged = mergeDirtyWithBase(
+						data.text || "",
+						entry.html || "",
+						entry.localBlocks,
 					);
-					if (remoteText && entryText && remoteText === entryText)
+					const remoteText = normalizeHtmlForCompare(data.text || "");
+					const entryText = normalizeHtmlForCompare(merged || "");
+					if (remoteText && entryText && remoteText === entryText) {
 						clearDirtyPage(path);
+						return;
+					}
+					setDirtyPage(path, merged, data.text || "", entry.localBlocks);
 				} catch {
 					// Remote compare failure should not block modal flow.
 				}
@@ -1368,9 +1393,14 @@
 		state.originalHtml = data.text || "";
 
 		// Load draft HTML if a dirty version exists for this path.
-		let dirtyHtml = getDirtyHtml(state.path);
+		const dirtyEntry = state.dirtyPages[state.path] || {};
+		let dirtyHtml = dirtyEntry.html || "";
 		if (dirtyHtml) {
-			const mergedDirty = mergeDirtyWithBase(state.originalHtml, dirtyHtml);
+			const mergedDirty = mergeDirtyWithBase(
+				state.originalHtml,
+				dirtyHtml,
+				dirtyEntry.localBlocks,
+			);
 			if (
 				normalizeHtmlForCompare(mergedDirty) ===
 				normalizeHtmlForCompare(state.originalHtml)
@@ -1378,7 +1408,12 @@
 				clearDirtyPage(state.path);
 				dirtyHtml = "";
 			} else {
-				setDirtyPage(state.path, mergedDirty, state.originalHtml);
+				setDirtyPage(
+					state.path,
+					mergedDirty,
+					state.originalHtml,
+					dirtyEntry.localBlocks,
+				);
 				dirtyHtml = mergedDirty;
 			}
 		}
@@ -1584,10 +1619,17 @@
 			pathsToProcess.forEach((path) => {
 				const entry = blockData[path];
 				const selectedIds = selectedBlocks.get(path) || new Set();
-				const updatedHtml = buildHtmlForSelection(entry, selectedIds, "discard");
+				const remainingLocal = (entry.all || [])
+					.filter((block) => block.selectable && !selectedIds.has(block.id))
+					.map((block) => block.html);
+				const updatedHtml = mergeDirtyWithBase(
+					entry.baseHtml || entry.dirtyHtml || "",
+					entry.dirtyHtml || entry.baseHtml || "",
+					remainingLocal,
+				);
 				if (!updatedHtml || updatedHtml.trim() === entry.baseHtml.trim())
 					clearDirtyPage(path);
-				else setDirtyPage(path, updatedHtml, entry.baseHtml);
+				else setDirtyPage(path, updatedHtml, entry.baseHtml, remainingLocal);
 				if (path === state.path) applyHtmlToCurrentPage(updatedHtml);
 			});
 			purgeCleanDirtyPages();
@@ -1865,13 +1907,20 @@
 				const entry = blockData[path];
 				const selectedIds = selectedBlocks.get(path) || new Set();
 				const commitHtml = buildHtmlForSelection(entry, selectedIds, "commit");
-				const remainingHtml = buildDirtyAfterSelection(entry, selectedIds);
+				const remainingLocal = (entry.all || [])
+					.filter((block) => block.selectable && !selectedIds.has(block.id))
+					.map((block) => block.html);
+				const remainingHtml = mergeDirtyWithBase(
+					entry.baseHtml || entry.dirtyHtml || "",
+					entry.dirtyHtml || entry.baseHtml || "",
+					remainingLocal,
+				);
 				if (commitHtml) {
 					payloads.push({ path, text: commitHtml });
 				}
 				if (!remainingHtml || remainingHtml.trim() === entry.baseHtml.trim())
 					clearDirtyPage(path);
-				else setDirtyPage(path, remainingHtml, entry.baseHtml);
+				else setDirtyPage(path, remainingHtml, entry.baseHtml, remainingLocal);
 				if (path === state.path) applyHtmlToCurrentPage(remainingHtml);
 			});
 
