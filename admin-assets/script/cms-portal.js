@@ -466,17 +466,26 @@
 					const baseHtml = String(data.text || "");
 
 					const baseMain = extractRegion(baseHtml, "main");
-					const dirtyMain = extractRegion(dirtyHtml, "main");
 					const baseBlocks = baseMain.found ? parseBlocks(baseMain.inner) : [];
-					const dirtyBlocks = dirtyMain.found
-						? parseBlocks(dirtyMain.inner)
-						: [];
-
 					const baseHtmlList = baseBlocks.map((b) => (b.html || "").trim());
-					const localBlocks = filterLocalBlocksAgainstBase(
-						baseHtml,
-						state.dirtyPages[path]?.localBlocks || [],
+
+					const localBlocks = normalizePendingBlocks(
+						filterLocalBlocksAgainstBase(
+							baseHtml,
+							state.dirtyPages[path]?.localBlocks || [],
+						),
 					);
+					const mergedForList = localBlocks.length
+						? mergeDirtyWithBase(
+								baseHtml || dirtyHtml || "",
+								dirtyHtml || baseHtml || "",
+								localBlocks,
+							)
+						: dirtyHtml;
+					const mergedMain = extractRegion(mergedForList, "main");
+					const dirtyBlocks = mergedMain.found
+						? parseBlocks(mergedMain.inner)
+						: [];
 					const localPositions = new Map();
 					const localQueue = [];
 					localBlocks.forEach((item) => {
@@ -536,7 +545,8 @@
 
 					blockMap[path] = {
 						baseHtml,
-						dirtyHtml,
+						dirtyHtml: mergedForList,
+						localBlocks,
 						all,
 						added,
 						modified: [],
