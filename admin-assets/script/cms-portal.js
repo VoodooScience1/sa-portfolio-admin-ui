@@ -538,7 +538,6 @@
 	}
 
 	async function purgeDirtyPagesFromRepo(force = false) {
-		if (state.prUrl && !force) return;
 		const paths = Object.keys(state.dirtyPages || {});
 		if (!paths.length) return;
 		await Promise.all(
@@ -551,18 +550,22 @@
 					if (!res.ok) return;
 					const data = await res.json();
 					const entry = state.dirtyPages[path] || {};
+					const cleanedLocal = filterLocalBlocksAgainstBase(
+						data.text || "",
+						entry.localBlocks,
+					);
 					const merged = mergeDirtyWithBase(
 						data.text || "",
 						entry.html || "",
-						entry.localBlocks,
+						cleanedLocal,
 					);
 					const remoteText = normalizeHtmlForCompare(data.text || "");
 					const entryText = normalizeHtmlForCompare(merged || "");
-					if (remoteText && entryText && remoteText === entryText) {
+					if (!cleanedLocal.length && remoteText && entryText && remoteText === entryText) {
 						clearDirtyPage(path);
 						return;
 					}
-					setDirtyPage(path, merged, data.text || "", entry.localBlocks);
+					setDirtyPage(path, merged, data.text || "", cleanedLocal);
 				} catch {
 					// Remote compare failure should not block modal flow.
 				}
@@ -677,6 +680,13 @@
 								const text = el("span", { class: "cms-modal__label" }, [
 									block.summary,
 								]);
+								if (block.localStatus === "pending") {
+									text.appendChild(
+										el("span", { class: "cms-modal__badge" }, [
+											`Pending PR${block.prNumber ? ` #${block.prNumber}` : ""}`,
+										]),
+									);
+								}
 
 								const toggle = () => {
 									if (!block.selectable) return;
