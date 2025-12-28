@@ -1327,45 +1327,15 @@
 		if (discard) discard.disabled = dirtyCount() === 0;
 
 		const prLink = qs("#cms-pr-link");
-		const prMenu = qs("#cms-pr-menu");
 		if (prLink) {
 			if (state.prUrl) {
-				const prCount = state.prList?.length || 0;
 				prLink.href = state.prUrl;
-				prLink.textContent =
-					prCount > 1
-						? `PRs (${prCount})`
-						: `PR #${state.prNumber || "?"}`;
-				prLink.title =
-					state.prList?.length > 1
-						? `Open PRs: ${state.prList
-								.map((pr) => `#${pr.number || "?"}`)
-								.join(", ")}`
-						: "";
+				prLink.textContent = `PR #${state.prNumber || "?"}`;
+				prLink.removeAttribute("title");
 				prLink.hidden = false;
 			} else {
 				prLink.removeAttribute("title");
 				prLink.hidden = true;
-			}
-		}
-		if (prMenu) {
-			prMenu.innerHTML = "";
-			const list = state.prList || [];
-			if (list.length > 1) {
-				list.forEach((pr) => {
-					prMenu.appendChild(
-						el(
-							"a",
-							{
-								href: pr.url || "#",
-								target: "_blank",
-								rel: "noopener noreferrer",
-								class: "cms-pr-menu__item",
-							},
-							[`PR #${pr.number || "?"}`],
-						),
-					);
-				});
 			}
 		}
 	}
@@ -1611,16 +1581,13 @@
 			},
 			["PR"],
 		);
-		const prMenu = el("div", { class: "cms-pr-menu", id: "cms-pr-menu" }, []);
-		const prWrap = el("div", { class: "cms-pr-wrap" }, [prLink, prMenu]);
-
 		const stripHost = qs("#cms-status-strip");
 		if (!stripHost) throw new Error("Missing #cms-status-strip in admin.html");
 		stripHost.innerHTML = "";
 		stripHost.appendChild(
 			el("div", { class: "cms-strip" }, [
 				el("div", { class: "cms-strip-left" }, ["Development Portal"]),
-				el("div", { class: "cms-strip-mid" }, [statusPill, prWrap]),
+				el("div", { class: "cms-strip-mid" }, [statusPill, prLink]),
 				el("div", { class: "cms-strip-right cms-controls" }, [
 					discardBtn,
 					exitBtn,
@@ -2027,6 +1994,30 @@
 	}
 
 	async function openPrModal() {
+		// Guard against multiple active PRs for this session.
+		if (state.prList?.length) {
+			openModal({
+				title: "PR already open",
+				bodyNodes: [
+					el("p", {}, [
+						"A pull request is already open for this session. Merge or close it before creating another.",
+					]),
+				],
+				footerNodes: [
+					el(
+						"a",
+						{
+							class: "cms-btn cms-modal__action",
+							href: state.prUrl || "#",
+							target: "_blank",
+							rel: "noopener noreferrer",
+						},
+						["View PR"],
+					),
+				],
+			});
+			return;
+		}
 		openLoadingModal("Loading changes");
 		stashCurrentPageIfDirty();
 		await purgeDirtyPagesFromRepo();
