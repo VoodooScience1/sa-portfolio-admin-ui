@@ -293,8 +293,44 @@
 		return `${base} \u2022 DIRTY (${dirty} page${dirty === 1 ? "" : "s"})`;
 	}
 
+	function mergeDirtyWithBase(baseHtml, dirtyHtml) {
+		const baseMain = extractRegion(baseHtml, "main");
+		const dirtyMain = extractRegion(dirtyHtml, "main");
+		if (!baseMain.found || !dirtyMain.found) return dirtyHtml;
+
+		const baseBlocks = parseBlocks(baseMain.inner);
+		const dirtyBlocks = parseBlocks(dirtyMain.inner);
+		const baseHtmlList = baseBlocks.map((b) => (b.html || "").trim());
+		const dirtyOnly = [];
+
+		dirtyBlocks.forEach((block) => {
+			const html = (block.html || "").trim();
+			const match = baseHtmlList.indexOf(html);
+			if (match >= 0) baseHtmlList.splice(match, 1);
+			else dirtyOnly.push(block);
+		});
+
+		const mergedMain = baseBlocks
+			.concat(dirtyOnly)
+			.map((b) => b.html)
+			.join("\n\n");
+
+		let merged = baseHtml || "";
+		const baseHero = extractRegion(baseHtml, "hero");
+		const dirtyHero = extractRegion(dirtyHtml, "hero");
+		if (dirtyHero.found && normalizeFragmentHtml(dirtyHero.inner)) {
+			merged = replaceRegion(merged, "hero", dirtyHero.inner);
+		}
+		merged = replaceRegion(merged, "main", mergedMain);
+		return merged;
+	}
+
 	function refreshUiStateForDirty() {
-		if (["loading", "error", "pr", "readonly"].includes(state.uiState)) return;
+		if (["loading", "error", "readonly"].includes(state.uiState)) return;
+		if (state.prUrl) {
+			setUiState("pr", buildPrLabel());
+			return;
+		}
 		if (dirtyCount()) setUiState("dirty", buildDirtyLabel());
 		else setUiState("clean", "CONNECTED - CLEAN");
 	}
@@ -1333,13 +1369,18 @@
 
 		// Load draft HTML if a dirty version exists for this path.
 		let dirtyHtml = getDirtyHtml(state.path);
-		if (
-			dirtyHtml &&
-			normalizeHtmlForCompare(dirtyHtml) ===
+		if (dirtyHtml) {
+			const mergedDirty = mergeDirtyWithBase(state.originalHtml, dirtyHtml);
+			if (
+				normalizeHtmlForCompare(mergedDirty) ===
 				normalizeHtmlForCompare(state.originalHtml)
-		) {
-			clearDirtyPage(state.path);
-			dirtyHtml = "";
+			) {
+				clearDirtyPage(state.path);
+				dirtyHtml = "";
+			} else {
+				setDirtyPage(state.path, mergedDirty, state.originalHtml);
+				dirtyHtml = mergedDirty;
+			}
 		}
 		await purgeDirtyPagesFromRepo();
 		const workingHtml = dirtyHtml || state.originalHtml;
