@@ -21,6 +21,7 @@
 	// -------------------------
 	const DEFAULT_PAGE = "index.html";
 	const DIRTY_STORAGE_KEY = "cms-dirty-pages";
+	const PR_STORAGE_KEY = "cms-pr-state";
 
 	function getPagePathFromLocation() {
 		const raw = String(location.pathname || "").replace(/^\/+/, "");
@@ -193,6 +194,51 @@
 		}
 	}
 
+	function loadPrState() {
+		try {
+			const raw = localStorage.getItem(PR_STORAGE_KEY);
+			const data = raw ? JSON.parse(raw) : [];
+			return Array.isArray(data) ? data : [];
+		} catch {
+			return [];
+		}
+	}
+
+	function savePrState() {
+		localStorage.setItem(PR_STORAGE_KEY, JSON.stringify(state.prList || []));
+	}
+
+	function getActivePr() {
+		return (state.prList || [])[0] || null;
+	}
+
+	function syncActivePrState() {
+		const active = getActivePr();
+		state.prUrl = active?.url || "";
+		state.prNumber = active?.number || null;
+	}
+
+	function addPrToState(pr) {
+		if (!pr?.url && !pr?.number) return;
+		const list = state.prList || [];
+		const exists = list.some(
+			(item) => item?.number === pr.number || item?.url === pr.url,
+		);
+		const next = exists
+			? list
+			: [{ url: pr.url, number: pr.number, createdAt: Date.now() }, ...list];
+		state.prList = next;
+		savePrState();
+		syncActivePrState();
+	}
+
+	function removePrFromState(number) {
+		const list = state.prList || [];
+		state.prList = list.filter((item) => item?.number !== number);
+		savePrState();
+		syncActivePrState();
+	}
+
 	function hashText(input) {
 		let hash = 5381;
 		const text = String(input || "");
@@ -236,6 +282,15 @@
 		const count = dirtyCount();
 		if (!count) return "CONNECTED - CLEAN";
 		return `CONNECTED - DIRTY (${count} page${count === 1 ? "" : "s"})`;
+	}
+
+	function buildPrLabel() {
+		const prCount = (state.prList || []).length;
+		const dirty = dirtyCount();
+		const base =
+			prCount > 1 ? `PR OPEN (${prCount})` : "PR OPEN (AWAITING MERGE)";
+		if (!dirty) return base;
+		return `${base} \u2022 DIRTY (${dirty} page${dirty === 1 ? "" : "s"})`;
 	}
 
 	function refreshUiStateForDirty() {
@@ -652,14 +707,13 @@
 				throw new Error(data?.error || `PR failed (HTTP ${res.status})`);
 			}
 
-			state.prUrl = data?.pr?.url || "";
-			state.prNumber = data?.pr?.number || null;
+			addPrToState({ url: data?.pr?.url || "", number: data?.pr?.number });
 			if (!payloads) {
 				paths.forEach((path) => clearDirtyPage(path));
 				purgeCleanDirtyPages();
 			}
 
-			setUiState("pr", "PR OPEN (AWAITING MERGE)");
+			setUiState("pr", buildPrLabel());
 			renderPageSurface();
 			startPrPolling();
 		} catch (err) {
@@ -906,6 +960,7 @@
 		rebuiltHtml: "",
 		prUrl: "",
 		prNumber: null,
+		prList: loadPrState(),
 		dirtyPages: loadDirtyPagesFromStorage(),
 		currentDirty: false,
 
@@ -944,32 +999,40 @@
 			throw new Error(data?.error || `Status failed (${res.status})`);
 
 		if (data.state === "merged") {
-			state.prUrl = "";
-			state.prNumber = null;
+			removePrFromState(number);
 			stopPrPolling();
-			await purgeDirtyPagesFromRepo(true);
-			purgeCleanDirtyPages();
-			if (dirtyCount()) setUiState("dirty", buildDirtyLabel());
-			else setUiState("clean", "PR MERGED");
+			if (state.prUrl) {
+				setUiState("pr", buildPrLabel());
+				startPrPolling();
+			} else {
+				await purgeDirtyPagesFromRepo(true);
+				purgeCleanDirtyPages();
+				if (dirtyCount()) setUiState("dirty", buildDirtyLabel());
+				else setUiState("clean", "PR MERGED");
+			}
 			renderPageSurface();
 			return;
 		}
 
 		if (data.state === "closed") {
-			state.prUrl = "";
-			state.prNumber = null;
+			removePrFromState(number);
 			stopPrPolling();
-			await purgeDirtyPagesFromRepo(true);
-			purgeCleanDirtyPages();
-			if (dirtyCount()) setUiState("dirty", buildDirtyLabel());
-			else setUiState("clean", "PR CLOSED");
+			if (state.prUrl) {
+				setUiState("pr", buildPrLabel());
+				startPrPolling();
+			} else {
+				await purgeDirtyPagesFromRepo(true);
+				purgeCleanDirtyPages();
+				if (dirtyCount()) setUiState("dirty", buildDirtyLabel());
+				else setUiState("clean", "PR CLOSED");
+			}
 			renderPageSurface();
 			return;
 		}
 
 		state.prUrl = data.url || state.prUrl;
 		state.prNumber = data.number || state.prNumber;
-		setUiState("pr", "PR OPEN (AWAITING MERGE)");
+		setUiState("pr", buildPrLabel());
 		renderPageSurface();
 	}
 
@@ -1004,6 +1067,16 @@
 			else pill.classList.add("err");
 
 			pill.textContent = state.uiStateLabel || state.uiState.toUpperCase();
+			if (state.uiState === "pr") {
+				pill.title =
+					state.prList?.length > 1
+						? `PRs: ${state.prList
+								.map((pr) => `#${pr.number || "?"}`)
+								.join(", ")}`
+						: "";
+			} else {
+				pill.removeAttribute("title");
+			}
 		}
 
 		// Enable/disable buttons based on state
@@ -1015,8 +1088,15 @@
 			if (state.prUrl) {
 				prLink.href = state.prUrl;
 				prLink.textContent = `PR #${state.prNumber || "?"}`;
+				prLink.title =
+					state.prList?.length > 1
+						? `Open PRs: ${state.prList
+								.map((pr) => `#${pr.number || "?"}`)
+								.join(", ")}`
+						: "";
 				prLink.hidden = false;
 			} else {
+				prLink.removeAttribute("title");
 				prLink.hidden = true;
 			}
 		}
@@ -1236,9 +1316,10 @@
 	// -------------------------
 	async function loadSelectedPage() {
 		state.path = getPagePathFromLocation();
-		state.prUrl = "";
-		state.prNumber = null;
-		stopPrPolling();
+		state.prList = loadPrState();
+		syncActivePrState();
+		if (state.prUrl) startPrPolling();
+		else stopPrPolling();
 
 		setUiState("loading", "LOADING / INITIALISING");
 		renderPageSurface();
@@ -1300,7 +1381,8 @@
 		} else {
 			if (dirtyHtml && !state.currentDirty) clearDirtyPage(state.path);
 			purgeCleanDirtyPages();
-			if (dirtyCount()) setUiState("dirty", buildDirtyLabel());
+			if (state.prUrl) setUiState("pr", buildPrLabel());
+			else if (dirtyCount()) setUiState("dirty", buildDirtyLabel());
 			else setUiState("clean", "CONNECTED - CLEAN");
 		}
 
