@@ -327,7 +327,8 @@
 		});
 	}
 
-	async function purgeDirtyPagesFromRepo() {
+	async function purgeDirtyPagesFromRepo(force = false) {
+		if (state.prUrl && !force) return;
 		const paths = Object.keys(state.dirtyPages || {});
 		if (!paths.length) return;
 		await Promise.all(
@@ -946,6 +947,8 @@
 			state.prUrl = "";
 			state.prNumber = null;
 			stopPrPolling();
+			await purgeDirtyPagesFromRepo(true);
+			purgeCleanDirtyPages();
 			if (dirtyCount()) setUiState("dirty", buildDirtyLabel());
 			else setUiState("clean", "PR MERGED");
 			renderPageSurface();
@@ -956,6 +959,8 @@
 			state.prUrl = "";
 			state.prNumber = null;
 			stopPrPolling();
+			await purgeDirtyPagesFromRepo(true);
+			purgeCleanDirtyPages();
 			if (dirtyCount()) setUiState("dirty", buildDirtyLabel());
 			else setUiState("clean", "PR CLOSED");
 			renderPageSurface();
