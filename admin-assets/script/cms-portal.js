@@ -1413,6 +1413,17 @@
 	}
 
 	function renderPageSurface() {
+		const entry = state.dirtyPages[state.path];
+		if (entry?.html) {
+			const hero = extractRegion(entry.html, "hero");
+			const main = extractRegion(entry.html, "main");
+			if (hero.found) state.heroInner = hero.inner;
+			if (main.found) {
+				state.mainInner = main.inner;
+				state.blocks = parseBlocks(state.mainInner);
+			}
+		}
+
 		const root = qs("#cms-portal");
 		root.innerHTML = "";
 
