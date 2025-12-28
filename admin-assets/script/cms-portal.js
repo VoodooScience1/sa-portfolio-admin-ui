@@ -265,12 +265,19 @@
 		return items
 			.map((item, idx) => {
 				if (typeof item === "string") {
-					return { html: item, pos: null, legacyIdx: idx };
+					return {
+						html: item,
+						pos: null,
+						status: "staged",
+						legacyIdx: idx,
+					};
 				}
 				if (item && typeof item === "object") {
 					return {
 						html: String(item.html || ""),
 						pos: Number.isInteger(item.pos) ? item.pos : null,
+						status: item.status === "pending" ? "pending" : "staged",
+						prNumber: item.prNumber || null,
 					};
 				}
 				return null;
@@ -319,6 +326,28 @@
 			prCount > 1 ? `PR OPEN (${prCount})` : "PR OPEN (AWAITING MERGE)";
 		if (!dirty) return base;
 		return `${base} \u2022 DIRTY (${dirty} page${dirty === 1 ? "" : "s"})`;
+	}
+
+	function filterLocalBlocksAgainstBase(baseHtml, localBlocks) {
+		const items = normalizeLocalBlocks(localBlocks);
+		if (!items.length) return [];
+		const main = extractRegion(baseHtml, "main");
+		if (!main.found) return items;
+
+		const baseBlocks = parseBlocks(main.inner);
+		const baseByPos = baseBlocks.map((b) => (b.html || "").trim());
+		const baseSet = new Set(baseByPos.filter(Boolean));
+
+		return items.filter((item) => {
+			if (item.status !== "pending") return true;
+			const html = (item.html || "").trim();
+			if (!html) return false;
+			if (Number.isInteger(item.pos)) {
+				const baseAt = baseByPos[item.pos] || "";
+				return baseAt.trim() !== html;
+			}
+			return !baseSet.has(html);
+		});
 	}
 
 	function mergeDirtyWithBase(baseHtml, dirtyHtml, localBlocks = []) {
@@ -405,7 +434,8 @@
 						: [];
 
 					const baseHtmlList = baseBlocks.map((b) => (b.html || "").trim());
-					const localBlocks = normalizeLocalBlocks(
+					const localBlocks = filterLocalBlocksAgainstBase(
+						baseHtml,
 						state.dirtyPages[path]?.localBlocks || [],
 					);
 					const localPositions = new Map();
@@ -413,10 +443,10 @@
 					localBlocks.forEach((item) => {
 						if (Number.isInteger(item.pos)) {
 							const list = localPositions.get(item.pos) || [];
-							list.push(item.html.trim());
+							list.push(item);
 							localPositions.set(item.pos, list);
 						} else {
-							localQueue.push(item.html.trim());
+							localQueue.push(item);
 						}
 					});
 					const all = [];
@@ -425,26 +455,31 @@
 					dirtyBlocks.forEach((block, idx) => {
 						const html = (block.html || "").trim();
 						const summary = block.summary || block.type || "Block";
-						let isLocal = false;
+						let localItem = null;
 						if (localPositions.has(idx)) {
 							const list = localPositions.get(idx) || [];
 							if (!list.length) localPositions.delete(idx);
 							else {
-								const matchIdx = list.indexOf(html);
+								const matchIdx = list.findIndex(
+									(item) => (item.html || "").trim() === html,
+								);
 								if (matchIdx >= 0) {
-									list.splice(matchIdx, 1);
-									isLocal = true;
+									localItem = list.splice(matchIdx, 1)[0];
 								}
 								if (!list.length) localPositions.delete(idx);
 								else localPositions.set(idx, list);
 							}
 						}
 						const match = baseHtmlList.indexOf(html);
-						const localMatch = !isLocal ? localQueue.indexOf(html) : -1;
-						if (!isLocal && localMatch >= 0) {
-							isLocal = true;
-							localQueue.splice(localMatch, 1);
+						if (!localItem) {
+							const localMatch = localQueue.findIndex(
+								(item) => (item.html || "").trim() === html,
+							);
+							if (localMatch >= 0) {
+								localItem = localQueue.splice(localMatch, 1)[0];
+							}
 						}
+						const isLocal = Boolean(localItem);
 						const isBase = match >= 0 && !isLocal;
 						if (match >= 0 && !isLocal) baseHtmlList.splice(match, 1);
 						const item = {
@@ -452,7 +487,9 @@
 							idx,
 							html,
 							summary,
-							selectable: !isBase,
+							selectable: !isBase && (!localItem || localItem.status !== "pending"),
+							localStatus: localItem?.status || (isLocal ? "staged" : null),
+							prNumber: localItem?.prNumber || null,
 						};
 						all.push(item);
 						if (!isBase) added.push(item);
@@ -841,10 +878,12 @@
 			setUiState("pr", buildPrLabel());
 			renderPageSurface();
 			startPrPolling();
+			return data?.pr || null;
 		} catch (err) {
 			console.error(err);
 			setUiState("error", "DISCONNECTED / ERROR");
 			renderPageSurface();
+			return null;
 		}
 	}
 
@@ -1218,10 +1257,15 @@
 		if (discard) discard.disabled = dirtyCount() === 0;
 
 		const prLink = qs("#cms-pr-link");
+		const prMenu = qs("#cms-pr-menu");
 		if (prLink) {
 			if (state.prUrl) {
+				const prCount = state.prList?.length || 0;
 				prLink.href = state.prUrl;
-				prLink.textContent = `PR #${state.prNumber || "?"}`;
+				prLink.textContent =
+					prCount > 1
+						? `PRs (${prCount})`
+						: `PR #${state.prNumber || "?"}`;
 				prLink.title =
 					state.prList?.length > 1
 						? `Open PRs: ${state.prList
@@ -1232,6 +1276,26 @@
 			} else {
 				prLink.removeAttribute("title");
 				prLink.hidden = true;
+			}
+		}
+		if (prMenu) {
+			prMenu.innerHTML = "";
+			const list = state.prList || [];
+			if (list.length > 1) {
+				list.forEach((pr) => {
+					prMenu.appendChild(
+						el(
+							"a",
+							{
+								href: pr.url || "#",
+								target: "_blank",
+								rel: "noopener noreferrer",
+								class: "cms-pr-menu__item",
+							},
+							[`PR #${pr.number || "?"}`],
+						),
+					);
+				});
 			}
 		}
 	}
@@ -1369,9 +1433,46 @@
 
 		// Render from state.blocks (raw HTML),
 		// then run sections/lightbox for parity (same as your live site).
+		const pendingByPos = new Map();
+		const localBlocks = normalizeLocalBlocks(
+			state.dirtyPages[state.path]?.localBlocks || [],
+		);
+		localBlocks.forEach((item) => {
+			if (item.status !== "pending") return;
+			if (!Number.isInteger(item.pos)) return;
+			const list = pendingByPos.get(item.pos) || [];
+			list.push({ html: item.html, prNumber: item.prNumber || null });
+			pendingByPos.set(item.pos, list);
+		});
+
 		state.blocks.forEach((b, idx) => {
 			const frag = new DOMParser().parseFromString(b.html, "text/html").body;
-			Array.from(frag.children).forEach((n) => mainWrap.appendChild(n));
+			const pendingList = pendingByPos.get(idx) || [];
+			const html = (b.html || "").trim();
+			const pendingIdx = pendingList.findIndex(
+				(item) => (item.html || "").trim() === html,
+			);
+			const isPending = pendingIdx >= 0;
+			const pendingItem = isPending ? pendingList[pendingIdx] : null;
+			if (isPending) {
+				pendingList.splice(pendingIdx, 1);
+				if (!pendingList.length) pendingByPos.delete(idx);
+				else pendingByPos.set(idx, pendingList);
+			}
+
+			const wrapper = el("div", {
+				class: isPending ? "cms-block cms-block--pending" : "cms-block",
+			});
+			Array.from(frag.children).forEach((n) => wrapper.appendChild(n));
+			if (isPending) {
+				const label = pendingItem?.prNumber
+					? `Pending PR #${pendingItem.prNumber}`
+					: "Pending PR";
+				wrapper.appendChild(
+					el("div", { class: "cms-block__overlay" }, [label]),
+				);
+			}
+			mainWrap.appendChild(wrapper);
 			mainWrap.appendChild(insertDivider(idx + 1, "Insert block"));
 		});
 
@@ -1429,6 +1530,8 @@
 			},
 			["PR"],
 		);
+		const prMenu = el("div", { class: "cms-pr-menu", id: "cms-pr-menu" }, []);
+		const prWrap = el("div", { class: "cms-pr-wrap" }, [prLink, prMenu]);
 
 		const stripHost = qs("#cms-status-strip");
 		if (!stripHost) throw new Error("Missing #cms-status-strip in admin.html");
@@ -1436,7 +1539,7 @@
 		stripHost.appendChild(
 			el("div", { class: "cms-strip" }, [
 				el("div", { class: "cms-strip-left" }, ["Development Portal"]),
-				el("div", { class: "cms-strip-mid" }, [statusPill, prLink]),
+				el("div", { class: "cms-strip-mid" }, [statusPill, prWrap]),
 				el("div", { class: "cms-strip-right cms-controls" }, [
 					discardBtn,
 					exitBtn,
@@ -1469,10 +1572,14 @@
 		const dirtyEntry = state.dirtyPages[state.path] || {};
 		let dirtyHtml = dirtyEntry.html || "";
 		if (dirtyHtml) {
+			const cleanedLocal = filterLocalBlocksAgainstBase(
+				state.originalHtml,
+				dirtyEntry.localBlocks,
+			);
 			const mergedDirty = mergeDirtyWithBase(
 				state.originalHtml,
 				dirtyHtml,
-				dirtyEntry.localBlocks,
+				cleanedLocal,
 			);
 			if (
 				normalizeHtmlForCompare(mergedDirty) ===
@@ -1485,7 +1592,7 @@
 					state.path,
 					mergedDirty,
 					state.originalHtml,
-					dirtyEntry.localBlocks,
+					cleanedLocal,
 				);
 				dirtyHtml = mergedDirty;
 			}
@@ -1692,9 +1799,34 @@
 			pathsToProcess.forEach((path) => {
 				const entry = blockData[path];
 				const selectedIds = selectedBlocks.get(path) || new Set();
-				const remainingLocal = (entry.all || [])
-					.filter((block) => block.selectable && !selectedIds.has(block.id))
-					.map((block) => ({ html: block.html, pos: block.idx }));
+				const pendingExisting = (entry.all || [])
+					.filter((block) => block.localStatus === "pending")
+					.map((block) => ({
+						html: block.html,
+						pos: block.idx,
+						status: "pending",
+						prNumber: block.prNumber || null,
+					}));
+				const remainingLocal = [];
+				const seen = new Set();
+				const pushLocal = (item) => {
+					const key = `${item.pos ?? "x"}::${item.status}::${item.html}`;
+					if (seen.has(key)) return;
+					seen.add(key);
+					remainingLocal.push(item);
+				};
+
+				pendingExisting.forEach(pushLocal);
+				(entry.all || []).forEach((block) => {
+					if (!block.selectable) return;
+					if (selectedIds.has(block.id)) return;
+					pushLocal({
+						html: block.html,
+						pos: block.idx,
+						status: "staged",
+						prNumber: null,
+					});
+				});
 				const updatedHtml = mergeDirtyWithBase(
 					entry.baseHtml || entry.dirtyHtml || "",
 					entry.dirtyHtml || entry.baseHtml || "",
@@ -1975,17 +2107,52 @@
 		codeInput.addEventListener("input", updateAction);
 		updateAction();
 
-		action.addEventListener("click", () => {
+		action.addEventListener("click", async () => {
 			const pathsToProcess = Array.from(selectedPages);
 			if (!pathsToProcess.length) return;
 			const payloads = [];
+			const postPrUpdates = [];
 			pathsToProcess.forEach((path) => {
 				const entry = blockData[path];
 				const selectedIds = selectedBlocks.get(path) || new Set();
 				const commitHtml = buildHtmlForSelection(entry, selectedIds, "commit");
-				const remainingLocal = (entry.all || [])
-					.filter((block) => block.selectable && !selectedIds.has(block.id))
-					.map((block) => ({ html: block.html, pos: block.idx }));
+				const remainingLocal = [];
+				const seen = new Set();
+				const pushLocal = (item) => {
+					const key = `${item.pos ?? "x"}::${item.status}::${item.html}`;
+					if (seen.has(key)) return;
+					seen.add(key);
+					remainingLocal.push(item);
+				};
+
+				(entry.all || []).forEach((block) => {
+					if (!block.selectable) {
+						if (block.localStatus === "pending") {
+							pushLocal({
+								html: block.html,
+								pos: block.idx,
+								status: "pending",
+								prNumber: block.prNumber || null,
+							});
+						}
+						return;
+					}
+					if (selectedIds.has(block.id)) {
+						pushLocal({
+							html: block.html,
+							pos: block.idx,
+							status: "pending",
+							prNumber: null,
+						});
+					} else {
+						pushLocal({
+							html: block.html,
+							pos: block.idx,
+							status: "staged",
+							prNumber: null,
+						});
+					}
+				});
 				const commitBase = commitHtml || entry.baseHtml || entry.dirtyHtml || "";
 				const remainingHtml = mergeDirtyWithBase(
 					commitBase,
@@ -1997,7 +2164,10 @@
 				}
 				if (!remainingHtml || remainingHtml.trim() === entry.baseHtml.trim())
 					clearDirtyPage(path);
-				else setDirtyPage(path, remainingHtml, entry.baseHtml, remainingLocal);
+				else {
+					setDirtyPage(path, remainingHtml, entry.baseHtml, remainingLocal);
+					postPrUpdates.push({ path, entry, selectedIds, remainingLocal });
+				}
 				if (path === state.path) {
 					applyHtmlToCurrentPage(remainingHtml);
 					renderPageSurface();
@@ -2009,7 +2179,26 @@
 			document.body.classList.remove("cms-lock");
 
 			if (!payloads.length) return;
-			submitPr(payloads.map((p) => p.path), noteInput.value, payloads);
+			const pr = await submitPr(
+				payloads.map((p) => p.path),
+				noteInput.value,
+				payloads,
+			);
+			if (!pr?.number) return;
+			postPrUpdates.forEach(({ path, entry, remainingLocal }) => {
+				const updated = remainingLocal.map((item) => {
+					if (item.status === "pending" && !item.prNumber) {
+						return { ...item, prNumber: pr.number };
+					}
+					return item;
+				});
+				setDirtyPage(
+					path,
+					state.dirtyPages[path]?.html || "",
+					entry.baseHtml || state.originalHtml,
+					updated,
+				);
+			});
 		});
 
 		openModal({
