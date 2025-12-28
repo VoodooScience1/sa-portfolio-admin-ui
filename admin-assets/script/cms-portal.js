@@ -386,36 +386,40 @@
 					{ class: "cms-modal__sublist" },
 					blocks.length
 						? blocks.map((block) => {
-								const item = el("li", {}, []);
-								const bid = `cms-block-${hashText(block.id)}`;
+								const item = el("li", { class: "cms-modal__block" }, []);
 								const box = el("input", {
 									type: "checkbox",
-									id: bid,
 									disabled: block.selectable ? null : "true",
 								});
 								box.checked = block.selectable && blockSet.has(block.id);
-								const text = el(
-									"label",
-									{ for: bid, class: "cms-modal__label" },
-									[block.summary],
-								);
-								item.appendChild(box);
-								item.appendChild(text);
+								const text = el("span", { class: "cms-modal__label" }, [
+									block.summary,
+								]);
 
-								box.addEventListener("change", () => {
+								const toggle = () => {
+									if (!block.selectable) return;
 									const set = selectedBlocks.get(path) || new Set();
-									if (box.checked) set.add(block.id);
-									else set.delete(block.id);
+									if (set.has(block.id)) set.delete(block.id);
+									else set.add(block.id);
 									if (set.size) selectedBlocks.set(path, set);
 									else {
 										selectedBlocks.delete(path);
 										selectedPages.delete(path);
 									}
 									onSelectionChange();
+								};
+
+								box.addEventListener("change", toggle);
+								item.addEventListener("click", (event) => {
+									if (event.target === box) return;
+									toggle();
 								});
+
+								item.appendChild(box);
+								item.appendChild(text);
 								return item;
 							})
-						: [el("li", {}, ["No blocks detected"])],
+						: [el("li", { class: "cms-modal__block" }, ["No blocks detected"])],
 				);
 				group.appendChild(list);
 			}
