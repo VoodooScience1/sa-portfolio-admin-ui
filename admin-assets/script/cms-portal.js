@@ -518,7 +518,12 @@
 			const key = anchorKey(block);
 			const before = beforeMap.get(key) || [];
 			before.forEach((item) => merged.push({ html: item.html, _local: item }));
-			merged.push({ html: block.html, _base: true });
+			merged.push({
+				html: block.html,
+				_base: true,
+				sig: block.sig,
+				occ: block.occ,
+			});
 			const after = afterMap.get(key) || [];
 			after.forEach((item) => merged.push({ html: item.html, _local: item }));
 		});
@@ -765,16 +770,14 @@
 					const data = await res.json();
 					const baseHtml = String(data.text || "");
 
-					const baseMain = extractRegion(baseHtml, "main");
-					const baseBlocks = baseMain.found ? parseBlocks(baseMain.inner) : [];
-					const baseHtmlList = baseBlocks.map((b) => (b.html || "").trim());
-
 					const localBlocks = normalizePendingBlocks(
 						filterLocalBlocksAgainstBase(
 							baseHtml,
 							state.dirtyPages[path]?.localBlocks || [],
 						),
 					);
+					const all = [];
+					const added = [];
 					const mergedForList = localBlocks.length
 						? mergeDirtyWithBase(
 								baseHtml || dirtyHtml || "",
@@ -782,59 +785,37 @@
 								localBlocks,
 							)
 						: dirtyHtml;
-					const mergedMain = extractRegion(mergedForList, "main");
-					const dirtyBlocks = mergedMain.found
-						? parseBlocks(mergedMain.inner)
-						: [];
-					const localPositions = new Map();
-					const localQueue = [];
-					localBlocks.forEach((item) => {
-						if (Number.isInteger(item.pos)) {
-							const list = localPositions.get(item.pos) || [];
-							list.push(item);
-							localPositions.set(item.pos, list);
-						} else {
-							localQueue.push(item);
-						}
-					});
-					const all = [];
-					const added = [];
+					const baseBlocks = buildBaseBlocksWithOcc(baseHtml || "");
+					const mergedBlocks = localBlocks.length
+						? applyAnchoredInserts(baseBlocks, localBlocks)
+						: (extractRegion(baseHtml, "main").found
+								? parseBlocks(extractRegion(baseHtml, "main").inner).map((b) => ({
+										html: b.html,
+										_base: true,
+									}))
+								: []);
 
-					dirtyBlocks.forEach((block, idx) => {
+					const summarize = (html) => {
+						const doc = new DOMParser().parseFromString(
+							`<div id="__wrap__">${html}</div>`,
+							"text/html",
+						);
+						const node = doc.querySelector("#__wrap__")?.firstElementChild;
+						if (!node) return { type: "block", summary: "Block" };
+						return detectBlock(node);
+					};
+
+					mergedBlocks.forEach((block, idx) => {
 						const html = (block.html || "").trim();
-						const summary = block.summary || block.type || "Block";
-						let localItem = null;
-						if (localPositions.has(idx)) {
-							const list = localPositions.get(idx) || [];
-							if (!list.length) localPositions.delete(idx);
-							else {
-								const matchIdx = list.findIndex(
-									(item) => (item.html || "").trim() === html,
-								);
-								if (matchIdx >= 0) {
-									localItem = list.splice(matchIdx, 1)[0];
-								}
-								if (!list.length) localPositions.delete(idx);
-								else localPositions.set(idx, list);
-							}
-						}
-						const match = baseHtmlList.indexOf(html);
-						if (!localItem) {
-							const localMatch = localQueue.findIndex(
-								(item) => (item.html || "").trim() === html,
-							);
-							if (localMatch >= 0) {
-								localItem = localQueue.splice(localMatch, 1)[0];
-							}
-						}
+						const info = summarize(html);
+						const localItem = block._local || null;
 						const isLocal = Boolean(localItem);
-						const isBase = match >= 0 && !isLocal;
-						if (match >= 0 && !isLocal) baseHtmlList.splice(match, 1);
+						const isBase = !isLocal;
 						const item = {
 							id: `${path}::${idx}`,
 							idx,
 							html,
-							summary,
+							summary: info.summary || info.type || "Block",
 							selectable: !isBase && (!localItem || localItem.status !== "pending"),
 							localStatus: localItem?.status || (isLocal ? "staged" : null),
 							prNumber: localItem?.prNumber || null,
@@ -1830,21 +1811,13 @@
 
 		// Render from state.blocks (raw HTML),
 		// then run sections/lightbox for parity (same as your live site).
-		const pendingByPos = new Map();
-		const localByPos = new Map();
 		const localBlocks = normalizeLocalBlocks(
 			state.dirtyPages[state.path]?.localBlocks || [],
 		);
-		localBlocks.forEach((item) => {
-			if (!Number.isInteger(item.pos)) return;
-			const list = localByPos.get(item.pos) || [];
-			list.push(item);
-			localByPos.set(item.pos, list);
-			if (item.status !== "pending") return;
-			const pendingList = pendingByPos.get(item.pos) || [];
-			pendingList.push({ html: item.html, prNumber: item.prNumber || null });
-			pendingByPos.set(item.pos, pendingList);
-		});
+		const baseBlocks = buildBaseBlocksWithOcc(state.originalHtml || "");
+		const mergedRender = localBlocks.length
+			? applyAnchoredInserts(baseBlocks, localBlocks)
+			: state.blocks.map((b) => ({ html: b.html, _base: true }));
 
 		const sessionList = state.session.baselines[state.path] || [];
 		const sessionCounts = new Map();
@@ -1856,38 +1829,19 @@
 		const committedCounts = committedState.counts;
 		const committedByPos = committedState.byPos;
 
-		state.blocks.forEach((b, idx) => {
+		mergedRender.forEach((b, idx) => {
 			const frag = new DOMParser().parseFromString(b.html, "text/html").body;
-			const pendingList = pendingByPos.get(idx) || [];
 			const html = (b.html || "").trim();
-			const pendingIdx = pendingList.findIndex(
-				(item) => (item.html || "").trim() === html,
-			);
-			const isPending = pendingIdx >= 0;
-			const pendingItem = isPending ? pendingList[pendingIdx] : null;
-			if (isPending) {
-				pendingList.splice(pendingIdx, 1);
-				if (!pendingList.length) pendingByPos.delete(idx);
-				else pendingByPos.set(idx, pendingList);
-			}
-
-			const localList = localByPos.get(idx) || [];
-			const localIdx = localList.findIndex(
-				(item) => (item.html || "").trim() === html,
-			);
-			const localItem = localIdx >= 0 ? localList[localIdx] : null;
-			if (localIdx >= 0) {
-				localList.splice(localIdx, 1);
-				if (!localList.length) localByPos.delete(idx);
-				else localByPos.set(idx, localList);
-			}
+			const localItem = b._local || null;
+			const isPending = localItem?.status === "pending";
+			const pendingItem = isPending ? localItem : null;
 
 			let status = "baseline";
 			if (localItem) {
 				if (localItem.status === "pending") status = "pending";
 				else status = localItem.kind === "edited" ? "edited" : "new";
 			} else {
-				const sig = signatureForHtml(html);
+				const sig = b.sig || signatureForHtml(html);
 				const committedAtPos = sig
 					? (committedByPos.get(idx) || []).findIndex((s) => s === sig)
 					: -1;
@@ -2325,6 +2279,7 @@
 			const target = host.startsWith("dev.")
 				? "https://dev.portfolio.tacsa.co.uk/"
 				: "https://portfolio.tacsa.co.uk/";
+			sessionStorage.removeItem(SESSION_STORAGE_KEY);
 			location.href = target;
 			return;
 		}
@@ -2382,6 +2337,7 @@
 			state.currentDirty = false;
 			saveDirtyPagesToStorage();
 			localStorage.removeItem(DIRTY_STORAGE_KEY);
+			sessionStorage.removeItem(SESSION_STORAGE_KEY);
 			const host = location.hostname;
 			const target = host.startsWith("dev.")
 				? "https://dev.portfolio.tacsa.co.uk/"
