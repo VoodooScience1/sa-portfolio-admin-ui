@@ -531,6 +531,61 @@
 		return merged;
 	}
 
+	function buildMergedRenderBlocks(baseHtml, localBlocks) {
+		const baseBlocks = buildBaseBlocksWithOcc(baseHtml || "");
+		if (!localBlocks || !localBlocks.length) {
+			return baseBlocks.map((block) => ({
+				html: block.html,
+				_base: true,
+				sig: block.sig,
+				occ: block.occ,
+			}));
+		}
+		return applyAnchoredInserts(baseBlocks, localBlocks);
+	}
+
+	function getAnchorForIndex(targetIndex, mergedRender) {
+		let anchor = null;
+		let placement = "after";
+		for (let i = targetIndex - 1; i >= 0; i -= 1) {
+			const block = mergedRender[i];
+			if (block?._base && block.sig) {
+				anchor = { sig: block.sig, occ: block.occ };
+				placement = "after";
+				return { anchor, placement };
+			}
+		}
+		for (let i = targetIndex; i < mergedRender.length; i += 1) {
+			const block = mergedRender[i];
+			if (block?._base && block.sig) {
+				anchor = { sig: block.sig, occ: block.occ };
+				placement = "before";
+				return { anchor, placement };
+			}
+		}
+		return { anchor: null, placement: "after" };
+	}
+
+	function updateLocalBlocksAndRender(path, updatedLocal) {
+		const baseHtml = state.originalHtml || "";
+		const updatedHtml = mergeDirtyWithBase(baseHtml, baseHtml, updatedLocal);
+		if (!updatedHtml || updatedHtml.trim() === baseHtml.trim()) {
+			clearDirtyPage(path);
+		} else {
+			const anchoredLocal = assignAnchorsFromHtml(
+				baseHtml,
+				updatedHtml,
+				updatedLocal,
+			);
+			setDirtyPage(path, updatedHtml, baseHtml, anchoredLocal);
+		}
+		if (path === state.path) {
+			applyHtmlToCurrentPage(updatedHtml || baseHtml);
+			renderPageSurface();
+		}
+		refreshUiStateForDirty();
+	}
+
 	function normalizePendingBlocks(localBlocks) {
 		if ((state.prList || []).length) return localBlocks;
 		return normalizeLocalBlocks(localBlocks).map((item) => ({
@@ -1816,10 +1871,10 @@
 		const localBlocks = normalizeLocalBlocks(
 			state.dirtyPages[state.path]?.localBlocks || [],
 		);
-		const baseBlocks = buildBaseBlocksWithOcc(state.originalHtml || "");
-		const mergedRender = localBlocks.length
-			? applyAnchoredInserts(baseBlocks, localBlocks)
-			: state.blocks.map((b) => ({ html: b.html, _base: true }));
+		const mergedRender = buildMergedRenderBlocks(
+			state.originalHtml || "",
+			localBlocks,
+		);
 
 		const sessionList = state.session.baselines[state.path] || [];
 		const sessionCounts = new Map();
@@ -1871,6 +1926,55 @@
 			else classes.push(`cms-block--${status}`);
 			const wrapper = el("div", { class: classes.join(" ") });
 			Array.from(frag.children).forEach((n) => wrapper.appendChild(n));
+			if (localItem && !isPending) {
+				const controls = el("div", { class: "cms-block__controls" }, [
+					el(
+						"button",
+						{
+							type: "button",
+							class: "cms-block__btn",
+							"data-action": "edit",
+							"data-id": localItem.id || "",
+							title: "Edit block",
+						},
+						["Edit"],
+					),
+					el(
+						"button",
+						{
+							type: "button",
+							class: "cms-block__btn",
+							"data-action": "up",
+							"data-id": localItem.id || "",
+							title: "Move up",
+						},
+						["↑"],
+					),
+					el(
+						"button",
+						{
+							type: "button",
+							class: "cms-block__btn",
+							"data-action": "down",
+							"data-id": localItem.id || "",
+							title: "Move down",
+						},
+						["↓"],
+					),
+					el(
+						"button",
+						{
+							type: "button",
+							class: "cms-block__btn cms-block__btn--danger",
+							"data-action": "delete",
+							"data-id": localItem.id || "",
+							title: "Delete block",
+						},
+						["Delete"],
+					),
+				]);
+				wrapper.appendChild(controls);
+			}
 			if (status !== "pending") {
 				const label =
 					status === "new"
@@ -1911,6 +2015,62 @@
 						setUiState("error", "DISCONNECTED / ERROR");
 						renderPageSurface();
 					}
+				});
+			});
+			mainWrap.querySelectorAll(".cms-block__btn").forEach((btn) => {
+				btn.addEventListener("click", () => {
+					const action = btn.getAttribute("data-action") || "";
+					const id = btn.getAttribute("data-id") || "";
+					if (!id) return;
+					if (action === "edit") {
+						openModal({
+							title: "Edit block",
+							bodyNodes: [
+								el("p", { class: "cms-modal__text" }, [
+									"Block editing is coming next. This button is ready.",
+								]),
+							],
+							footerNodes: [
+								el("button", { class: "cms-btn cms-modal__action", type: "button", "data-close": "true" }, ["Close"]),
+							],
+						});
+						return;
+					}
+					const currentLocal = normalizeLocalBlocks(
+						state.dirtyPages[state.path]?.localBlocks || [],
+					);
+					const baseHtml = state.originalHtml || "";
+					const merged = buildMergedRenderBlocks(baseHtml, currentLocal);
+					const currentIndex = merged.findIndex(
+						(item) => item?._local?.id === id,
+					);
+					if (currentIndex < 0) return;
+					if (action === "delete") {
+						const remaining = currentLocal.filter((item) => item.id !== id);
+						updateLocalBlocksAndRender(state.path, remaining);
+						return;
+					}
+					const delta = action === "up" ? -1 : 1;
+					const targetIndex = Math.max(
+						0,
+						Math.min(currentIndex + delta, merged.length - 1),
+					);
+					if (targetIndex === currentIndex) return;
+					const remaining = currentLocal.filter((item) => item.id !== id);
+					const mergedWithout = buildMergedRenderBlocks(baseHtml, remaining);
+					const anchorInfo = getAnchorForIndex(targetIndex, mergedWithout);
+					const moving = currentLocal.find((item) => item.id === id);
+					if (!moving) return;
+					const updated = [
+						...remaining,
+						{
+							...moving,
+							anchor: anchorInfo.anchor,
+							placement: anchorInfo.placement,
+							pos: targetIndex,
+						},
+					];
+					updateLocalBlocksAndRender(state.path, updated);
 				});
 			});
 		});
