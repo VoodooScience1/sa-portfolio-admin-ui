@@ -431,6 +431,73 @@
 		return locals;
 	}
 
+	function assignAnchorsFromHtml(baseHtml, mergedHtml, localBlocks) {
+		const items = normalizeLocalBlocks(localBlocks);
+		if (!items.length) return items;
+		const main = extractRegion(mergedHtml || "", "main");
+		if (!main.found) return items;
+
+		const mergedBlocks = parseBlocks(main.inner);
+		const mergedSigs = mergedBlocks.map((b) => signatureForHtml(b.html || ""));
+		const baseBlocks = buildBaseBlocksWithOcc(baseHtml || "");
+		const baselineMap = [];
+		let baseIdx = 0;
+		mergedSigs.forEach((sig, idx) => {
+			if (baseIdx < baseBlocks.length && sig === baseBlocks[baseIdx].sig) {
+				baselineMap[idx] = baseBlocks[baseIdx];
+				baseIdx += 1;
+			} else {
+				baselineMap[idx] = null;
+			}
+		});
+
+		const localPosBySig = new Map();
+		mergedSigs.forEach((sig, idx) => {
+			if (baselineMap[idx]) return;
+			const list = localPosBySig.get(sig) || [];
+			list.push(idx);
+			localPosBySig.set(sig, list);
+		});
+
+		return items.map((item) => {
+			if (item.anchor?.sig) return item;
+			const sig = signatureForHtml(item.html || "");
+			const list = localPosBySig.get(sig) || [];
+			const idx = list.length ? list.shift() : null;
+			if (!list.length) localPosBySig.delete(sig);
+			let anchor = null;
+			let placement = item.placement || "after";
+			let pos = item.pos;
+			if (idx !== null) {
+				pos = idx;
+				let nextBaseline = null;
+				for (let j = idx; j < baselineMap.length; j += 1) {
+					if (baselineMap[j]) {
+						nextBaseline = baselineMap[j];
+						break;
+					}
+				}
+				if (nextBaseline) {
+					anchor = { sig: nextBaseline.sig, occ: nextBaseline.occ };
+					placement = "before";
+				} else {
+					let prevBaseline = null;
+					for (let j = idx - 1; j >= 0; j -= 1) {
+						if (baselineMap[j]) {
+							prevBaseline = baselineMap[j];
+							break;
+						}
+					}
+					if (prevBaseline) {
+						anchor = { sig: prevBaseline.sig, occ: prevBaseline.occ };
+						placement = "after";
+					}
+				}
+			}
+			return { ...item, anchor, placement, pos };
+		});
+	}
+
 	function applyAnchoredInserts(baseBlocks, localBlocks) {
 		const beforeMap = new Map();
 		const afterMap = new Map();
@@ -457,33 +524,6 @@
 		});
 		orphans.forEach((item) => merged.push({ html: item.html, _local: item }));
 		return merged;
-	}
-
-	function remapLocalPositionsFromHtml(mergedHtml, localBlocks) {
-		const main = extractRegion(mergedHtml || "", "main");
-		if (!main.found) return localBlocks;
-		const blocks = parseBlocks(main.inner).map((b) => (b.html || "").trim());
-		const pool = new Map();
-		normalizeLocalBlocks(localBlocks).forEach((item) => {
-			const key = (item.html || "").trim();
-			if (!key) return;
-			const list = pool.get(key) || [];
-			list.push(item);
-			pool.set(key, list);
-		});
-		const updated = [];
-		blocks.forEach((html, idx) => {
-			const list = pool.get(html);
-			if (!list || !list.length) return;
-			const item = list.shift();
-			updated.push({ ...item, pos: idx });
-			if (!list.length) pool.delete(html);
-			else pool.set(html, list);
-		});
-		pool.forEach((list) => {
-			list.forEach((item) => updated.push({ ...item, pos: null }));
-		});
-		return updated;
 	}
 
 	function normalizePendingBlocks(localBlocks) {
@@ -529,6 +569,9 @@
 		if (!normalizedLocal.length && html && baseHtml) {
 			const derived = deriveLocalBlocksFromDiff(baseHtml, html);
 			if (derived.length) normalizedLocal = derived;
+		}
+		if (html && baseHtml) {
+			normalizedLocal = assignAnchorsFromHtml(baseHtml, html, normalizedLocal);
 		}
 		const canonicalHtml =
 			normalizedLocal.length > 0
@@ -870,7 +913,7 @@
 					);
 					const remappedLocal =
 						(state.prList || []).length
-							? cleanedLocal
+							? assignAnchorsFromHtml(data.text || "", merged, cleanedLocal)
 							: deriveLocalBlocksFromDiff(data.text || "", merged);
 					const remoteText = normalizeHtmlForCompare(data.text || "");
 					const entryText = normalizeHtmlForCompare(merged || "");
@@ -2237,9 +2280,14 @@
 					entry.baseHtml || entry.dirtyHtml || "",
 					remainingLocal,
 				);
+				const remappedLocal = assignAnchorsFromHtml(
+					entry.baseHtml || entry.dirtyHtml || "",
+					updatedHtml,
+					remainingLocal,
+				);
 				if (!updatedHtml || updatedHtml.trim() === entry.baseHtml.trim())
 					clearDirtyPage(path);
-				else setDirtyPage(path, updatedHtml, entry.baseHtml, remainingLocal);
+				else setDirtyPage(path, updatedHtml, entry.baseHtml, remappedLocal);
 				if (path === state.path) {
 					applyHtmlToCurrentPage(updatedHtml);
 					renderPageSurface();
@@ -2547,42 +2595,31 @@
 				const selectedIds = selectedBlocks.get(path) || new Set();
 				commitSelections.push({ path, entry, selectedIds });
 				const commitHtml = buildHtmlForSelection(entry, selectedIds, "commit");
+				const localById = new Map(
+					normalizeLocalBlocks(
+						state.dirtyPages[path]?.localBlocks || [],
+					).map((item) => [item.id, item]),
+				);
 				const remainingLocal = [];
 				const seen = new Set();
 				const pushLocal = (item) => {
-					const key = `${item.pos ?? "x"}::${item.status}::${item.html}`;
+					const key = `${item.id || ""}::${item.status}::${item.html}`;
 					if (seen.has(key)) return;
 					seen.add(key);
 					remainingLocal.push(item);
 				};
 
 				(entry.all || []).forEach((block) => {
-					if (!block.selectable) {
-						if (block.localStatus === "pending") {
-							pushLocal({
-								html: block.html,
-								pos: block.idx,
-								status: "pending",
-								prNumber: block.prNumber || null,
-							});
-						}
-						return;
-					}
-					if (selectedIds.has(block.id)) {
-						pushLocal({
-							html: block.html,
-							pos: block.idx,
-							status: "pending",
-							prNumber: null,
-						});
-					} else {
-						pushLocal({
-							html: block.html,
-							pos: block.idx,
-							status: "staged",
-							prNumber: null,
-						});
-					}
+					const localItem = block.localId ? localById.get(block.localId) : null;
+					if (!localItem) return;
+					const nextStatus = selectedIds.has(block.id)
+						? "pending"
+						: "staged";
+					pushLocal({
+						...localItem,
+						status: nextStatus,
+						prNumber: nextStatus === "pending" ? null : localItem.prNumber || null,
+					});
 				});
 				const remainingBase = entry.baseHtml || entry.dirtyHtml || "";
 				const remainingHtml = mergeDirtyWithBase(
@@ -2590,7 +2627,8 @@
 					remainingBase,
 					remainingLocal,
 				);
-				const remappedLocal = remapLocalPositionsFromHtml(
+				const remappedLocal = assignAnchorsFromHtml(
+					remainingBase,
 					remainingHtml,
 					remainingLocal,
 				);
