@@ -122,25 +122,29 @@
 		if (root) return root;
 		root = el("div", { id: "cms-modal", class: "cms-modal" }, [
 			el("div", { class: "cms-modal__backdrop", "data-close": "true" }),
-			el("div", { class: "cms-modal__panel", role: "dialog", "aria-modal": "true" }, [
-				el("div", { class: "cms-modal__header" }, [
-					el("h2", { id: "cms-modal-title", class: "cms-modal__title" }, [
-						"Modal",
+			el(
+				"div",
+				{ class: "cms-modal__panel", role: "dialog", "aria-modal": "true" },
+				[
+					el("div", { class: "cms-modal__header" }, [
+						el("h2", { id: "cms-modal-title", class: "cms-modal__title" }, [
+							"Modal",
+						]),
+						el(
+							"button",
+							{
+								class: "cms-modal__close",
+								type: "button",
+								"data-close": "true",
+								"aria-label": "Close",
+							},
+							["×"],
+						),
 					]),
-					el(
-						"button",
-						{
-							class: "cms-modal__close",
-							type: "button",
-							"data-close": "true",
-							"aria-label": "Close",
-						},
-						["×"],
-					),
-				]),
-				el("div", { class: "cms-modal__body", id: "cms-modal-body" }, []),
-				el("div", { class: "cms-modal__footer", id: "cms-modal-footer" }, []),
-			]),
+					el("div", { class: "cms-modal__body", id: "cms-modal-body" }, []),
+					el("div", { class: "cms-modal__footer", id: "cms-modal-footer" }, []),
+				],
+			),
 		]);
 		document.body.appendChild(root);
 		return root;
@@ -229,7 +233,10 @@
 			const raw = sessionStorage.getItem(SESSION_STORAGE_KEY);
 			const data = raw ? JSON.parse(raw) : {};
 			return {
-				baselines: data.baselines && typeof data.baselines === "object" ? data.baselines : {},
+				baselines:
+					data.baselines && typeof data.baselines === "object"
+						? data.baselines
+						: {},
 				committedByPr:
 					data.committedByPr && typeof data.committedByPr === "object"
 						? data.committedByPr
@@ -276,7 +283,8 @@
 	}
 
 	function addSessionCommitted(prNumber, path, blockList) {
-		if (!prNumber || !path || !Array.isArray(blockList) || !blockList.length) return;
+		if (!prNumber || !path || !Array.isArray(blockList) || !blockList.length)
+			return;
 		const bucket = state.session.committedByPr[prNumber] || {};
 		const list = bucket[path] || [];
 		blockList.forEach((item) => {
@@ -424,7 +432,10 @@
 			let anchor = null;
 			let placement = "after";
 			if (baseIndex < baseBlocks.length) {
-				anchor = { sig: baseBlocks[baseIndex].sig, occ: baseBlocks[baseIndex].occ };
+				anchor = {
+					sig: baseBlocks[baseIndex].sig,
+					occ: baseBlocks[baseIndex].occ,
+				};
 				placement = "before";
 			} else if (lastBaseline) {
 				anchor = { sig: lastBaseline.sig, occ: lastBaseline.occ };
@@ -646,7 +657,12 @@
 		if (changed) saveDirtyPagesToStorage();
 	}
 
-	function setDirtyPage(path, html, baseHtmlOverride = "", localBlocksOverride) {
+	function setDirtyPage(
+		path,
+		html,
+		baseHtmlOverride = "",
+		localBlocksOverride,
+	) {
 		if (!path) return;
 		const baseHtml = baseHtmlOverride || state.originalHtml;
 		const existing = state.dirtyPages[path] || {};
@@ -722,7 +738,9 @@
 			const html = (item.html || "").trim();
 			if (!html) return false;
 			if (Number.isInteger(item.pos)) {
-				const beforeCount = localsWithPos.filter((pos) => pos < item.pos).length;
+				const beforeCount = localsWithPos.filter(
+					(pos) => pos < item.pos,
+				).length;
 				const baseIndex = item.pos - beforeCount;
 				const baseAt = baseByPos[baseIndex] || "";
 				// Drop any local block that now exactly matches the repo at its mapped position.
@@ -732,7 +750,12 @@
 		});
 	}
 
-	function mergeDirtyWithBase(baseHtml, dirtyHtml, localBlocks = [], options = {}) {
+	function mergeDirtyWithBase(
+		baseHtml,
+		dirtyHtml,
+		localBlocks = [],
+		options = {},
+	) {
 		const baseMain = extractRegion(baseHtml, "main");
 		const dirtyMain = extractRegion(dirtyHtml, "main");
 		if (!baseMain.found || !dirtyMain.found) return dirtyHtml;
@@ -747,7 +770,9 @@
 				if (item && item.html) dirtyOnly.push(item);
 			});
 			// Ignore dirtyHtml main when localBlocks are present to avoid duplication.
-			const hasAnchors = dirtyOnly.some((item) => item.anchor && item.anchor.sig);
+			const hasAnchors = dirtyOnly.some(
+				(item) => item.anchor && item.anchor.sig,
+			);
 			let mergedBlocks = [];
 			if (hasAnchors) {
 				mergedBlocks = applyAnchoredInserts(baseBlocks, dirtyOnly, {
@@ -755,7 +780,9 @@
 				});
 			} else {
 				const withPos = dirtyOnly.filter((item) => Number.isInteger(item.pos));
-				const withoutPos = dirtyOnly.filter((item) => !Number.isInteger(item.pos));
+				const withoutPos = dirtyOnly.filter(
+					(item) => !Number.isInteger(item.pos),
+				);
 				const posMap = new Map();
 				withPos.forEach((item) => {
 					const list = posMap.get(item.pos) || [];
@@ -773,7 +800,10 @@
 						continue;
 					}
 					if (baseIndex < baseBlocks.length) {
-						mergedBlocks.push({ html: baseBlocks[baseIndex].html, _base: true });
+						mergedBlocks.push({
+							html: baseBlocks[baseIndex].html,
+							_base: true,
+						});
 						baseIndex += 1;
 					}
 				}
@@ -882,12 +912,12 @@
 						? applyAnchoredInserts(baseBlocks, localBlocks, {
 								respectRemovals: false,
 							})
-						: (extractRegion(baseHtml, "main").found
-								? parseBlocks(extractRegion(baseHtml, "main").inner).map((b) => ({
-										html: b.html,
-										_base: true,
-									}))
-								: []);
+						: extractRegion(baseHtml, "main").found
+							? parseBlocks(extractRegion(baseHtml, "main").inner).map((b) => ({
+									html: b.html,
+									_base: true,
+								}))
+							: [];
 
 					const summarize = (html) => {
 						const doc = new DOMParser().parseFromString(
@@ -910,7 +940,8 @@
 							idx,
 							html,
 							summary: info.summary || info.type || "Block",
-							selectable: !isBase && (!localItem || localItem.status !== "pending"),
+							selectable:
+								!isBase && (!localItem || localItem.status !== "pending"),
 							localStatus: localItem?.status || (isLocal ? "staged" : null),
 							prNumber: localItem?.prNumber || null,
 							localId: localItem?.id || null,
@@ -981,7 +1012,11 @@
 			const entry = state.dirtyPages[path];
 			if (!entry) return;
 			if (normalizeLocalBlocks(entry.localBlocks || []).length) return;
-			if (entry.baseHash && entry.dirtyHash && entry.baseHash === entry.dirtyHash)
+			if (
+				entry.baseHash &&
+				entry.dirtyHash &&
+				entry.baseHash === entry.dirtyHash
+			)
 				clearDirtyPage(path);
 		});
 	}
@@ -1000,10 +1035,7 @@
 					const data = await res.json();
 					const entry = state.dirtyPages[path] || {};
 					const cleanedLocal = normalizePendingBlocks(
-						filterLocalBlocksAgainstBase(
-							data.text || "",
-							entry.localBlocks,
-						),
+						filterLocalBlocksAgainstBase(data.text || "", entry.localBlocks),
 					);
 					const merged = mergeDirtyWithBase(
 						data.text || "",
@@ -1011,19 +1043,26 @@
 						cleanedLocal,
 						{ respectRemovals: false },
 					);
-					const remappedLocal =
-						(state.prList || []).length
-							? assignAnchorsFromHtml(data.text || "", merged, cleanedLocal)
-							: deriveLocalBlocksFromDiff(data.text || "", merged);
+					const remappedLocal = (state.prList || []).length
+						? assignAnchorsFromHtml(data.text || "", merged, cleanedLocal)
+						: deriveLocalBlocksFromDiff(data.text || "", merged);
 					const remoteText = normalizeHtmlForCompare(data.text || "");
 					const entryText = normalizeHtmlForCompare(merged || "");
-					if (!cleanedLocal.length && !normalizeLocalBlocks(entry.localBlocks || []).length) {
+					if (
+						!cleanedLocal.length &&
+						!normalizeLocalBlocks(entry.localBlocks || []).length
+					) {
 						if (remoteText && entryText && remoteText !== entryText) {
 							clearDirtyPage(path);
 							return;
 						}
 					}
-					if (!cleanedLocal.length && remoteText && entryText && remoteText === entryText) {
+					if (
+						!cleanedLocal.length &&
+						remoteText &&
+						entryText &&
+						remoteText === entryText
+					) {
 						clearDirtyPage(path);
 						return;
 					}
@@ -1222,10 +1261,7 @@
 				if (checkbox.checked) {
 					selectedPages.add(path);
 					if (!selectedBlocks.has(path)) {
-						selectedBlocks.set(
-							path,
-							new Set(selectable.map((b) => b.id)),
-						);
+						selectedBlocks.set(path, new Set(selectable.map((b) => b.id)));
 					}
 				} else {
 					selectedPages.delete(path);
@@ -1268,9 +1304,11 @@
 			{ class: "cms-modal__toggle-btn", type: "button" },
 			["Modified blocks"],
 		);
-		const allBtn = el("button", { class: "cms-modal__toggle-btn", type: "button" }, [
-			"All blocks",
-		]);
+		const allBtn = el(
+			"button",
+			{ class: "cms-modal__toggle-btn", type: "button" },
+			["All blocks"],
+		);
 
 		const modes = new Set(["new"]);
 		const syncButtons = () => {
@@ -1995,8 +2033,7 @@
 			const isPending = localItem?.status === "pending";
 			const pendingItem = isPending ? localItem : null;
 			const isBase = Boolean(b._base);
-			const isMarkedRemove =
-				isBase && markMap.get(anchorKey(b))?.length > 0;
+			const isMarkedRemove = isBase && markMap.get(anchorKey(b))?.length > 0;
 
 			let status = "baseline";
 			if (localItem) {
@@ -2201,7 +2238,8 @@
 				btn.addEventListener("click", () => {
 					const action = btn.getAttribute("data-action") || "";
 					const id = btn.getAttribute("data-id") || "";
-					const origin = btn.getAttribute("data-origin") || (id ? "local" : "base");
+					const origin =
+						btn.getAttribute("data-origin") || (id ? "local" : "base");
 					const indexAttr = btn.getAttribute("data-index");
 					const index = Number.isInteger(Number(indexAttr))
 						? Number(indexAttr)
@@ -2216,7 +2254,15 @@
 								]),
 							],
 							footerNodes: [
-								el("button", { class: "cms-btn cms-modal__action", type: "button", "data-close": "true" }, ["Close"]),
+								el(
+									"button",
+									{
+										class: "cms-btn cms-modal__action",
+										type: "button",
+										"data-close": "true",
+									},
+									["Close"],
+								),
 							],
 						});
 						return;
@@ -2225,11 +2271,9 @@
 						state.dirtyPages[state.path]?.localBlocks || [],
 					);
 					const baseHtml = state.originalHtml || "";
-					const merged = buildMergedRenderBlocks(
-						baseHtml,
-						currentLocal,
-						{ respectRemovals: true },
-					);
+					const merged = buildMergedRenderBlocks(baseHtml, currentLocal, {
+						respectRemovals: true,
+					});
 					const currentIndex =
 						origin === "local"
 							? merged.findIndex((item) => item?._local?.id === id)
@@ -2243,10 +2287,7 @@
 							const key = anchorKey(anchor);
 							const updated = currentLocal.filter(
 								(item) =>
-									!(
-										item.action === "mark" &&
-										anchorKey(item.anchor) === key
-									),
+									!(item.action === "mark" && anchorKey(item.anchor) === key),
 							);
 							updateLocalBlocksAndRender(state.path, updated);
 							return;
@@ -2260,7 +2301,9 @@
 							confirmLabel: isBaseBlock ? "Mark for deletion" : "Delete",
 							onConfirm: () => {
 								if (origin === "local") {
-									const remaining = currentLocal.filter((item) => item.id !== id);
+									const remaining = currentLocal.filter(
+										(item) => item.id !== id,
+									);
 									updateLocalBlocksAndRender(state.path, remaining);
 									return;
 								}
@@ -2269,8 +2312,7 @@
 								const key = anchorKey(anchor);
 								const alreadyRemoved = currentLocal.some(
 									(item) =>
-										item.action === "mark" &&
-										anchorKey(item.anchor) === key,
+										item.action === "mark" && anchorKey(item.anchor) === key,
 								);
 								if (alreadyRemoved) return;
 								const updated = [
@@ -2318,20 +2360,19 @@
 					}
 					const baseBlock = merged[currentIndex];
 					if (!baseBlock?._base) return;
-					const markedKey = anchorKey({ sig: baseBlock.sig, occ: baseBlock.occ });
+					const markedKey = anchorKey({
+						sig: baseBlock.sig,
+						occ: baseBlock.occ,
+					});
 					const cleanedLocal = currentLocal.filter(
 						(item) =>
-							!(
-								item.action === "mark" &&
-								anchorKey(item.anchor) === markedKey
-							),
+							!(item.action === "mark" && anchorKey(item.anchor) === markedKey),
 					);
 					const removalAnchor = { sig: baseBlock.sig, occ: baseBlock.occ };
 					const removalKey = anchorKey(removalAnchor);
 					const hasRemoval = cleanedLocal.some(
 						(item) =>
-							item.action === "remove" &&
-							anchorKey(item.anchor) === removalKey,
+							item.action === "remove" && anchorKey(item.anchor) === removalKey,
 					);
 					const remaining = hasRemoval
 						? [...cleanedLocal]
@@ -2457,7 +2498,7 @@
 	function buildPenIcon() {
 		return el("span", {
 			class: "cms-block__icon cms-block__icon--edit",
-			html: "&#xf044;",
+			html: "&#xe3c9;",
 			"aria-hidden": "true",
 		});
 	}
@@ -2475,10 +2516,9 @@
 	// -------------------------
 	async function refreshCurrentPageFromRepo() {
 		const path = state.path || getPagePathFromLocation();
-		const res = await fetch(
-			`/api/repo/file?path=${encodeURIComponent(path)}`,
-			{ headers: { Accept: "application/json" } },
-		);
+		const res = await fetch(`/api/repo/file?path=${encodeURIComponent(path)}`, {
+			headers: { Accept: "application/json" },
+		});
 		if (!res.ok) return;
 		const data = await res.json();
 		state.originalHtml = data.text || state.originalHtml;
@@ -2536,12 +2576,7 @@
 				clearDirtyPage(state.path);
 				dirtyHtml = "";
 			} else {
-				setDirtyPage(
-					state.path,
-					mergedDirty,
-					state.originalHtml,
-					cleanedLocal,
-				);
+				setDirtyPage(state.path, mergedDirty, state.originalHtml, cleanedLocal);
 				dirtyHtml = mergedDirty;
 			}
 		}
@@ -2617,16 +2652,20 @@
 			{ for: "cms-select-all", class: "cms-modal__label" },
 			["Select all pages"],
 		);
-		const selectAllRow = el("div", { class: "cms-modal__row cms-modal__page" }, [
-			selectAll,
-			selectAllLabel,
-		]);
+		const selectAllRow = el(
+			"div",
+			{ class: "cms-modal__row cms-modal__page" },
+			[selectAll, selectAllLabel],
+		);
 		const divider = el("div", { class: "cms-modal__divider" }, []);
 		const note = el("p", { class: "cms-modal__text" }, [
 			"Confirm discarding the selected pages from memory.",
 		]);
 
-		const confirm = el("input", { type: "checkbox", id: "cms-confirm-discard" });
+		const confirm = el("input", {
+			type: "checkbox",
+			id: "cms-confirm-discard",
+		});
 		const confirmLabel = el(
 			"label",
 			{ for: "cms-confirm-discard", class: "cms-modal__label" },
@@ -2669,7 +2708,8 @@
 				return sum + blocks.length;
 			}, 0);
 			const totalSelected = countSelectedBlocks(selectedBlocks);
-			selectAll.checked = totalSelectable > 0 && totalSelected === totalSelectable;
+			selectAll.checked =
+				totalSelectable > 0 && totalSelected === totalSelectable;
 		};
 
 		const updateAction = () => {
@@ -2706,7 +2746,9 @@
 				paths.forEach((path) => {
 					const entry = blockData[path];
 					const blocks = getBlocksForModes(entry, activeModes);
-					const selectable = blocks.filter((b) => b.selectable).map((b) => b.id);
+					const selectable = blocks
+						.filter((b) => b.selectable)
+						.map((b) => b.id);
 					if (!selectable.length) return;
 					selectedPages.add(path);
 					selectedBlocks.set(path, new Set(selectable));
@@ -2924,16 +2966,20 @@
 		let activeModes = new Set(["new"]);
 		let list = null;
 
-		const selectAll = el("input", { type: "checkbox", id: "cms-select-all-pr" });
+		const selectAll = el("input", {
+			type: "checkbox",
+			id: "cms-select-all-pr",
+		});
 		const selectAllLabel = el(
 			"label",
 			{ for: "cms-select-all-pr", class: "cms-modal__label" },
 			["Select all pages"],
 		);
-		const selectAllRow = el("div", { class: "cms-modal__row cms-modal__page" }, [
-			selectAll,
-			selectAllLabel,
-		]);
+		const selectAllRow = el(
+			"div",
+			{ class: "cms-modal__row cms-modal__page" },
+			[selectAll, selectAllLabel],
+		);
 
 		const noteLabel = el(
 			"label",
@@ -2949,9 +2995,11 @@
 		const mention = el("div", { class: "cms-modal__note" }, [
 			"@VoodooScience1 please review + merge.",
 		]);
-		const keepNote = el("div", { class: "cms-modal__note cms-modal__note--subtle" }, [
-			"Unchecked blocks remain staged in memory.",
-		]);
+		const keepNote = el(
+			"div",
+			{ class: "cms-modal__note cms-modal__note--subtle" },
+			["Unchecked blocks remain staged in memory."],
+		);
 
 		const action = el(
 			"button",
@@ -2997,7 +3045,8 @@
 				return sum + blocks.length;
 			}, 0);
 			const totalSelected = countSelectedBlocks(selectedBlocks);
-			selectAll.checked = totalSelectable > 0 && totalSelected === totalSelectable;
+			selectAll.checked =
+				totalSelectable > 0 && totalSelected === totalSelectable;
 		};
 
 		const updateAction = () => {
@@ -3034,7 +3083,9 @@
 				dirtyPaths.forEach((path) => {
 					const entry = blockData[path];
 					const blocks = getBlocksForModes(entry, activeModes);
-					const selectable = blocks.filter((b) => b.selectable).map((b) => b.id);
+					const selectable = blocks
+						.filter((b) => b.selectable)
+						.map((b) => b.id);
 					if (!selectable.length) return;
 					selectedPages.add(path);
 					selectedBlocks.set(path, new Set(selectable));
@@ -3081,9 +3132,9 @@
 				commitSelections.push({ path, entry, selectedIds });
 				const commitHtml = buildHtmlForSelection(entry, selectedIds, "commit");
 				const localById = new Map(
-					normalizeLocalBlocks(
-						state.dirtyPages[path]?.localBlocks || [],
-					).map((item) => [item.id, item]),
+					normalizeLocalBlocks(state.dirtyPages[path]?.localBlocks || []).map(
+						(item) => [item.id, item],
+					),
 				);
 				const remainingLocal = [];
 				const seen = new Set();
@@ -3097,13 +3148,12 @@
 				(entry.all || []).forEach((block) => {
 					const localItem = block.localId ? localById.get(block.localId) : null;
 					if (!localItem) return;
-					const nextStatus = selectedIds.has(block.id)
-						? "pending"
-						: "staged";
+					const nextStatus = selectedIds.has(block.id) ? "pending" : "staged";
 					pushLocal({
 						...localItem,
 						status: nextStatus,
-						prNumber: nextStatus === "pending" ? null : localItem.prNumber || null,
+						prNumber:
+							nextStatus === "pending" ? null : localItem.prNumber || null,
 					});
 				});
 				const remainingBase = entry.baseHtml || entry.dirtyHtml || "";
@@ -3239,8 +3289,7 @@
 				link.classList.add("cms-nav-pr--readonly");
 			else if (state.uiState === "loading")
 				link.classList.add("cms-nav-pr--warn");
-			else if (state.uiState === "error")
-				link.classList.add("cms-nav-pr--err");
+			else if (state.uiState === "error") link.classList.add("cms-nav-pr--err");
 			else if (hasDirty) link.classList.add("cms-nav-pr--warn");
 			else link.classList.add("cms-nav-pr--ok");
 		};
