@@ -1306,7 +1306,7 @@
 		return wrap;
 	}
 
-	function buildModalToggleBar(onChange) {
+	function buildModalToggleBar(onChange, options = {}) {
 		const wrap = el("div", { class: "cms-modal__toggle" }, []);
 		const newBtn = el(
 			"button",
@@ -1324,7 +1324,7 @@
 			["All blocks"],
 		);
 
-		const modes = new Set(["new"]);
+		const modes = new Set(options.defaultModes || ["new"]);
 		const syncButtons = () => {
 			newBtn.classList.toggle("is-active", modes.has("new"));
 			modifiedBtn.classList.toggle("is-active", modes.has("modified"));
@@ -1354,6 +1354,7 @@
 		wrap.appendChild(newBtn);
 		wrap.appendChild(modifiedBtn);
 		wrap.appendChild(allBtn);
+		syncButtons();
 		onChange(new Set(modes));
 		return wrap;
 	}
@@ -1582,14 +1583,16 @@
 	}
 
 	function stashCurrentPageIfDirty() {
-		if (!state.currentDirty) {
+		const existing = state.dirtyPages[state.path] || {};
+		const existingLocal = normalizeLocalBlocks(existing.localBlocks || []);
+		if (!state.currentDirty && !existingLocal.length) {
 			clearDirtyPage(state.path);
 			refreshUiStateForDirty();
 			return;
 		}
 		rebuildPreviewHtml();
 		if (!state.rebuiltHtml) return;
-		setDirtyPage(state.path, state.rebuiltHtml);
+		setDirtyPage(state.path, state.rebuiltHtml, "", existingLocal);
 		refreshUiStateForDirty();
 	}
 
@@ -2359,12 +2362,17 @@
 						Math.min(currentIndex + delta, merged.length - 1),
 					);
 					if (targetIndex === currentIndex) return;
+					const adjustedTargetIndex =
+						targetIndex > currentIndex ? targetIndex - 1 : targetIndex;
 					if (origin === "local") {
 						const remaining = currentLocal.filter((item) => item.id !== id);
 						const mergedWithout = buildMergedRenderBlocks(baseHtml, remaining, {
 							respectRemovals: hasRemovalActions(remaining),
 						});
-						const anchorInfo = getAnchorForIndex(targetIndex, mergedWithout);
+						const anchorInfo = getAnchorForIndex(
+							adjustedTargetIndex,
+							mergedWithout,
+						);
 						const moving = currentLocal.find((item) => item.id === id);
 						if (!moving) return;
 						const updated = [
@@ -2412,7 +2420,10 @@
 					const mergedWithout = buildMergedRenderBlocks(baseHtml, remaining, {
 						respectRemovals: hasRemovalActions(remaining),
 					});
-					const anchorInfo = getAnchorForIndex(targetIndex, mergedWithout);
+					const anchorInfo = getAnchorForIndex(
+						adjustedTargetIndex,
+						mergedWithout,
+					);
 					const updated = [
 						...remaining,
 						{
@@ -2764,10 +2775,13 @@
 		};
 		rerenderList();
 
-		const toggle = buildModalToggleBar((modes) => {
-			activeModes = modes;
-			rerenderList();
-		});
+		const toggle = buildModalToggleBar(
+			(modes) => {
+				activeModes = modes;
+				rerenderList();
+			},
+			{ defaultModes: ["all"] },
+		);
 
 		selectAll.addEventListener("click", (event) => {
 			event.stopPropagation();
