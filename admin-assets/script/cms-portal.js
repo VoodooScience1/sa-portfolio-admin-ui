@@ -268,6 +268,18 @@
 		});
 	}
 
+	function buildBaselineRegistry(baseHtml) {
+		const blocks = buildBaseBlocksWithOcc(baseHtml || "");
+		const byId = new Map();
+		const order = [];
+		blocks.forEach((block) => {
+			if (!block.id) return;
+			byId.set(block.id, block);
+			order.push(block.id);
+		});
+		return { blocks, byId, order };
+	}
+
 	function anchorKey(anchor) {
 		if (anchor?.id) return `id:${anchor.id}`;
 		if (!anchor?.sig && anchor?.sig !== "") return "";
@@ -302,6 +314,7 @@
 			};
 		});
 		saveSessionState();
+		state.baselineRegistry[path] = buildBaselineRegistry(baseHtml);
 	}
 
 	function addSessionCommitted(prNumber, path, blockList) {
@@ -469,6 +482,13 @@
 			if (!baseId && anchor?.id) baseId = anchor.id;
 			return { ...item, anchor, baseId };
 		});
+	}
+
+	function getHydratedLocalBlocks(baseHtml, localBlocks, options = {}) {
+		const hydrated = hydrateLocalBlocksWithBaseIds(baseHtml, localBlocks);
+		if (!options.filtered) return hydrated;
+		const filtered = filterLocalBlocksAgainstBase(baseHtml, hydrated);
+		return options.pendingOnly ? normalizePendingBlocks(filtered) : filtered;
 	}
 
 	function deriveLocalBlocksFromDiff(baseHtml, dirtyHtml) {
@@ -1056,12 +1076,10 @@
 					const data = await res.json();
 					const baseHtml = String(data.text || "");
 
-					const hydratedLocal = hydrateLocalBlocksWithBaseIds(
+					const localBlocks = getHydratedLocalBlocks(
 						baseHtml,
 						state.dirtyPages[path]?.localBlocks || [],
-					);
-					const localBlocks = normalizePendingBlocks(
-						filterLocalBlocksAgainstBase(baseHtml, hydratedLocal),
+						{ filtered: true, pendingOnly: true },
 					);
 					const all = [];
 					const added = [];
@@ -1214,12 +1232,10 @@
 					if (!res.ok) return;
 					const data = await res.json();
 					const entry = state.dirtyPages[path] || {};
-					const hydratedLocal = hydrateLocalBlocksWithBaseIds(
+					const cleanedLocal = getHydratedLocalBlocks(
 						data.text || "",
 						entry.localBlocks,
-					);
-					const cleanedLocal = normalizePendingBlocks(
-						filterLocalBlocksAgainstBase(data.text || "", hydratedLocal),
+						{ filtered: true, pendingOnly: true },
 					);
 					const merged = mergeDirtyWithBase(
 						data.text || "",
@@ -1920,6 +1936,7 @@
 		dirtyPages: loadDirtyPagesFromStorage(),
 		currentDirty: false,
 		session: loadSessionState(),
+		baselineRegistry: {},
 
 		heroInner: "",
 		mainInner: "",
@@ -2203,7 +2220,7 @@
 
 		// Render from state.blocks (raw HTML),
 		// then run sections/lightbox for parity (same as your live site).
-		const localBlocks = hydrateLocalBlocksWithBaseIds(
+		const localBlocks = getHydratedLocalBlocks(
 			state.originalHtml || "",
 			state.dirtyPages[state.path]?.localBlocks || [],
 		);
@@ -2520,11 +2537,11 @@
 						});
 						return;
 					}
-					const currentLocal = hydrateLocalBlocksWithBaseIds(
+					const baseHtml = state.originalHtml || "";
+					const currentLocal = getHydratedLocalBlocks(
 						baseHtml,
 						state.dirtyPages[state.path]?.localBlocks || [],
 					);
-					const baseHtml = state.originalHtml || "";
 					const merged = buildMergedRenderBlocks(baseHtml, currentLocal, {
 						respectRemovals: true,
 					});
@@ -2876,17 +2893,16 @@
 		const data = await res.json();
 		state.originalHtml = data.text || "";
 		ensureSessionBaseline(state.path, state.originalHtml);
+		state.baselineRegistry[state.path] = buildBaselineRegistry(state.originalHtml);
 
 		// Load draft HTML if a dirty version exists for this path.
 		const dirtyEntry = state.dirtyPages[state.path] || {};
 		let dirtyHtml = dirtyEntry.html || "";
 		if (dirtyHtml) {
-			const hydratedLocal = hydrateLocalBlocksWithBaseIds(
+			const cleanedLocal = getHydratedLocalBlocks(
 				state.originalHtml,
 				dirtyEntry.localBlocks,
-			);
-			const cleanedLocal = normalizePendingBlocks(
-				filterLocalBlocksAgainstBase(state.originalHtml, hydratedLocal),
+				{ filtered: true, pendingOnly: true },
 			);
 			const mergedDirty = mergeDirtyWithBase(
 				state.originalHtml,
