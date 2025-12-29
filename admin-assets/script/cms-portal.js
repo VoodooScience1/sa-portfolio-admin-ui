@@ -2362,17 +2362,12 @@
 						Math.min(currentIndex + delta, merged.length - 1),
 					);
 					if (targetIndex === currentIndex) return;
-					const adjustedTargetIndex =
-						targetIndex > currentIndex ? targetIndex - 1 : targetIndex;
 					if (origin === "local") {
 						const remaining = currentLocal.filter((item) => item.id !== id);
 						const mergedWithout = buildMergedRenderBlocks(baseHtml, remaining, {
 							respectRemovals: hasRemovalActions(remaining),
 						});
-						const anchorInfo = getAnchorForIndex(
-							adjustedTargetIndex,
-							mergedWithout,
-						);
+						const anchorInfo = getAnchorForIndex(targetIndex, mergedWithout);
 						const moving = currentLocal.find((item) => item.id === id);
 						if (!moving) return;
 						const updated = [
@@ -2420,10 +2415,7 @@
 					const mergedWithout = buildMergedRenderBlocks(baseHtml, remaining, {
 						respectRemovals: hasRemovalActions(remaining),
 					});
-					const anchorInfo = getAnchorForIndex(
-						adjustedTargetIndex,
-						mergedWithout,
-					);
+					const anchorInfo = getAnchorForIndex(targetIndex, mergedWithout);
 					const updated = [
 						...remaining,
 						{
@@ -3115,10 +3107,13 @@
 		};
 		rerenderList();
 
-		const toggle = buildModalToggleBar((modes) => {
-			activeModes = modes;
-			rerenderList();
-		});
+		const toggle = buildModalToggleBar(
+			(modes) => {
+				activeModes = modes;
+				rerenderList();
+			},
+			{ defaultModes: ["all"] },
+		);
 
 		selectAll.addEventListener("click", (event) => {
 			event.stopPropagation();
