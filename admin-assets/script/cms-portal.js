@@ -609,6 +609,12 @@
 		);
 	}
 
+	function hasRemovalOrMarkActions(localBlocks) {
+		return normalizeLocalBlocks(localBlocks).some(
+			(item) => item.action === "remove" || item.action === "mark",
+		);
+	}
+
 	function updateLocalBlocksAndRender(path, updatedLocal) {
 		const baseHtml = state.originalHtml || "";
 		const updatedHtml = mergeDirtyWithBase(baseHtml, baseHtml, updatedLocal, {
@@ -1049,9 +1055,11 @@
 						cleanedLocal,
 						{ respectRemovals: hasRemovalActions(cleanedLocal) },
 					);
-					const remappedLocal = (state.prList || []).length
+					const remappedLocal = hasRemovalOrMarkActions(cleanedLocal)
 						? assignAnchorsFromHtml(data.text || "", merged, cleanedLocal)
-						: deriveLocalBlocksFromDiff(data.text || "", merged);
+						: (state.prList || []).length
+							? assignAnchorsFromHtml(data.text || "", merged, cleanedLocal)
+							: deriveLocalBlocksFromDiff(data.text || "", merged);
 					const remoteText = normalizeHtmlForCompare(data.text || "");
 					const entryText = normalizeHtmlForCompare(merged || "");
 					if (
@@ -2246,10 +2254,11 @@
 					const id = btn.getAttribute("data-id") || "";
 					const origin =
 						btn.getAttribute("data-origin") || (id ? "local" : "base");
-					const indexAttr = btn.getAttribute("data-index");
-					const index = Number.isInteger(Number(indexAttr))
-						? Number(indexAttr)
-						: -1;
+					const blockEl = btn.closest(".cms-block");
+					const blockNodes = Array.from(
+						mainWrap.querySelectorAll(".cms-block"),
+					);
+					const index = blockEl ? blockNodes.indexOf(blockEl) : -1;
 					const isRemoved = btn.getAttribute("data-removed") === "true";
 					if (action === "edit") {
 						openModal({
@@ -2280,9 +2289,15 @@
 					const merged = buildMergedRenderBlocks(baseHtml, currentLocal, {
 						respectRemovals: true,
 					});
-					const currentIndex =
+					const localIndex =
 						origin === "local"
 							? merged.findIndex((item) => item?._local?.id === id)
+							: -1;
+					const currentIndex =
+						origin === "local"
+							? localIndex >= 0
+								? localIndex
+								: index
 							: index;
 					if (currentIndex < 0) return;
 					if (action === "delete") {
@@ -2579,8 +2594,18 @@
 				normalizeHtmlForCompare(mergedDirty) ===
 				normalizeHtmlForCompare(state.originalHtml)
 			) {
-				clearDirtyPage(state.path);
-				dirtyHtml = "";
+				if (!hasRemovalOrMarkActions(cleanedLocal)) {
+					clearDirtyPage(state.path);
+					dirtyHtml = "";
+				} else {
+					setDirtyPage(
+						state.path,
+						mergedDirty,
+						state.originalHtml,
+						cleanedLocal,
+					);
+					dirtyHtml = mergedDirty;
+				}
 			} else {
 				setDirtyPage(state.path, mergedDirty, state.originalHtml, cleanedLocal);
 				dirtyHtml = mergedDirty;
