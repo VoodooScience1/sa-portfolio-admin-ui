@@ -1156,6 +1156,13 @@
 										]),
 									);
 								}
+								if (block.removed) {
+									text.appendChild(
+										el("span", { class: "cms-modal__badge" }, [
+											"Marked delete",
+										]),
+									);
+								}
 
 								const toggle = () => {
 									if (!block.selectable) return;
@@ -1938,10 +1945,19 @@
 		const localBlocks = normalizeLocalBlocks(
 			state.dirtyPages[state.path]?.localBlocks || [],
 		);
+		const removalDisplays = localBlocks
+			.filter((item) => item.action === "remove")
+			.map((item) => ({
+				...item,
+				id: `${item.id}::display`,
+				display: "remove",
+				removeSourceId: item.id,
+				action: "insert",
+			}));
 		const mergedRender = buildMergedRenderBlocks(
 			state.originalHtml || "",
-			localBlocks,
-			{ respectRemovals: false },
+			[...localBlocks, ...removalDisplays],
+			{ respectRemovals: true },
 		);
 
 		const sessionList = state.session.baselines[state.path] || [];
@@ -1953,17 +1969,6 @@
 		const committedState = committedMatchesForPath(state.path);
 		const committedCounts = committedState.counts;
 		const committedByPos = committedState.byPos;
-		const removeMap = new Map();
-		localBlocks
-			.filter((item) => item.action === "remove")
-			.forEach((item) => {
-				const key = anchorKey(item.anchor);
-				if (!key) return;
-				const list = removeMap.get(key) || [];
-				list.push(item);
-				removeMap.set(key, list);
-			});
-
 		mergedRender.forEach((b, idx) => {
 			const frag = new DOMParser().parseFromString(b.html, "text/html").body;
 			const html = (b.html || "").trim();
@@ -1971,13 +1976,12 @@
 			const isPending = localItem?.status === "pending";
 			const pendingItem = isPending ? localItem : null;
 			const isBase = Boolean(b._base);
-			const baseKey = isBase ? anchorKey(b) : "";
-			const removedItems = baseKey ? removeMap.get(baseKey) || [] : [];
-			const isMarkedRemove = isBase && removedItems.length > 0;
+			const isMarkedRemove = localItem?.display === "remove";
 
 			let status = "baseline";
 			if (localItem) {
 				if (localItem.status === "pending") status = "pending";
+				else if (localItem.display === "remove") status = "removed";
 				else status = localItem.kind === "edited" ? "edited" : "new";
 			} else {
 				const sig = b.sig || signatureForHtml(html);
@@ -2010,6 +2014,7 @@
 			const wrapper = el("div", { class: classes.join(" ") });
 			Array.from(frag.children).forEach((n) => wrapper.appendChild(n));
 			if (localItem && !isPending) {
+				const isRemovalDisplay = localItem.display === "remove";
 				const controls = el("div", { class: "cms-block__controls" }, [
 					el(
 						"button",
@@ -2017,9 +2022,9 @@
 							type: "button",
 							class: "cms-block__btn cms-block__btn--edit",
 							"data-action": "edit",
-							"data-id": localItem.id || "",
+							"data-id": isRemovalDisplay ? localItem.removeSourceId || "" : localItem.id || "",
 							"data-index": String(idx),
-							"data-origin": "local",
+							"data-origin": isRemovalDisplay ? "remove" : "local",
 							title: "Edit block",
 						},
 						[buildPenIcon(), "Edit"],
@@ -2028,11 +2033,11 @@
 						"button",
 						{
 							type: "button",
-							class: "cms-block__btn",
+							class: "cms-block__btn cms-block__btn--move",
 							"data-action": "up",
-							"data-id": localItem.id || "",
+							"data-id": isRemovalDisplay ? localItem.removeSourceId || "" : localItem.id || "",
 							"data-index": String(idx),
-							"data-origin": "local",
+							"data-origin": isRemovalDisplay ? "remove" : "local",
 							title: "Move up",
 						},
 						["↑"],
@@ -2041,11 +2046,11 @@
 						"button",
 						{
 							type: "button",
-							class: "cms-block__btn",
+							class: "cms-block__btn cms-block__btn--move",
 							"data-action": "down",
-							"data-id": localItem.id || "",
+							"data-id": isRemovalDisplay ? localItem.removeSourceId || "" : localItem.id || "",
 							"data-index": String(idx),
-							"data-origin": "local",
+							"data-origin": isRemovalDisplay ? "remove" : "local",
 							title: "Move down",
 						},
 						["↓"],
@@ -2056,12 +2061,13 @@
 							type: "button",
 							class: "cms-block__btn cms-block__btn--danger",
 							"data-action": "delete",
-							"data-id": localItem.id || "",
+							"data-id": isRemovalDisplay ? localItem.removeSourceId || "" : localItem.id || "",
 							"data-index": String(idx),
-							"data-origin": "local",
+							"data-origin": isRemovalDisplay ? "remove" : "local",
+							"data-removed": isRemovalDisplay ? "true" : "false",
 							title: "Delete block",
 						},
-						[buildTrashIcon(), "Delete"],
+						[buildTrashIcon(), isRemovalDisplay ? "Undo" : "Delete"],
 					),
 				]);
 				wrapper.appendChild(controls);
@@ -2085,7 +2091,7 @@
 						"button",
 						{
 							type: "button",
-							class: "cms-block__btn",
+							class: "cms-block__btn cms-block__btn--move",
 							"data-action": "up",
 							"data-index": String(idx),
 							"data-origin": "base",
@@ -2097,7 +2103,7 @@
 						"button",
 						{
 							type: "button",
-							class: "cms-block__btn",
+							class: "cms-block__btn cms-block__btn--move",
 							"data-action": "down",
 							"data-index": String(idx),
 							"data-origin": "base",
@@ -2201,13 +2207,28 @@
 					const currentLocal = normalizeLocalBlocks(
 						state.dirtyPages[state.path]?.localBlocks || [],
 					);
+					const removalDisplays = currentLocal
+						.filter((item) => item.action === "remove")
+						.map((item) => ({
+							...item,
+							id: `${item.id}::display`,
+							display: "remove",
+							removeSourceId: item.id,
+							action: "insert",
+						}));
 					const baseHtml = state.originalHtml || "";
-					const merged = buildMergedRenderBlocks(baseHtml, currentLocal, {
-						respectRemovals: false,
-					});
+					const merged = buildMergedRenderBlocks(
+						baseHtml,
+						[...currentLocal, ...removalDisplays],
+						{ respectRemovals: true },
+					);
 					const currentIndex =
 						origin === "local"
 							? merged.findIndex((item) => item?._local?.id === id)
+							: origin === "remove"
+								? merged.findIndex(
+										(item) => item?._local?.removeSourceId === id,
+									)
 							: index;
 					if (currentIndex < 0) return;
 					if (action === "delete") {
@@ -2228,6 +2249,11 @@
 						}
 						const baseBlock = merged[currentIndex];
 						const isBaseBlock = origin === "base" && baseBlock?._base;
+						if (origin === "remove") {
+							const updated = currentLocal.filter((item) => item.id !== id);
+							updateLocalBlocksAndRender(state.path, updated);
+							return;
+						}
 						confirmDeleteBlock({
 							message: isBaseBlock
 								? "Mark this block for deletion? It stays visible until the PR is merged."
@@ -2288,6 +2314,19 @@
 								pos: targetIndex,
 							},
 						];
+						updateLocalBlocksAndRender(state.path, updated);
+						return;
+					}
+					if (origin === "remove") {
+						const anchorInfo = getAnchorForIndex(targetIndex, merged);
+						const updated = currentLocal.map((item) => {
+							if (item.id !== id) return item;
+							return {
+								...item,
+								anchor: anchorInfo.anchor,
+								placement: anchorInfo.placement,
+							};
+						});
 						updateLocalBlocksAndRender(state.path, updated);
 						return;
 					}
