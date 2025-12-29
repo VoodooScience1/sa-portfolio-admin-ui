@@ -34,6 +34,11 @@
 	// Tiny utilities
 	// -------------------------
 	const qs = (sel, root = document) => root.querySelector(sel);
+	let localIdCounter = 0;
+	const makeLocalId = () => {
+		localIdCounter += 1;
+		return `loc-${Date.now().toString(36)}-${localIdCounter}`;
+	};
 
 	const el = (tag, attrs = {}, children = []) => {
 		const n = document.createElement(tag);
@@ -357,6 +362,7 @@
 			.map((item, idx) => {
 				if (typeof item === "string") {
 					return {
+						id: makeLocalId(),
 						html: item,
 						pos: null,
 						anchor: null,
@@ -368,6 +374,7 @@
 				}
 				if (item && typeof item === "object") {
 					return {
+						id: item.id || makeLocalId(),
 						html: String(item.html || ""),
 						pos: Number.isInteger(item.pos) ? item.pos : null,
 						anchor: item.anchor || null,
@@ -411,6 +418,7 @@
 				placement = "after";
 			}
 			locals.push({
+				id: makeLocalId(),
 				html,
 				pos: idx,
 				anchor,
@@ -787,6 +795,7 @@
 							selectable: !isBase && (!localItem || localItem.status !== "pending"),
 							localStatus: localItem?.status || (isLocal ? "staged" : null),
 							prNumber: localItem?.prNumber || null,
+							localId: localItem?.id || null,
 						};
 						all.push(item);
 						if (!isBase) added.push(item);
@@ -1325,7 +1334,15 @@
 		}
 		const updatedLocal = [
 			...localBlocks,
-			{ html, anchor, placement, status: "staged", kind: "new", pos: index },
+			{
+				id: makeLocalId(),
+				html,
+				anchor,
+				placement,
+				status: "staged",
+				kind: "new",
+				pos: index,
+			},
 		];
 		state.blocks.splice(index, 0, {
 			idx: index,
@@ -2205,10 +2222,20 @@
 			pathsToProcess.forEach((path) => {
 				const entry = blockData[path];
 				const selectedIds = selectedBlocks.get(path) || new Set();
-				const updatedHtml = buildHtmlForSelection(entry, selectedIds, "discard");
-				const remainingLocal = deriveLocalBlocksFromDiff(
+				const localIdsToDrop = new Set();
+				(entry.all || []).forEach((block) => {
+					if (!selectedIds.has(block.id)) return;
+					if (block.localId) localIdsToDrop.add(block.localId);
+				});
+				const remainingLocal = normalizeLocalBlocks(
+					(state.dirtyPages[path]?.localBlocks || []).filter(
+						(item) => !localIdsToDrop.has(item.id),
+					),
+				);
+				const updatedHtml = mergeDirtyWithBase(
 					entry.baseHtml || entry.dirtyHtml || "",
-					updatedHtml,
+					entry.baseHtml || entry.dirtyHtml || "",
+					remainingLocal,
 				);
 				if (!updatedHtml || updatedHtml.trim() === entry.baseHtml.trim())
 					clearDirtyPage(path);
