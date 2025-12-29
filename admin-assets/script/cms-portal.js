@@ -637,14 +637,27 @@
 		const beforeMap = new Map();
 		const afterMap = new Map();
 		const orphans = [];
+		const positional = [];
 		const removeKeys = new Set();
+		const removeBaseIds = new Set();
 		localBlocks.forEach((item) => {
 			const key = anchorKey(item.anchor);
+			if (respectRemovals && item.action === "remove" && item.baseId) {
+				removeBaseIds.add(item.baseId);
+			}
 			if (respectRemovals && item.action === "remove" && key) {
 				removeKeys.add(key);
 				return;
 			}
 			if (item.action === "remove" || item.action === "mark") return;
+			if (
+				Number.isInteger(item.pos) &&
+				item.baseId &&
+				item.action === "insert"
+			) {
+				positional.push(item);
+				return;
+			}
 			if (!key) {
 				orphans.push(item);
 				return;
@@ -654,13 +667,30 @@
 			list.push(item);
 			map.set(key, list);
 		});
+		let baseOrder = baseBlocks;
+		if (positional.length) {
+			const baseById = new Map(baseBlocks.map((block) => [block.id, block]));
+			baseOrder = baseBlocks.filter((block) => !removeBaseIds.has(block.id));
+			const sorted = [...positional].sort((a, b) => a.pos - b.pos);
+			let inserted = 0;
+			sorted.forEach((item) => {
+				const baseBlock = baseById.get(item.baseId);
+				if (!baseBlock) return;
+				const target = Math.max(
+					0,
+					Math.min(item.pos + inserted, baseOrder.length),
+				);
+				baseOrder.splice(target, 0, baseBlock);
+				inserted += 1;
+			});
+		}
 		const merged = [];
-		baseBlocks.forEach((block) => {
+		baseOrder.forEach((block) => {
 			const key = anchorKey(block);
 			const before = beforeMap.get(key) || [];
 			before.forEach((item) => merged.push({ html: item.html, _local: item }));
 			const after = afterMap.get(key) || [];
-			if (removeKeys.has(key)) {
+			if (removeKeys.has(key) || removeBaseIds.has(block.id)) {
 				after.forEach((item) => merged.push({ html: item.html, _local: item }));
 				return;
 			}
@@ -960,6 +990,11 @@
 				(item) => item.anchor && item.anchor.sig,
 			);
 			let mergedBlocks = [];
+			const removeBaseIds = new Set(
+				dirtyOnly
+					.filter((item) => item.action === "remove" && item.baseId)
+					.map((item) => item.baseId),
+			);
 			if (hasAnchors) {
 				mergedBlocks = applyAnchoredInserts(baseBlocks, dirtyOnly, {
 					respectRemovals,
@@ -986,15 +1021,30 @@
 						continue;
 					}
 					if (baseIndex < baseBlocks.length) {
-						mergedBlocks.push({
-							html: baseBlocks[baseIndex].html,
-							_base: true,
-						});
+						const baseBlock = baseBlocks[baseIndex];
+						if (!removeBaseIds.has(baseBlock.id)) {
+							mergedBlocks.push({
+								html: baseBlock.html,
+								_base: true,
+								id: baseBlock.id,
+								sig: baseBlock.sig,
+								occ: baseBlock.occ,
+							});
+						}
 						baseIndex += 1;
 					}
 				}
 				while (baseIndex < baseBlocks.length) {
-					mergedBlocks.push({ html: baseBlocks[baseIndex].html, _base: true });
+					const baseBlock = baseBlocks[baseIndex];
+					if (!removeBaseIds.has(baseBlock.id)) {
+						mergedBlocks.push({
+							html: baseBlock.html,
+							_base: true,
+							id: baseBlock.id,
+							sig: baseBlock.sig,
+							occ: baseBlock.occ,
+						});
+					}
 					baseIndex += 1;
 				}
 				withoutPos.forEach((item) => {
@@ -2709,8 +2759,8 @@
 						moveEntries.push({
 							id: makeLocalId(),
 							html: baseBlock?.html || item.html || "",
-							anchor: { id, sig: item.sig, occ: item.occ },
-							placement: "after",
+							anchor: null,
+							placement: null,
 							status: "staged",
 							kind: "edited",
 							action: "remove",
@@ -2719,32 +2769,13 @@
 					});
 					nextOrder.forEach((item, idx) => {
 						if (!movedKeys.includes(item.key)) return;
-						let anchor = null;
-						let placement = "after";
-						if (idx > 0) {
-							const prev = nextOrder[idx - 1];
-							anchor = {
-								id: prev.key?.replace(/^id:/, ""),
-								sig: prev.sig,
-								occ: prev.occ,
-							};
-							placement = "after";
-						} else if (idx < nextOrder.length - 1) {
-							const next = nextOrder[idx + 1];
-							anchor = {
-								id: next.key?.replace(/^id:/, ""),
-								sig: next.sig,
-								occ: next.occ,
-							};
-							placement = "before";
-						}
 						const id = item.key?.replace(/^id:/, "") || null;
 						const baseBlock = id ? registry.byId?.get(id) : null;
 						moveEntries.push({
 							id: makeLocalId(),
 							html: baseBlock?.html || item.html || "",
-							anchor,
-							placement,
+							anchor: null,
+							placement: null,
 							status: "staged",
 							kind: "edited",
 							action: "insert",
