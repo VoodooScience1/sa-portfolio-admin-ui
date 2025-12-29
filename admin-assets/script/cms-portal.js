@@ -620,7 +620,25 @@
 		const updatedHtml = mergeDirtyWithBase(baseHtml, baseHtml, updatedLocal, {
 			respectRemovals: hasRemovalActions(updatedLocal),
 		});
-		const hasLocal = normalizeLocalBlocks(updatedLocal).length > 0;
+		const normalizedLocal = normalizeLocalBlocks(updatedLocal);
+		const hasLocal = normalizedLocal.length > 0;
+		const isSameAsBase =
+			normalizeHtmlForCompare(updatedHtml) ===
+			normalizeHtmlForCompare(baseHtml);
+		const onlyReorders =
+			hasLocal &&
+			normalizedLocal.every(
+				(item) => item.action !== "mark" && item.kind !== "new",
+			);
+		if (isSameAsBase && onlyReorders) {
+			clearDirtyPage(path);
+			if (path === state.path) {
+				applyHtmlToCurrentPage(baseHtml);
+				renderPageSurface();
+			}
+			refreshUiStateForDirty();
+			return;
+		}
 		if (!updatedHtml || (!hasLocal && updatedHtml.trim() === baseHtml.trim())) {
 			clearDirtyPage(path);
 		} else {
@@ -911,6 +929,7 @@
 					const all = [];
 					const added = [];
 					const modified = [];
+					const removed = [];
 					const mergedForList = localBlocks.length
 						? mergeDirtyWithBase(
 								baseHtml || dirtyHtml || "",
@@ -930,6 +949,12 @@
 									_base: true,
 								}))
 							: [];
+					const markKeys = new Set(
+						localBlocks
+							.filter((item) => item.action === "mark")
+							.map((item) => anchorKey(item.anchor))
+							.filter(Boolean),
+					);
 
 					const summarize = (html) => {
 						const doc = new DOMParser().parseFromString(
@@ -942,6 +967,7 @@
 					};
 
 					mergedBlocks.forEach((block, idx) => {
+						if (block?._base && markKeys.has(anchorKey(block))) return;
 						const html = (block.html || "").trim();
 						const info = summarize(html);
 						const localItem = block._local || null;
@@ -980,8 +1006,10 @@
 								removed: true,
 							};
 						});
-					removedItems.forEach((item) => all.push(item));
-					modified.push(...removedItems);
+					removedItems.forEach((item) => {
+						all.push(item);
+						removed.push(item);
+					});
 
 					blockMap[path] = {
 						baseHtml,
@@ -990,6 +1018,7 @@
 						all,
 						added,
 						modified,
+						removed,
 					};
 				} catch {
 					const main = extractRegion(dirtyHtml, "main");
@@ -1094,6 +1123,7 @@
 		let blocks = [];
 		if (modes.has("new")) blocks = blocks.concat(entry.added || []);
 		if (modes.has("modified")) blocks = blocks.concat(entry.modified || []);
+		if (modes.has("deleted")) blocks = blocks.concat(entry.removed || []);
 		return blocks;
 	}
 
@@ -1318,6 +1348,11 @@
 			{ class: "cms-modal__toggle-btn", type: "button" },
 			["Modified blocks"],
 		);
+		const deletedBtn = el(
+			"button",
+			{ class: "cms-modal__toggle-btn", type: "button" },
+			["Marked delete"],
+		);
 		const allBtn = el(
 			"button",
 			{ class: "cms-modal__toggle-btn", type: "button" },
@@ -1328,6 +1363,7 @@
 		const syncButtons = () => {
 			newBtn.classList.toggle("is-active", modes.has("new"));
 			modifiedBtn.classList.toggle("is-active", modes.has("modified"));
+			deletedBtn.classList.toggle("is-active", modes.has("deleted"));
 			allBtn.classList.toggle("is-active", modes.has("all"));
 		};
 
@@ -1349,10 +1385,12 @@
 
 		newBtn.addEventListener("click", () => toggleMode("new"));
 		modifiedBtn.addEventListener("click", () => toggleMode("modified"));
+		deletedBtn.addEventListener("click", () => toggleMode("deleted"));
 		allBtn.addEventListener("click", () => setAll());
 
 		wrap.appendChild(newBtn);
 		wrap.appendChild(modifiedBtn);
+		wrap.appendChild(deletedBtn);
 		wrap.appendChild(allBtn);
 		syncButtons();
 		onChange(new Set(modes));
