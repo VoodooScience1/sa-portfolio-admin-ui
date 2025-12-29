@@ -2647,14 +2647,20 @@
 					const baseBlock = merged[currentIndex];
 					if (!baseBlock?._base) return;
 					const baseKey = anchorKey({
+						id: baseBlock.id,
 						sig: baseBlock.sig,
 						occ: baseBlock.occ,
 					});
-					const baseOrder = buildBaseBlocksWithOcc(baseHtml || "");
-					const baseOrderKeys = baseOrder.map((b) => anchorKey(b));
-					const baseHtmlByKey = new Map(
-						baseOrder.map((b) => [anchorKey(b), normalizeFragmentHtml(b.html)]),
-					);
+					const registry =
+						state.baselineRegistry[state.path] ||
+						buildBaselineRegistry(baseHtml || "");
+					const baseOrder = registry.blocks || buildBaseBlocksWithOcc(baseHtml || "");
+					const baseOrderKeys = registry.order || baseOrder.map((b) => anchorKey(b));
+					const baseHtmlByKey =
+						registry.byId ||
+						new Map(
+							baseOrder.map((b) => [anchorKey(b), normalizeFragmentHtml(b.html)]),
+						);
 					const currentBaseOrder = merged
 						.filter((item) => item?._base)
 						.map((item) => ({
@@ -2698,15 +2704,17 @@
 					movedKeys.forEach((key) => {
 						const item = nextOrder.find((entry) => entry.key === key);
 						if (!item) return;
+						const id = item.key?.replace(/^id:/, "") || null;
+						const baseBlock = id ? registry.byId?.get(id) : null;
 						moveEntries.push({
 							id: makeLocalId(),
-							html: item.html || "",
-							anchor: { id: item.key?.replace(/^id:/, ""), sig: item.sig, occ: item.occ },
+							html: baseBlock?.html || item.html || "",
+							anchor: { id, sig: item.sig, occ: item.occ },
 							placement: "after",
 							status: "staged",
 							kind: "edited",
 							action: "remove",
-							baseId: item.key?.replace(/^id:/, ""),
+							baseId: id,
 						});
 					});
 					nextOrder.forEach((item, idx) => {
@@ -2730,9 +2738,11 @@
 							};
 							placement = "before";
 						}
+						const id = item.key?.replace(/^id:/, "") || null;
+						const baseBlock = id ? registry.byId?.get(id) : null;
 						moveEntries.push({
 							id: makeLocalId(),
-							html: item.html || "",
+							html: baseBlock?.html || item.html || "",
 							anchor,
 							placement,
 							status: "staged",
@@ -2740,7 +2750,7 @@
 							action: "insert",
 							pos: idx,
 							sourceKey: item.key,
-							baseId: item.key?.replace(/^id:/, ""),
+							baseId: id,
 						});
 					});
 					updateLocalBlocksAndRender(state.path, [
