@@ -550,8 +550,8 @@
 			const key = anchorKey(block);
 			const before = beforeMap.get(key) || [];
 			before.forEach((item) => merged.push({ html: item.html, _local: item }));
+			const after = afterMap.get(key) || [];
 			if (removeKeys.has(key)) {
-				const after = afterMap.get(key) || [];
 				after.forEach((item) => merged.push({ html: item.html, _local: item }));
 				return;
 			}
@@ -561,7 +561,6 @@
 				sig: block.sig,
 				occ: block.occ,
 			});
-			const after = afterMap.get(key) || [];
 			after.forEach((item) => merged.push({ html: item.html, _local: item }));
 		});
 		orphans.forEach((item) => merged.push({ html: item.html, _local: item }));
@@ -613,6 +612,50 @@
 		return normalizeLocalBlocks(localBlocks).some(
 			(item) => item.action === "remove" || item.action === "mark",
 		);
+	}
+
+	function stripBaseMoveEntries(localBlocks, baseKey, baseHtml) {
+		const baseSig = normalizeFragmentHtml(baseHtml || "");
+		return normalizeLocalBlocks(localBlocks).filter((item) => {
+			if (item.action === "remove" && anchorKey(item.anchor) === baseKey)
+				return false;
+			if (
+				item.action === "insert" &&
+				item.kind === "edited" &&
+				(item.sourceKey === baseKey ||
+					(!item.sourceKey &&
+						normalizeFragmentHtml(item.html || "") === baseSig))
+			)
+				return false;
+			return true;
+		});
+	}
+
+	function stripAllBaseMoveEntries(localBlocks, baseKeys, baseHtmlByKey) {
+		const baseKeySet = new Set(baseKeys || []);
+		const baseHtmlMap = baseHtmlByKey || new Map();
+		return normalizeLocalBlocks(localBlocks).filter((item) => {
+			const key = anchorKey(item.anchor);
+			if (item.action === "remove" && baseKeySet.has(key)) return false;
+			if (
+				item.action === "insert" &&
+				item.kind === "edited" &&
+				(item.sourceKey ? baseKeySet.has(item.sourceKey) : baseKeySet.has(key))
+			)
+				return false;
+			if (
+				item.action === "insert" &&
+				item.kind === "edited" &&
+				baseKeySet.size
+			) {
+				const sig = normalizeFragmentHtml(item.html || "");
+				for (const baseKey of baseKeySet) {
+					const baseSig = baseHtmlMap.get(baseKey);
+					if (baseSig && baseSig === sig) return false;
+				}
+			}
+			return true;
+		});
 	}
 
 	function updateLocalBlocksAndRender(path, updatedLocal) {
@@ -2422,52 +2465,97 @@
 					}
 					const baseBlock = merged[currentIndex];
 					if (!baseBlock?._base) return;
-					const markedKey = anchorKey({
+					const baseKey = anchorKey({
 						sig: baseBlock.sig,
 						occ: baseBlock.occ,
 					});
-					const cleanedLocal = currentLocal.filter(
-						(item) =>
-							!(item.action === "mark" && anchorKey(item.anchor) === markedKey),
+					const baseOrder = buildBaseBlocksWithOcc(baseHtml || "");
+					const baseOrderKeys = baseOrder.map((b) => anchorKey(b));
+					const baseHtmlByKey = new Map(
+						baseOrder.map((b) => [anchorKey(b), normalizeFragmentHtml(b.html)]),
 					);
-					const removalAnchor = { sig: baseBlock.sig, occ: baseBlock.occ };
-					const removalKey = anchorKey(removalAnchor);
-					const hasRemoval = cleanedLocal.some(
-						(item) =>
-							item.action === "remove" && anchorKey(item.anchor) === removalKey,
+					const currentBaseOrder = merged
+						.filter((item) => item?._base)
+						.map((item) => ({
+							key: anchorKey(item),
+							sig: item.sig,
+							occ: item.occ,
+							html: item.html,
+						}))
+						.filter((item) => item.key);
+					const currentBaseIndex = currentBaseOrder.findIndex(
+						(item) => item.key === baseKey,
 					);
-					const remaining = hasRemoval
-						? [...cleanedLocal]
-						: [
-								...cleanedLocal,
-								{
-									id: makeLocalId(),
-									html: baseBlock.html || "",
-									anchor: removalAnchor,
-									placement: "after",
-									status: "staged",
-									kind: "edited",
-									action: "remove",
-								},
-							];
-					const mergedWithout = buildMergedRenderBlocks(baseHtml, remaining, {
-						respectRemovals: hasRemovalActions(remaining),
+					if (currentBaseIndex < 0) return;
+					const targetBaseIndex = Math.max(
+						0,
+						Math.min(currentBaseIndex + delta, currentBaseOrder.length - 1),
+					);
+					if (targetBaseIndex === currentBaseIndex) return;
+					const nextOrder = [...currentBaseOrder];
+					const [movingBase] = nextOrder.splice(currentBaseIndex, 1);
+					nextOrder.splice(targetBaseIndex, 0, movingBase);
+					const nextOrderKeys = nextOrder.map((item) => item.key);
+					const origIndex = new Map();
+					baseOrderKeys.forEach((key, idx) => {
+						if (!key) return;
+						origIndex.set(key, idx);
 					});
-					const anchorInfo = getAnchorForIndex(targetIndex, mergedWithout);
-					const updated = [
-						...remaining,
-						{
+					const movedKeys = nextOrderKeys.filter(
+						(key, idx) => origIndex.get(key) !== idx,
+					);
+					const cleanedLocal = stripAllBaseMoveEntries(
+						currentLocal,
+						baseOrderKeys,
+						baseHtmlByKey,
+					);
+					if (!movedKeys.length) {
+						updateLocalBlocksAndRender(state.path, cleanedLocal);
+						return;
+					}
+					const moveEntries = [];
+					movedKeys.forEach((key) => {
+						const item = nextOrder.find((entry) => entry.key === key);
+						if (!item) return;
+						moveEntries.push({
 							id: makeLocalId(),
-							html: baseBlock.html || "",
-							anchor: anchorInfo.anchor,
-							placement: anchorInfo.placement,
+							html: item.html || "",
+							anchor: { sig: item.sig, occ: item.occ },
+							placement: "after",
+							status: "staged",
+							kind: "edited",
+							action: "remove",
+						});
+					});
+					nextOrder.forEach((item, idx) => {
+						if (!movedKeys.includes(item.key)) return;
+						let anchor = null;
+						let placement = "after";
+						if (idx > 0) {
+							const prev = nextOrder[idx - 1];
+							anchor = { sig: prev.sig, occ: prev.occ };
+							placement = "after";
+						} else if (idx < nextOrder.length - 1) {
+							const next = nextOrder[idx + 1];
+							anchor = { sig: next.sig, occ: next.occ };
+							placement = "before";
+						}
+						moveEntries.push({
+							id: makeLocalId(),
+							html: item.html || "",
+							anchor,
+							placement,
 							status: "staged",
 							kind: "edited",
 							action: "insert",
-							pos: targetIndex,
-						},
-					];
-					updateLocalBlocksAndRender(state.path, updated);
+							pos: idx,
+							sourceKey: item.key,
+						});
+					});
+					updateLocalBlocksAndRender(state.path, [
+						...cleanedLocal,
+						...moveEntries,
+					]);
 				});
 			});
 		});
