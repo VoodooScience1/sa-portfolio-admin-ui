@@ -163,13 +163,19 @@
 			btn.addEventListener(
 				"click",
 				() => {
-					root.classList.remove("is-open");
-					document.documentElement.classList.remove("cms-lock");
-					document.body.classList.remove("cms-lock");
+					closeModal();
 				},
 				{ once: true },
 			);
 		});
+	}
+
+	function closeModal() {
+		const root = qs("#cms-modal");
+		if (!root) return;
+		root.classList.remove("is-open");
+		document.documentElement.classList.remove("cms-lock");
+		document.body.classList.remove("cms-lock");
 	}
 
 	function openLoadingModal(title = "Loading…") {
@@ -369,6 +375,7 @@
 						placement: "after",
 						status: "staged",
 						kind: "new",
+						action: "insert",
 						legacyIdx: idx,
 					};
 				}
@@ -382,6 +389,7 @@
 						status: item.status === "pending" ? "pending" : "staged",
 						prNumber: item.prNumber || null,
 						kind: item.kind === "edited" ? "edited" : "new",
+						action: item.action === "remove" ? "remove" : "insert",
 					};
 				}
 				return null;
@@ -426,6 +434,7 @@
 				status: "staged",
 				prNumber: null,
 				kind: "new",
+				action: "insert",
 			});
 		});
 		return locals;
@@ -502,8 +511,13 @@
 		const beforeMap = new Map();
 		const afterMap = new Map();
 		const orphans = [];
+		const removeKeys = new Set();
 		localBlocks.forEach((item) => {
 			const key = anchorKey(item.anchor);
+			if (item.action === "remove" && key) {
+				removeKeys.add(key);
+				return;
+			}
 			if (!key) {
 				orphans.push(item);
 				return;
@@ -516,6 +530,7 @@
 		const merged = [];
 		baseBlocks.forEach((block) => {
 			const key = anchorKey(block);
+			if (removeKeys.has(key)) return;
 			const before = beforeMap.get(key) || [];
 			before.forEach((item) => merged.push({ html: item.html, _local: item }));
 			merged.push({
@@ -833,6 +848,7 @@
 					);
 					const all = [];
 					const added = [];
+					const modified = [];
 					const mergedForList = localBlocks.length
 						? mergeDirtyWithBase(
 								baseHtml || dirtyHtml || "",
@@ -875,10 +891,31 @@
 							localStatus: localItem?.status || (isLocal ? "staged" : null),
 							prNumber: localItem?.prNumber || null,
 							localId: localItem?.id || null,
+							removed: false,
 						};
 						all.push(item);
 						if (!isBase) added.push(item);
 					});
+
+					const removedItems = localBlocks
+						.filter((item) => item.action === "remove")
+						.map((item, idx) => {
+							const html = (item.html || "").trim();
+							const info = summarize(html);
+							return {
+								id: `${path}::remove::${item.id || idx}`,
+								idx: mergedBlocks.length + idx,
+								html,
+								summary: `Deleted: ${info.summary || info.type || "Block"}`,
+								selectable: item.status !== "pending",
+								localStatus: item.status || "staged",
+								prNumber: item.prNumber || null,
+								localId: item.id || null,
+								removed: true,
+							};
+						});
+					removedItems.forEach((item) => all.push(item));
+					modified.push(...removedItems);
 
 					blockMap[path] = {
 						baseHtml,
@@ -886,7 +923,7 @@
 						localBlocks,
 						all,
 						added,
-						modified: [],
+						modified,
 					};
 				} catch {
 					const main = extractRegion(dirtyHtml, "main");
@@ -899,12 +936,14 @@
 							html: (block.html || "").trim(),
 							summary: block.summary || block.type || "Block",
 							selectable: true,
+							removed: false,
 						})),
 						added: dirtyBlocks.map((block, idx) => ({
 							id: `${path}::${idx}`,
 							html: (block.html || "").trim(),
 							summary: block.summary || block.type || "Block",
 							selectable: true,
+							removed: false,
 						})),
 						modified: [],
 					};
@@ -988,42 +1027,47 @@
 		return total;
 	}
 
-	function buildHtmlForSelection(entry, selectedIds, action) {
-		if (action === "discard" && (!selectedIds || !selectedIds.size)) {
-			return entry?.baseHtml || entry?.dirtyHtml || "";
-		}
-		const all = entry?.all || [];
-		const kept = all.filter((block) => {
-			if (action === "commit") {
-				if (block.localStatus === "pending") return false;
-				if (block.selectable) return selectedIds.has(block.id);
-				return true;
-			}
-			if (!block.selectable) return true;
-			const isSelected = selectedIds.has(block.id);
-			return !isSelected;
+	function getSelectedLocalIds(entry, selectedIds) {
+		const selectedLocalIds = new Set();
+		if (!entry || !selectedIds || !selectedIds.size) return selectedLocalIds;
+		(entry.all || []).forEach((block) => {
+			if (!selectedIds.has(block.id)) return;
+			if (block.localId) selectedLocalIds.add(block.localId);
 		});
-		const mainHtml = kept.map((b) => b.html).join("\n\n");
-		let html = entry.baseHtml || entry.dirtyHtml || "";
-		if (!html) return "";
-		html = replaceRegion(html, "main", mainHtml);
-		return html;
+		return selectedLocalIds;
+	}
+
+	function buildHtmlForSelection(entry, selectedIds, action) {
+		const baseHtml = entry?.baseHtml || entry?.dirtyHtml || "";
+		if (!baseHtml) return "";
+		const localBlocks = normalizeLocalBlocks(entry?.localBlocks || []);
+		if (!selectedIds || !selectedIds.size) {
+			return action === "discard" ? baseHtml : mergeDirtyWithBase(baseHtml, baseHtml, []);
+		}
+		const selectedLocalIds = getSelectedLocalIds(entry, selectedIds);
+		const selectedLocal = localBlocks.filter((item) =>
+			selectedLocalIds.has(item.id),
+		);
+		if (action === "commit") {
+			return mergeDirtyWithBase(baseHtml, baseHtml, selectedLocal);
+		}
+		const remainingLocal = localBlocks.filter(
+			(item) => !selectedLocalIds.has(item.id),
+		);
+		return mergeDirtyWithBase(baseHtml, baseHtml, remainingLocal);
 	}
 
 	// Remove only the selected blocks from the current dirty HTML (keep everything else).
 	function buildDirtyAfterSelection(entry, selectedIds) {
-		if (!selectedIds || !selectedIds.size) {
-			return entry?.dirtyHtml || entry?.baseHtml || "";
-		}
-		const all = entry?.all || [];
-		const kept = all.filter(
-			(block) => !block.selectable || !selectedIds.has(block.id),
+		const baseHtml = entry?.baseHtml || entry?.dirtyHtml || "";
+		if (!baseHtml) return "";
+		if (!selectedIds || !selectedIds.size) return entry?.dirtyHtml || baseHtml;
+		const localBlocks = normalizeLocalBlocks(entry?.localBlocks || []);
+		const selectedLocalIds = getSelectedLocalIds(entry, selectedIds);
+		const remainingLocal = localBlocks.filter(
+			(item) => !selectedLocalIds.has(item.id),
 		);
-		const mainHtml = kept.map((b) => b.html).join("\n\n");
-		let html = entry?.dirtyHtml || entry?.baseHtml || "";
-		if (!html) return "";
-		html = replaceRegion(html, "main", mainHtml);
-		return html;
+		return mergeDirtyWithBase(baseHtml, baseHtml, remainingLocal);
 	}
 
 	function applyHtmlToCurrentPage(updatedHtml) {
@@ -1892,6 +1936,7 @@
 			const localItem = b._local || null;
 			const isPending = localItem?.status === "pending";
 			const pendingItem = isPending ? localItem : null;
+			const isBase = Boolean(b._base);
 
 			let status = "baseline";
 			if (localItem) {
@@ -1932,12 +1977,14 @@
 						"button",
 						{
 							type: "button",
-							class: "cms-block__btn",
+							class: "cms-block__btn cms-block__btn--edit",
 							"data-action": "edit",
 							"data-id": localItem.id || "",
+							"data-index": String(idx),
+							"data-origin": "local",
 							title: "Edit block",
 						},
-						["Edit"],
+						[buildPenIcon(), "Edit"],
 					),
 					el(
 						"button",
@@ -1946,6 +1993,8 @@
 							class: "cms-block__btn",
 							"data-action": "up",
 							"data-id": localItem.id || "",
+							"data-index": String(idx),
+							"data-origin": "local",
 							title: "Move up",
 						},
 						["↑"],
@@ -1957,6 +2006,8 @@
 							class: "cms-block__btn",
 							"data-action": "down",
 							"data-id": localItem.id || "",
+							"data-index": String(idx),
+							"data-origin": "local",
 							title: "Move down",
 						},
 						["↓"],
@@ -1968,9 +2019,64 @@
 							class: "cms-block__btn cms-block__btn--danger",
 							"data-action": "delete",
 							"data-id": localItem.id || "",
+							"data-index": String(idx),
+							"data-origin": "local",
 							title: "Delete block",
 						},
-						["Delete"],
+						[buildTrashIcon(), "Delete"],
+					),
+				]);
+				wrapper.appendChild(controls);
+			}
+			if (!localItem && !isPending && isBase) {
+				const controls = el("div", { class: "cms-block__controls" }, [
+					el(
+						"button",
+						{
+							type: "button",
+							class: "cms-block__btn cms-block__btn--edit",
+							"data-action": "edit",
+							"data-index": String(idx),
+							"data-origin": "base",
+							title: "Edit block",
+						},
+						[buildPenIcon(), "Edit"],
+					),
+					el(
+						"button",
+						{
+							type: "button",
+							class: "cms-block__btn",
+							"data-action": "up",
+							"data-index": String(idx),
+							"data-origin": "base",
+							title: "Move up",
+						},
+						["↑"],
+					),
+					el(
+						"button",
+						{
+							type: "button",
+							class: "cms-block__btn",
+							"data-action": "down",
+							"data-index": String(idx),
+							"data-origin": "base",
+							title: "Move down",
+						},
+						["↓"],
+					),
+					el(
+						"button",
+						{
+							type: "button",
+							class: "cms-block__btn cms-block__btn--danger",
+							"data-action": "delete",
+							"data-index": String(idx),
+							"data-origin": "base",
+							title: "Delete block",
+						},
+						[buildTrashIcon(), "Delete"],
 					),
 				]);
 				wrapper.appendChild(controls);
@@ -2021,7 +2127,11 @@
 				btn.addEventListener("click", () => {
 					const action = btn.getAttribute("data-action") || "";
 					const id = btn.getAttribute("data-id") || "";
-					if (!id) return;
+					const origin = btn.getAttribute("data-origin") || (id ? "local" : "base");
+					const indexAttr = btn.getAttribute("data-index");
+					const index = Number.isInteger(Number(indexAttr))
+						? Number(indexAttr)
+						: -1;
 					if (action === "edit") {
 						openModal({
 							title: "Edit block",
@@ -2041,13 +2151,42 @@
 					);
 					const baseHtml = state.originalHtml || "";
 					const merged = buildMergedRenderBlocks(baseHtml, currentLocal);
-					const currentIndex = merged.findIndex(
-						(item) => item?._local?.id === id,
-					);
+					const currentIndex =
+						origin === "local"
+							? merged.findIndex((item) => item?._local?.id === id)
+							: index;
 					if (currentIndex < 0) return;
 					if (action === "delete") {
-						const remaining = currentLocal.filter((item) => item.id !== id);
-						updateLocalBlocksAndRender(state.path, remaining);
+						confirmDeleteBlock(() => {
+							if (origin === "local") {
+								const remaining = currentLocal.filter((item) => item.id !== id);
+								updateLocalBlocksAndRender(state.path, remaining);
+								return;
+							}
+							const baseBlock = merged[currentIndex];
+							if (!baseBlock?._base) return;
+							const anchor = { sig: baseBlock.sig, occ: baseBlock.occ };
+							const key = anchorKey(anchor);
+							const alreadyRemoved = currentLocal.some(
+								(item) =>
+									item.action === "remove" &&
+									anchorKey(item.anchor) === key,
+							);
+							if (alreadyRemoved) return;
+							const updated = [
+								...currentLocal,
+								{
+									id: makeLocalId(),
+									html: baseBlock.html || "",
+									anchor,
+									placement: "after",
+									status: "staged",
+									kind: "edited",
+									action: "remove",
+								},
+							];
+							updateLocalBlocksAndRender(state.path, updated);
+						});
 						return;
 					}
 					const delta = action === "up" ? -1 : 1;
@@ -2056,17 +2195,59 @@
 						Math.min(currentIndex + delta, merged.length - 1),
 					);
 					if (targetIndex === currentIndex) return;
-					const remaining = currentLocal.filter((item) => item.id !== id);
+					if (origin === "local") {
+						const remaining = currentLocal.filter((item) => item.id !== id);
+						const mergedWithout = buildMergedRenderBlocks(baseHtml, remaining);
+						const anchorInfo = getAnchorForIndex(targetIndex, mergedWithout);
+						const moving = currentLocal.find((item) => item.id === id);
+						if (!moving) return;
+						const updated = [
+							...remaining,
+							{
+								...moving,
+								anchor: anchorInfo.anchor,
+								placement: anchorInfo.placement,
+								pos: targetIndex,
+							},
+						];
+						updateLocalBlocksAndRender(state.path, updated);
+						return;
+					}
+					const baseBlock = merged[currentIndex];
+					if (!baseBlock?._base) return;
+					const removalAnchor = { sig: baseBlock.sig, occ: baseBlock.occ };
+					const removalKey = anchorKey(removalAnchor);
+					const hasRemoval = currentLocal.some(
+						(item) =>
+							item.action === "remove" &&
+							anchorKey(item.anchor) === removalKey,
+					);
+					const remaining = hasRemoval
+						? [...currentLocal]
+						: [
+								...currentLocal,
+								{
+									id: makeLocalId(),
+									html: baseBlock.html || "",
+									anchor: removalAnchor,
+									placement: "after",
+									status: "staged",
+									kind: "edited",
+									action: "remove",
+								},
+							];
 					const mergedWithout = buildMergedRenderBlocks(baseHtml, remaining);
 					const anchorInfo = getAnchorForIndex(targetIndex, mergedWithout);
-					const moving = currentLocal.find((item) => item.id === id);
-					if (!moving) return;
 					const updated = [
 						...remaining,
 						{
-							...moving,
+							id: makeLocalId(),
+							html: baseBlock.html || "",
 							anchor: anchorInfo.anchor,
 							placement: anchorInfo.placement,
+							status: "staged",
+							kind: "edited",
+							action: "insert",
 							pos: targetIndex,
 						},
 					];
@@ -2124,6 +2305,85 @@
 					exitBtn,
 				]),
 			]),
+		);
+	}
+
+	function confirmDeleteBlock(onConfirm) {
+		const cancel = el(
+			"button",
+			{
+				class: "cms-btn cms-modal__action",
+				type: "button",
+				"data-close": "true",
+			},
+			["Cancel"],
+		);
+		const confirm = el(
+			"button",
+			{
+				class: "cms-btn cms-modal__action cms-btn--danger",
+				type: "button",
+			},
+			["Delete"],
+		);
+		confirm.addEventListener("click", () => {
+			closeModal();
+			if (typeof onConfirm === "function") onConfirm();
+		});
+		openModal({
+			title: "Delete block",
+			bodyNodes: [
+				el("p", { class: "cms-modal__text" }, [
+					"Are you sure you want to delete this block?",
+				]),
+			],
+			footerNodes: [cancel, confirm],
+		});
+	}
+
+	function buildPenIcon() {
+		return el(
+			"svg",
+			{
+				viewBox: "0 0 24 24",
+				"aria-hidden": "true",
+				class: "cms-block__icon",
+			},
+			[
+				el("path", {
+					d: "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25z",
+					fill: "currentColor",
+				}),
+				el("path", {
+					d: "M20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z",
+					fill: "currentColor",
+				}),
+			],
+		);
+	}
+
+	function buildTrashIcon() {
+		return el(
+			"svg",
+			{
+				viewBox: "0 0 24 24",
+				"aria-hidden": "true",
+				class: "cms-block__icon",
+			},
+			[
+				el("path", {
+					d: "M9 3h6l1 2h4v2H4V5h4l1-2z",
+					fill: "currentColor",
+				}),
+				el("path", {
+					d: "M6 7h12l-1 13a2 2 0 01-2 2H9a2 2 0 01-2-2L6 7z",
+					fill: "currentColor",
+				}),
+				el("path", {
+					d: "M10 11h2v7h-2zm4 0h2v7h-2z",
+					fill: "#0b1220",
+				}),
+			],
 		);
 	}
 
