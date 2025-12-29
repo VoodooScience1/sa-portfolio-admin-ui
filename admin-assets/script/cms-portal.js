@@ -532,9 +532,13 @@
 		const merged = [];
 		baseBlocks.forEach((block) => {
 			const key = anchorKey(block);
-			if (removeKeys.has(key)) return;
 			const before = beforeMap.get(key) || [];
 			before.forEach((item) => merged.push({ html: item.html, _local: item }));
+			if (removeKeys.has(key)) {
+				const after = afterMap.get(key) || [];
+				after.forEach((item) => merged.push({ html: item.html, _local: item }));
+				return;
+			}
 			merged.push({
 				html: block.html,
 				_base: true,
@@ -2463,49 +2467,19 @@
 	}
 
 	function buildPenIcon() {
-		return el(
-			"svg",
-			{
-				viewBox: "0 0 24 24",
-				"aria-hidden": "true",
-				class: "cms-block__icon",
-			},
-			[
-				el("path", {
-					d: "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25z",
-					fill: "currentColor",
-				}),
-				el("path", {
-					d: "M20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z",
-					fill: "currentColor",
-				}),
-			],
-		);
+		return el("span", {
+			class: "cms-block__icon cms-block__icon--edit",
+			html: "&#xf23e;",
+			"aria-hidden": "true",
+		});
 	}
 
 	function buildTrashIcon() {
-		return el(
-			"svg",
-			{
-				viewBox: "0 0 24 24",
-				"aria-hidden": "true",
-				class: "cms-block__icon",
-			},
-			[
-				el("path", {
-					d: "M9 3h6l1 2h4v2H4V5h4l1-2z",
-					fill: "currentColor",
-				}),
-				el("path", {
-					d: "M6 7h12l-1 13a2 2 0 01-2 2H9a2 2 0 01-2-2L6 7z",
-					fill: "currentColor",
-				}),
-				el("path", {
-					d: "M10 11h2v7h-2zm4 0h2v7h-2z",
-					fill: "#0b1220",
-				}),
-			],
-		);
+		return el("span", {
+			class: "cms-block__icon cms-block__icon--delete",
+			html: "&#xe872;",
+			"aria-hidden": "true",
+		});
 	}
 
 	// -------------------------
