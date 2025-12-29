@@ -1574,6 +1574,7 @@
 				startPrPolling();
 			} else {
 				await purgeDirtyPagesFromRepo(true);
+				await refreshCurrentPageFromRepo();
 				purgeCleanDirtyPages();
 				if (dirtyCount()) setUiState("dirty", buildDirtyLabel());
 				else setUiState("clean", "PR MERGED");
@@ -1592,6 +1593,7 @@
 				startPrPolling();
 			} else {
 				await purgeDirtyPagesFromRepo(true);
+				await refreshCurrentPageFromRepo();
 				purgeCleanDirtyPages();
 				if (dirtyCount()) setUiState("dirty", buildDirtyLabel());
 				else setUiState("clean", "PR CLOSED");
@@ -1968,6 +1970,28 @@
 	// -------------------------
 	// Data load
 	// -------------------------
+	async function refreshCurrentPageFromRepo() {
+		const path = state.path || getPagePathFromLocation();
+		const res = await fetch(
+			`/api/repo/file?path=${encodeURIComponent(path)}`,
+			{ headers: { Accept: "application/json" } },
+		);
+		if (!res.ok) return;
+		const data = await res.json();
+		state.originalHtml = data.text || state.originalHtml;
+		const dirtyEntry = state.dirtyPages[path] || {};
+		const workingHtml = dirtyEntry.html || state.originalHtml;
+		const hero = extractRegion(workingHtml, "hero");
+		const main = extractRegion(workingHtml, "main");
+		const origHero = extractRegion(state.originalHtml, "hero");
+		const origMain = extractRegion(state.originalHtml, "main");
+		state.loadedHeroInner = origHero.found ? origHero.inner : "";
+		state.loadedMainInner = origMain.found ? origMain.inner : "";
+		state.heroInner = hero.found ? hero.inner : state.loadedHeroInner;
+		state.mainInner = main.found ? main.inner : state.loadedMainInner;
+		state.blocks = parseBlocks(state.mainInner);
+	}
+
 	async function loadSelectedPage() {
 		state.path = getPagePathFromLocation();
 		state.prList = loadPrState();
