@@ -259,26 +259,48 @@
 		const main = extractRegion(baseHtml || "", "main");
 		const blocks = main.found ? parseBlocks(main.inner) : [];
 		const occMap = new Map();
-		return blocks.map((block) => {
+		return blocks.map((block, idx) => {
 			const sig = signatureForHtml(block.html || "");
 			const occ = sig ? occMap.get(sig) || 0 : 0;
 			if (sig) occMap.set(sig, occ + 1);
-			return { html: block.html, sig, occ };
+			const baseId = sig ? `base-${hashText(sig)}-${idx}` : `base-${idx}`;
+			return { html: block.html, sig, occ, id: baseId, pos: idx };
 		});
 	}
 
 	function anchorKey(anchor) {
+		if (anchor?.id) return `id:${anchor.id}`;
 		if (!anchor?.sig && anchor?.sig !== "") return "";
 		return `${anchor.sig}::${anchor.occ ?? 0}`;
 	}
 
 	function ensureSessionBaseline(path, baseHtml) {
-		if (!path || state.session.baselines[path]) return;
+		if (!path) return;
+		const existing = state.session.baselines[path];
+		if (Array.isArray(existing) && existing.length) {
+			if (typeof existing[0] === "object") return;
+			const baseBlocks = buildBaseBlocksWithOcc(baseHtml || "");
+			state.session.baselines[path] = existing.map((sig, idx) => {
+				const base = baseBlocks[idx];
+				return {
+					id: base?.id || (sig ? `base-${hashText(sig)}-${idx}` : `base-${idx}`),
+					sig: sig || "",
+					pos: idx,
+				};
+			});
+			saveSessionState();
+			return;
+		}
 		const main = extractRegion(baseHtml || "", "main");
 		const blocks = main.found ? parseBlocks(main.inner) : [];
-		state.session.baselines[path] = blocks.map((b) =>
-			signatureForHtml(b.html || ""),
-		);
+		state.session.baselines[path] = blocks.map((b, idx) => {
+			const sig = signatureForHtml(b.html || "");
+			return {
+				id: sig ? `base-${hashText(sig)}-${idx}` : `base-${idx}`,
+				sig,
+				pos: idx,
+			};
+		});
 		saveSessionState();
 	}
 
@@ -289,8 +311,12 @@
 		const list = bucket[path] || [];
 		blockList.forEach((item) => {
 			const sig = signatureForHtml(item?.html || "");
-			if (!sig) return;
-			list.push({ sig, pos: Number.isInteger(item.pos) ? item.pos : null });
+			if (!sig && !item?.baseId) return;
+			list.push({
+				id: item?.baseId || null,
+				sig: sig || null,
+				pos: Number.isInteger(item.pos) ? item.pos : null,
+			});
 		});
 		bucket[path] = list;
 		state.session.committedByPr[prNumber] = bucket;
@@ -304,22 +330,34 @@
 	}
 
 	function committedMatchesForPath(path) {
-		const counts = new Map();
-		const byPos = new Map();
+		const countsById = new Map();
+		const countsBySig = new Map();
+		const byPosById = new Map();
+		const byPosBySig = new Map();
 		Object.values(state.session.committedByPr || {}).forEach((byPath) => {
 			const list = byPath?.[path] || [];
 			list.forEach((item) => {
+				const id = item?.id || null;
 				const sig = item?.sig || item;
+				if (id) {
+					if (Number.isInteger(item?.pos)) {
+						const slot = byPosById.get(item.pos) || [];
+						slot.push(id);
+						byPosById.set(item.pos, slot);
+					}
+					countsById.set(id, (countsById.get(id) || 0) + 1);
+					return;
+				}
 				if (!sig) return;
 				if (Number.isInteger(item?.pos)) {
-					const slot = byPos.get(item.pos) || [];
+					const slot = byPosBySig.get(item.pos) || [];
 					slot.push(sig);
-					byPos.set(item.pos, slot);
+					byPosBySig.set(item.pos, slot);
 				}
-				counts.set(sig, (counts.get(sig) || 0) + 1);
+				countsBySig.set(sig, (countsBySig.get(sig) || 0) + 1);
 			});
 		});
-		return { counts, byPos };
+		return { countsById, countsBySig, byPosById, byPosBySig };
 	}
 	function getActivePr() {
 		return (state.prList || [])[0] || null;
@@ -397,6 +435,8 @@
 						status: item.status === "pending" ? "pending" : "staged",
 						prNumber: item.prNumber || null,
 						kind: item.kind === "edited" ? "edited" : "new",
+						baseId: item.baseId || null,
+						sourceKey: item.sourceKey || null,
 						action:
 							item.action === "remove"
 								? "remove"
@@ -408,6 +448,27 @@
 				return null;
 			})
 			.filter(Boolean);
+	}
+
+	function hydrateLocalBlocksWithBaseIds(baseHtml, localBlocks) {
+		const items = normalizeLocalBlocks(localBlocks);
+		if (!items.length) return items;
+		const baseBlocks = buildBaseBlocksWithOcc(baseHtml || "");
+		const idBySigOcc = new Map();
+		baseBlocks.forEach((block) => {
+			if (!block.sig) return;
+			idBySigOcc.set(`${block.sig}::${block.occ ?? 0}`, block.id);
+		});
+		return items.map((item) => {
+			let anchor = item.anchor;
+			if (anchor?.sig && !anchor.id) {
+				const id = idBySigOcc.get(`${anchor.sig}::${anchor.occ ?? 0}`);
+				if (id) anchor = { ...anchor, id };
+			}
+			let baseId = item.baseId;
+			if (!baseId && anchor?.id) baseId = anchor.id;
+			return { ...item, anchor, baseId };
+		});
 	}
 
 	function deriveLocalBlocksFromDiff(baseHtml, dirtyHtml) {
@@ -433,12 +494,17 @@
 			let placement = "after";
 			if (baseIndex < baseBlocks.length) {
 				anchor = {
+					id: baseBlocks[baseIndex].id,
 					sig: baseBlocks[baseIndex].sig,
 					occ: baseBlocks[baseIndex].occ,
 				};
 				placement = "before";
 			} else if (lastBaseline) {
-				anchor = { sig: lastBaseline.sig, occ: lastBaseline.occ };
+				anchor = {
+					id: lastBaseline.id,
+					sig: lastBaseline.sig,
+					occ: lastBaseline.occ,
+				};
 				placement = "after";
 			}
 			locals.push({
@@ -485,7 +551,22 @@
 		});
 
 		return items.map((item) => {
-			if (item.anchor?.sig) return item;
+			if (item.anchor?.sig) {
+				if (!item.anchor?.id) {
+					const match = baseBlocks.find(
+						(b) =>
+							b.sig === item.anchor.sig &&
+							(b.occ ?? 0) === (item.anchor.occ ?? 0),
+					);
+					if (match?.id) {
+						return {
+							...item,
+							anchor: { ...item.anchor, id: match.id },
+						};
+					}
+				}
+				return item;
+			}
 			const sig = signatureForHtml(item.html || "");
 			const list = localPosBySig.get(sig) || [];
 			const idx = list.length ? list.shift() : null;
@@ -503,7 +584,11 @@
 					}
 				}
 				if (nextBaseline) {
-					anchor = { sig: nextBaseline.sig, occ: nextBaseline.occ };
+					anchor = {
+						id: nextBaseline.id,
+						sig: nextBaseline.sig,
+						occ: nextBaseline.occ,
+					};
 					placement = "before";
 				} else {
 					let prevBaseline = null;
@@ -514,7 +599,11 @@
 						}
 					}
 					if (prevBaseline) {
-						anchor = { sig: prevBaseline.sig, occ: prevBaseline.occ };
+						anchor = {
+							id: prevBaseline.id,
+							sig: prevBaseline.sig,
+							occ: prevBaseline.occ,
+						};
 						placement = "after";
 					}
 				}
@@ -586,7 +675,7 @@
 		for (let i = targetIndex - 1; i >= 0; i -= 1) {
 			const block = mergedRender[i];
 			if (block?._base && block.sig) {
-				anchor = { sig: block.sig, occ: block.occ };
+				anchor = { id: block.id, sig: block.sig, occ: block.occ };
 				placement = "after";
 				return { anchor, placement };
 			}
@@ -594,7 +683,7 @@
 		for (let i = targetIndex; i < mergedRender.length; i += 1) {
 			const block = mergedRender[i];
 			if (block?._base && block.sig) {
-				anchor = { sig: block.sig, occ: block.occ };
+				anchor = { id: block.id, sig: block.sig, occ: block.occ };
 				placement = "before";
 				return { anchor, placement };
 			}
@@ -617,6 +706,7 @@
 	function stripBaseMoveEntries(localBlocks, baseKey, baseHtml) {
 		const baseSig = normalizeFragmentHtml(baseHtml || "");
 		return normalizeLocalBlocks(localBlocks).filter((item) => {
+			if (item.baseId && `id:${item.baseId}` === baseKey) return false;
 			if (item.action === "remove" && anchorKey(item.anchor) === baseKey)
 				return false;
 			if (
@@ -636,6 +726,7 @@
 		const baseHtmlMap = baseHtmlByKey || new Map();
 		return normalizeLocalBlocks(localBlocks).filter((item) => {
 			const key = anchorKey(item.anchor);
+			if (item.baseId && baseKeySet.has(`id:${item.baseId}`)) return false;
 			if (item.action === "remove" && baseKeySet.has(key)) return false;
 			if (
 				item.action === "insert" &&
@@ -963,11 +1054,12 @@
 					const data = await res.json();
 					const baseHtml = String(data.text || "");
 
+					const hydratedLocal = hydrateLocalBlocksWithBaseIds(
+						baseHtml,
+						state.dirtyPages[path]?.localBlocks || [],
+					);
 					const localBlocks = normalizePendingBlocks(
-						filterLocalBlocksAgainstBase(
-							baseHtml,
-							state.dirtyPages[path]?.localBlocks || [],
-						),
+						filterLocalBlocksAgainstBase(baseHtml, hydratedLocal),
 					);
 					const all = [];
 					const added = [];
@@ -1026,6 +1118,7 @@
 							localStatus: localItem?.status || (isLocal ? "staged" : null),
 							prNumber: localItem?.prNumber || null,
 							localId: localItem?.id || null,
+							baseId: isBase ? block.id : localItem?.baseId || null,
 							removed: false,
 						};
 						all.push(item);
@@ -1046,6 +1139,7 @@
 								localStatus: item.status || "staged",
 								prNumber: item.prNumber || null,
 								localId: item.id || null,
+								baseId: item.baseId || null,
 								removed: true,
 							};
 						});
@@ -1118,8 +1212,12 @@
 					if (!res.ok) return;
 					const data = await res.json();
 					const entry = state.dirtyPages[path] || {};
+					const hydratedLocal = hydrateLocalBlocksWithBaseIds(
+						data.text || "",
+						entry.localBlocks,
+					);
 					const cleanedLocal = normalizePendingBlocks(
-						filterLocalBlocksAgainstBase(data.text || "", entry.localBlocks),
+						filterLocalBlocksAgainstBase(data.text || "", hydratedLocal),
 					);
 					const merged = mergeDirtyWithBase(
 						data.text || "",
@@ -1622,7 +1720,11 @@
 		let placement = "after";
 		for (let i = index - 1; i >= 0; i -= 1) {
 			if (baselineMap[i]) {
-				anchor = { sig: baselineMap[i].sig, occ: baselineMap[i].occ };
+				anchor = {
+					id: baselineMap[i].id,
+					sig: baselineMap[i].sig,
+					occ: baselineMap[i].occ,
+				};
 				placement = "after";
 				break;
 			}
@@ -1630,7 +1732,11 @@
 		if (!anchor) {
 			for (let i = index; i < baselineMap.length; i += 1) {
 				if (baselineMap[i]) {
-					anchor = { sig: baselineMap[i].sig, occ: baselineMap[i].occ };
+					anchor = {
+						id: baselineMap[i].id,
+						sig: baselineMap[i].sig,
+						occ: baselineMap[i].occ,
+					};
 					placement = "before";
 					break;
 				}
@@ -2095,7 +2201,8 @@
 
 		// Render from state.blocks (raw HTML),
 		// then run sections/lightbox for parity (same as your live site).
-		const localBlocks = normalizeLocalBlocks(
+		const localBlocks = hydrateLocalBlocksWithBaseIds(
+			state.originalHtml || "",
 			state.dirtyPages[state.path]?.localBlocks || [],
 		);
 		const mergedRender = buildMergedRenderBlocks(
@@ -2105,14 +2212,30 @@
 		);
 
 		const sessionList = state.session.baselines[state.path] || [];
-		const sessionCounts = new Map();
-		sessionList.forEach((sig) => {
-			if (!sig) return;
-			sessionCounts.set(sig, (sessionCounts.get(sig) || 0) + 1);
+		const sessionCountsById = new Map();
+		const sessionCountsBySig = new Map();
+		sessionList.forEach((entry) => {
+			if (!entry) return;
+			if (typeof entry === "object") {
+				if (entry.id)
+					sessionCountsById.set(
+						entry.id,
+						(sessionCountsById.get(entry.id) || 0) + 1,
+					);
+				if (entry.sig)
+					sessionCountsBySig.set(
+						entry.sig,
+						(sessionCountsBySig.get(entry.sig) || 0) + 1,
+					);
+				return;
+			}
+			sessionCountsBySig.set(entry, (sessionCountsBySig.get(entry) || 0) + 1);
 		});
 		const committedState = committedMatchesForPath(state.path);
-		const committedCounts = committedState.counts;
-		const committedByPos = committedState.byPos;
+		const committedCountsById = committedState.countsById;
+		const committedCountsBySig = committedState.countsBySig;
+		const committedByPosById = committedState.byPosById;
+		const committedByPosBySig = committedState.byPosBySig;
 		const markMap = new Map();
 		localBlocks
 			.filter((item) => item.action === "mark")
@@ -2138,24 +2261,53 @@
 				if (localItem.status === "pending") status = "pending";
 				else status = localItem.kind === "edited" ? "edited" : "new";
 			} else {
+				const baseId = b.id || null;
 				const sig = b.sig || signatureForHtml(html);
-				const committedAtPos = sig
-					? (committedByPos.get(idx) || []).findIndex((s) => s === sig)
-					: -1;
+				let committedAtPos = -1;
+				if (baseId) {
+					const list = committedByPosById.get(idx) || [];
+					committedAtPos = list.findIndex((id) => id === baseId);
+					if (committedAtPos >= 0) {
+						list.splice(committedAtPos, 1);
+						if (!list.length) committedByPosById.delete(idx);
+						else committedByPosById.set(idx, list);
+						status = "committed";
+					}
+				}
+				if (committedAtPos < 0 && sig) {
+					const list = committedByPosBySig.get(idx) || [];
+					committedAtPos = list.findIndex((s) => s === sig);
+					if (committedAtPos >= 0) {
+						list.splice(committedAtPos, 1);
+						if (!list.length) committedByPosBySig.delete(idx);
+						else committedByPosBySig.set(idx, list);
+						status = "committed";
+					}
+				}
 				if (committedAtPos >= 0) {
-					const list = committedByPos.get(idx) || [];
-					list.splice(committedAtPos, 1);
-					if (!list.length) committedByPos.delete(idx);
-					else committedByPos.set(idx, list);
-					status = "committed";
-				} else {
-					const committedRemaining = sig ? committedCounts.get(sig) || 0 : 0;
+					// already marked committed
+				} else if (baseId) {
+					const committedRemaining = committedCountsById.get(baseId) || 0;
 					if (committedRemaining > 0) {
-						committedCounts.set(sig, committedRemaining - 1);
+						committedCountsById.set(baseId, committedRemaining - 1);
 						status = "committed";
 					} else {
-						const remaining = sig ? sessionCounts.get(sig) || 0 : 0;
-						if (remaining > 0) sessionCounts.set(sig, remaining - 1);
+						const remaining = sessionCountsById.get(baseId) || 0;
+						if (remaining > 0)
+							sessionCountsById.set(baseId, remaining - 1);
+						else status = "edited";
+					}
+				} else {
+					const committedRemaining = sig
+						? committedCountsBySig.get(sig) || 0
+						: 0;
+					if (committedRemaining > 0) {
+						committedCountsBySig.set(sig, committedRemaining - 1);
+						status = "committed";
+					} else {
+						const remaining = sig ? sessionCountsBySig.get(sig) || 0 : 0;
+						if (remaining > 0)
+							sessionCountsBySig.set(sig, remaining - 1);
 						else status = "edited";
 					}
 				}
@@ -2366,7 +2518,8 @@
 						});
 						return;
 					}
-					const currentLocal = normalizeLocalBlocks(
+					const currentLocal = hydrateLocalBlocksWithBaseIds(
+						baseHtml,
 						state.dirtyPages[state.path]?.localBlocks || [],
 					);
 					const baseHtml = state.originalHtml || "";
@@ -2388,7 +2541,11 @@
 						if (origin === "base" && isRemoved) {
 							const baseBlock = merged[currentIndex];
 							if (!baseBlock?._base) return;
-							const anchor = { sig: baseBlock.sig, occ: baseBlock.occ };
+							const anchor = {
+								id: baseBlock.id,
+								sig: baseBlock.sig,
+								occ: baseBlock.occ,
+							};
 							const key = anchorKey(anchor);
 							const updated = currentLocal.filter(
 								(item) =>
@@ -2413,7 +2570,11 @@
 									return;
 								}
 								if (!baseBlock?._base) return;
-								const anchor = { sig: baseBlock.sig, occ: baseBlock.occ };
+								const anchor = {
+									id: baseBlock.id,
+									sig: baseBlock.sig,
+									occ: baseBlock.occ,
+								};
 								const key = anchorKey(anchor);
 								const alreadyRemoved = currentLocal.some(
 									(item) =>
@@ -2430,6 +2591,7 @@
 										status: "staged",
 										kind: "edited",
 										action: "mark",
+										baseId: baseBlock.id || null,
 									},
 								];
 								updateLocalBlocksAndRender(state.path, updated);
@@ -2520,11 +2682,12 @@
 						moveEntries.push({
 							id: makeLocalId(),
 							html: item.html || "",
-							anchor: { sig: item.sig, occ: item.occ },
+							anchor: { id: item.key?.replace(/^id:/, ""), sig: item.sig, occ: item.occ },
 							placement: "after",
 							status: "staged",
 							kind: "edited",
 							action: "remove",
+							baseId: item.key?.replace(/^id:/, ""),
 						});
 					});
 					nextOrder.forEach((item, idx) => {
@@ -2533,11 +2696,19 @@
 						let placement = "after";
 						if (idx > 0) {
 							const prev = nextOrder[idx - 1];
-							anchor = { sig: prev.sig, occ: prev.occ };
+							anchor = {
+								id: prev.key?.replace(/^id:/, ""),
+								sig: prev.sig,
+								occ: prev.occ,
+							};
 							placement = "after";
 						} else if (idx < nextOrder.length - 1) {
 							const next = nextOrder[idx + 1];
-							anchor = { sig: next.sig, occ: next.occ };
+							anchor = {
+								id: next.key?.replace(/^id:/, ""),
+								sig: next.sig,
+								occ: next.occ,
+							};
 							placement = "before";
 						}
 						moveEntries.push({
@@ -2550,6 +2721,7 @@
 							action: "insert",
 							pos: idx,
 							sourceKey: item.key,
+							baseId: item.key?.replace(/^id:/, ""),
 						});
 					});
 					updateLocalBlocksAndRender(state.path, [
@@ -2707,11 +2879,12 @@
 		const dirtyEntry = state.dirtyPages[state.path] || {};
 		let dirtyHtml = dirtyEntry.html || "";
 		if (dirtyHtml) {
+			const hydratedLocal = hydrateLocalBlocksWithBaseIds(
+				state.originalHtml,
+				dirtyEntry.localBlocks,
+			);
 			const cleanedLocal = normalizePendingBlocks(
-				filterLocalBlocksAgainstBase(
-					state.originalHtml,
-					dirtyEntry.localBlocks,
-				),
+				filterLocalBlocksAgainstBase(state.originalHtml, hydratedLocal),
 			);
 			const mergedDirty = mergeDirtyWithBase(
 				state.originalHtml,
@@ -3368,7 +3541,11 @@
 			commitSelections.forEach(({ path, entry, selectedIds }) => {
 				const selectedBlocks = (entry.all || [])
 					.filter((block) => selectedIds.has(block.id))
-					.map((block) => ({ html: block.html, pos: block.idx }));
+					.map((block) => ({
+						html: block.html,
+						pos: block.idx,
+						baseId: block.baseId || null,
+					}));
 				addSessionCommitted(pr.number, path, selectedBlocks);
 			});
 			postPrUpdates.forEach(({ path, entry, remainingLocal }) => {
