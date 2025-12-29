@@ -603,10 +603,16 @@
 		return { anchor: null, placement: "after" };
 	}
 
+	function hasRemovalActions(localBlocks) {
+		return normalizeLocalBlocks(localBlocks).some(
+			(item) => item.action === "remove",
+		);
+	}
+
 	function updateLocalBlocksAndRender(path, updatedLocal) {
 		const baseHtml = state.originalHtml || "";
 		const updatedHtml = mergeDirtyWithBase(baseHtml, baseHtml, updatedLocal, {
-			respectRemovals: false,
+			respectRemovals: hasRemovalActions(updatedLocal),
 		});
 		const hasLocal = normalizeLocalBlocks(updatedLocal).length > 0;
 		if (!updatedHtml || (!hasLocal && updatedHtml.trim() === baseHtml.trim())) {
@@ -681,7 +687,7 @@
 		const canonicalHtml =
 			normalizedLocal.length > 0
 				? mergeDirtyWithBase(baseHtml || "", baseHtml || "", normalizedLocal, {
-						respectRemovals: false,
+						respectRemovals: hasRemovalActions(normalizedLocal),
 					})
 				: html;
 		state.dirtyPages[path] = {
@@ -904,13 +910,13 @@
 								baseHtml || dirtyHtml || "",
 								dirtyHtml || baseHtml || "",
 								localBlocks,
-								{ respectRemovals: false },
+								{ respectRemovals: hasRemovalActions(localBlocks) },
 							)
 						: dirtyHtml;
 					const baseBlocks = buildBaseBlocksWithOcc(baseHtml || "");
 					const mergedBlocks = localBlocks.length
 						? applyAnchoredInserts(baseBlocks, localBlocks, {
-								respectRemovals: false,
+								respectRemovals: hasRemovalActions(localBlocks),
 							})
 						: extractRegion(baseHtml, "main").found
 							? parseBlocks(extractRegion(baseHtml, "main").inner).map((b) => ({
@@ -1041,7 +1047,7 @@
 						data.text || "",
 						entry.html || "",
 						cleanedLocal,
-						{ respectRemovals: false },
+						{ respectRemovals: hasRemovalActions(cleanedLocal) },
 					);
 					const remappedLocal = (state.prList || []).length
 						? assignAnchorsFromHtml(data.text || "", merged, cleanedLocal)
@@ -1130,7 +1136,7 @@
 			(item) => !selectedLocalIds.has(item.id),
 		);
 		return mergeDirtyWithBase(baseHtml, baseHtml, remainingLocal, {
-			respectRemovals: false,
+			respectRemovals: hasRemovalActions(remainingLocal),
 		});
 	}
 
@@ -1145,7 +1151,7 @@
 			(item) => !selectedLocalIds.has(item.id),
 		);
 		return mergeDirtyWithBase(baseHtml, baseHtml, remainingLocal, {
-			respectRemovals: false,
+			respectRemovals: hasRemovalActions(remainingLocal),
 		});
 	}
 
@@ -2341,7 +2347,7 @@
 					if (origin === "local") {
 						const remaining = currentLocal.filter((item) => item.id !== id);
 						const mergedWithout = buildMergedRenderBlocks(baseHtml, remaining, {
-							respectRemovals: false,
+							respectRemovals: hasRemovalActions(remaining),
 						});
 						const anchorInfo = getAnchorForIndex(targetIndex, mergedWithout);
 						const moving = currentLocal.find((item) => item.id === id);
@@ -2389,7 +2395,7 @@
 								},
 							];
 					const mergedWithout = buildMergedRenderBlocks(baseHtml, remaining, {
-						respectRemovals: false,
+						respectRemovals: hasRemovalActions(remaining),
 					});
 					const anchorInfo = getAnchorForIndex(targetIndex, mergedWithout);
 					const updated = [
@@ -2567,7 +2573,7 @@
 				state.originalHtml,
 				dirtyHtml,
 				cleanedLocal,
-				{ respectRemovals: false },
+				{ respectRemovals: hasRemovalActions(cleanedLocal) },
 			);
 			if (
 				normalizeHtmlForCompare(mergedDirty) ===
@@ -2803,7 +2809,7 @@
 					entry.baseHtml || entry.dirtyHtml || "",
 					entry.baseHtml || entry.dirtyHtml || "",
 					remainingLocal,
-					{ respectRemovals: false },
+					{ respectRemovals: hasRemovalActions(remainingLocal) },
 				);
 				const remappedLocal = assignAnchorsFromHtml(
 					entry.baseHtml || entry.dirtyHtml || "",
@@ -3161,7 +3167,7 @@
 					remainingBase,
 					remainingBase,
 					remainingLocal,
-					{ respectRemovals: false },
+					{ respectRemovals: hasRemovalActions(remainingLocal) },
 				);
 				const remappedLocal = assignAnchorsFromHtml(
 					remainingBase,
