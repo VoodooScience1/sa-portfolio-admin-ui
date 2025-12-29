@@ -647,6 +647,7 @@
 			merged.push({
 				html: block.html,
 				_base: true,
+				id: block.id,
 				sig: block.sig,
 				occ: block.occ,
 			});
@@ -662,6 +663,7 @@
 			return baseBlocks.map((block) => ({
 				html: block.html,
 				_base: true,
+				id: block.id,
 				sig: block.sig,
 				occ: block.occ,
 			}));
