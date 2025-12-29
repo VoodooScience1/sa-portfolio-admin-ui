@@ -588,7 +588,8 @@
 		const updatedHtml = mergeDirtyWithBase(baseHtml, baseHtml, updatedLocal, {
 			respectRemovals: false,
 		});
-		if (!updatedHtml || updatedHtml.trim() === baseHtml.trim()) {
+		const hasLocal = normalizeLocalBlocks(updatedLocal).length > 0;
+		if (!updatedHtml || (!hasLocal && updatedHtml.trim() === baseHtml.trim())) {
 			clearDirtyPage(path);
 		} else {
 			const anchoredLocal = assignAnchorsFromHtml(
@@ -969,6 +970,7 @@
 		Object.keys(state.dirtyPages || {}).forEach((path) => {
 			const entry = state.dirtyPages[path];
 			if (!entry) return;
+			if (normalizeLocalBlocks(entry.localBlocks || []).length) return;
 			if (entry.baseHash && entry.dirtyHash && entry.baseHash === entry.dirtyHash)
 				clearDirtyPage(path);
 		});
