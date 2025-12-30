@@ -24,7 +24,7 @@
 	const PR_STORAGE_KEY = "cms-pr-state";
 	const SESSION_STORAGE_KEY = "cms-session-state";
 	const DEBUG_ENABLED_DEFAULT = true;
-	const UPDATE_VERSION = 11;
+	const UPDATE_VERSION = 13;
 	const BUILD_TOKEN = Date.now().toString(36);
 
 	function getPagePathFromLocation() {
@@ -381,11 +381,13 @@
 			return { type: "legacy", raw: String(node?.outerHTML || "") };
 		}
 		const cls = node.classList;
+		const cmsId = node.getAttribute("data-cms-id") || "";
 		if (cls.contains("section")) {
 			const type = (node.getAttribute("data-type") || "").trim();
 			if (type === "twoCol") {
 				return {
 					type: "twoCol",
+					cmsId,
 					left: node.querySelector("[data-col='left']")?.innerHTML || "",
 					right: node.querySelector("[data-col='right']")?.innerHTML || "",
 				};
@@ -393,6 +395,7 @@
 			if (type === "imgText" || type === "split50") {
 				return {
 					type,
+					cmsId,
 					imgPos: node.getAttribute("data-img-pos") || "left",
 					img: node.getAttribute("data-img") || "",
 					caption: node.getAttribute("data-caption") || "",
@@ -402,7 +405,7 @@
 					body: node.innerHTML || "",
 				};
 			}
-			return { type: "legacy", raw: node.outerHTML };
+			return { type: "legacy", cmsId, raw: node.outerHTML };
 		}
 
 		if (cls.contains("grid-wrapper") && cls.contains("grid-wrapper--row")) {
@@ -421,7 +424,7 @@
 						overlayText: text?.textContent?.trim() || "",
 					};
 				});
-				return { type: "hoverCardRow", cards };
+				return { type: "hoverCardRow", cmsId, cards };
 			}
 			if (node.querySelector(".box > img")) {
 				const items = Array.from(node.querySelectorAll(".box > img")).map(
@@ -431,11 +434,11 @@
 						lightbox: img.classList.contains("js-lightbox") || false,
 					}),
 				);
-				return { type: "squareGridRow", items };
+				return { type: "squareGridRow", cmsId, items };
 			}
 		}
 
-		return { type: "legacy", raw: node.outerHTML };
+		return { type: "legacy", cmsId, raw: node.outerHTML };
 	}
 
 	function parseMainBlocksFromHtml(mainHtml) {
@@ -448,10 +451,21 @@
 		return nodes.map((node) => parseMainBlockNode(node));
 	}
 
+	function getBlockCmsId(block, idx, ctx) {
+		if (block?.cmsId) return block.cmsId;
+		if (block?.baseId) return block.baseId;
+		if (block?.id) return block.id;
+		if (ctx?.blockId) return ctx.blockId;
+		const sig = signatureForHtml(block?.raw || block?.html || "");
+		return `cms-${hashText(sig || String(idx))}-${idx}`;
+	}
+
 	function serializeSectionStub(block, ctx) {
+		const cmsId = getBlockCmsId(block, ctx?.index ?? 0, ctx);
 		const type = block.type;
 		const attrs = {
 			class: "section",
+			"data-cms-id": cmsId,
 			"data-type": type,
 		};
 		if (block.imgPos && block.imgPos !== "left") {
@@ -464,6 +478,7 @@
 		if (block.overlayText) attrs["data-overlay-text"] = block.overlayText;
 		const order = [
 			"class",
+			"data-cms-id",
 			"data-type",
 			"data-img-pos",
 			"data-img",
@@ -480,10 +495,13 @@
 	}
 
 	function serializeTwoCol(block, ctx) {
+		const cmsId = getBlockCmsId(block, ctx?.index ?? 0, ctx);
 		const left = sanitizeRteHtml(block.left || "", ctx);
 		const right = sanitizeRteHtml(block.right || "", ctx);
 		const lines = [
-			`<div class="section" data-type="twoCol">`,
+			`<div class="section" data-cms-id="${escapeAttr(
+				cmsId,
+			)}" data-type="twoCol">`,
 			`\t<div data-col="left">`,
 			left ? indentLines(left, 2) : "",
 			`\t</div>`,
@@ -495,8 +513,13 @@
 		return lines.join("\n");
 	}
 
-	function serializeHoverCardRow(block) {
-		const lines = [`<div class="grid-wrapper grid-wrapper--row">`];
+function serializeHoverCardRow(block, ctx) {
+		const cmsId = getBlockCmsId(block, ctx?.index ?? 0, ctx);
+		const lines = [
+			`<div class="grid-wrapper grid-wrapper--row" data-cms-id="${escapeAttr(
+				cmsId,
+			)}">`,
+		];
 		(block.cards || []).forEach((card) => {
 			const imgClass = card.lightbox
 				? "content-image js-lightbox"
@@ -522,8 +545,13 @@
 		return lines.join("\n");
 	}
 
-	function serializeSquareGridRow(block) {
-		const lines = [`<div class="grid-wrapper grid-wrapper--row">`];
+function serializeSquareGridRow(block, ctx) {
+		const cmsId = getBlockCmsId(block, ctx?.index ?? 0, ctx);
+		const lines = [
+			`<div class="grid-wrapper grid-wrapper--row" data-cms-id="${escapeAttr(
+				cmsId,
+			)}">`,
+		];
 		(block.items || []).forEach((item) => {
 			const imgClass = item.lightbox ? "js-lightbox" : "";
 			const classAttr = imgClass ? ` class="${imgClass}"` : "";
@@ -544,6 +572,7 @@
 			.map((block, idx) => {
 				const blockCtx = {
 					...ctx,
+					index: idx,
 					blockId: block.baseId || block.id || `block-${idx}`,
 					blockIdShort: hashText(
 						`${block.baseId || block.id || "block"}::${idx}`,
@@ -552,9 +581,32 @@
 				if (block.type === "twoCol") return serializeTwoCol(block, blockCtx);
 				if (block.type === "imgText" || block.type === "split50")
 					return serializeSectionStub(block, blockCtx);
-				if (block.type === "hoverCardRow") return serializeHoverCardRow(block);
+				if (block.type === "hoverCardRow")
+					return serializeHoverCardRow(block, blockCtx);
 				if (block.type === "squareGridRow")
-					return serializeSquareGridRow(block);
+					return serializeSquareGridRow(block, blockCtx);
+				if (block.raw || block.html) {
+					try {
+						const doc = new DOMParser().parseFromString(
+							`<div id="__wrap__">${String(
+								block.raw || block.html || "",
+							)}</div>`,
+							"text/html",
+						);
+						const node = doc.querySelector("#__wrap__")?.firstElementChild;
+						if (node) {
+							if (!node.getAttribute("data-cms-id")) {
+								node.setAttribute(
+									"data-cms-id",
+									getBlockCmsId(block, idx, blockCtx),
+								);
+							}
+							return node.outerHTML.trim();
+						}
+					} catch {
+						// fall through
+					}
+				}
 				return String(block.raw || block.html || "").trim();
 			})
 			.filter(Boolean)
@@ -581,7 +633,20 @@
 	}
 
 	function serializeModelToCanonicalHtml(model, baseHtml = "") {
-		const heroInner = serializeHeroInner(model.hero);
+		let heroInner = serializeHeroInner(model.hero);
+		if (baseHtml) {
+			const baseHero = extractRegion(baseHtml, "hero");
+			if (baseHero.found) {
+				const baseHeroModel = parseHeroInner(baseHero.inner || "");
+				const modelHero = model.hero || {};
+				const unchanged =
+					baseHeroModel.type === "hero" &&
+					modelHero.type === "hero" &&
+					baseHeroModel.title === modelHero.title &&
+					baseHeroModel.subtitle === modelHero.subtitle;
+				if (unchanged) heroInner = (baseHero.inner || "").trim();
+			}
+		}
 		const mainInner = serializeMainBlocks(model.main, {
 			path: model.path || "",
 		});
@@ -793,7 +858,20 @@
 			const sig = signatureForHtml(block.html || "");
 			const occ = sig ? occMap.get(sig) || 0 : 0;
 			if (sig) occMap.set(sig, occ + 1);
-			const baseId = sig ? `base-${hashText(sig)}-${idx}` : `base-${idx}`;
+			let baseId = "";
+			try {
+				const doc = new DOMParser().parseFromString(
+					`<div id="__wrap__">${String(block.html || "")}</div>`,
+					"text/html",
+				);
+				const node = doc.querySelector("#__wrap__")?.firstElementChild;
+				baseId = node?.getAttribute("data-cms-id") || "";
+			} catch {
+				baseId = "";
+			}
+			if (!baseId) {
+				baseId = sig ? `base-${hashText(sig)}-${idx}` : `base-${idx}`;
+			}
 			return { html: block.html, sig, occ, id: baseId, pos: idx };
 		});
 	}
