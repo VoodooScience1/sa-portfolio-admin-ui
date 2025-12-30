@@ -3258,13 +3258,22 @@
 						const anchorInfo = getAnchorForIndex(targetIndex, mergedWithout);
 						const moving = currentLocal.find((item) => item.id === id);
 						if (!moving) return;
+						const desired = [...mergedWithout];
+						desired.splice(targetIndex, 0, { _local: moving });
+						const posById = new Map();
+						desired.forEach((block, idx) => {
+							if (block?._local?.id) posById.set(block._local.id, idx);
+						});
 						const updated = [
-							...remaining,
+							...remaining.map((item) => ({
+								...item,
+								pos: posById.get(item.id) ?? item.pos ?? null,
+							})),
 							{
 								...moving,
 								anchor: anchorInfo.anchor,
 								placement: anchorInfo.placement,
-								pos: targetIndex,
+								pos: posById.get(moving.id) ?? targetIndex,
 							},
 						];
 						updateLocalBlocksAndRender(state.path, updated);
