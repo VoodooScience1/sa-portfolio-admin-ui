@@ -24,7 +24,7 @@
 	const PR_STORAGE_KEY = "cms-pr-state";
 	const SESSION_STORAGE_KEY = "cms-session-state";
 	const DEBUG_ENABLED_DEFAULT = true;
-	const UPDATE_VERSION = 16;
+	const UPDATE_VERSION = 17;
 	const BUILD_TOKEN = Date.now().toString(36);
 
 	function getPagePathFromLocation() {
@@ -2162,7 +2162,7 @@ function serializeSquareGridRow(block, ctx) {
 							path,
 						},
 					);
-					const remappedLocal = hasRemovalOrMarkActions(cleanedLocal)
+					const remappedLocal = cleanedLocal.length
 						? assignAnchorsFromHtml(data.text || "", merged, cleanedLocal)
 						: (state.prList || []).length
 							? assignAnchorsFromHtml(data.text || "", merged, cleanedLocal)
