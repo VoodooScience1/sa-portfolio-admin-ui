@@ -23,6 +23,7 @@
 	const DIRTY_STORAGE_KEY = "cms-dirty-pages";
 	const PR_STORAGE_KEY = "cms-pr-state";
 	const SESSION_STORAGE_KEY = "cms-session-state";
+	const UPDATE_VERSION = 2;
 
 	function getPagePathFromLocation() {
 		const raw = String(location.pathname || "").replace(/^\/+/, "");
@@ -970,7 +971,9 @@
 								? "remove"
 								: item.action === "mark"
 									? "mark"
-									: "insert",
+									: item.action === "reorder"
+										? "reorder"
+										: "insert",
 					};
 				}
 				return null;
@@ -1149,6 +1152,8 @@
 
 	function applyAnchoredInserts(baseBlocks, localBlocks, options = {}) {
 		const respectRemovals = options.respectRemovals !== false;
+		const baseOrderOverride = options.baseOrderOverride || null;
+		const baseById = new Map(baseBlocks.map((block) => [block.id, block]));
 		const beforeMap = new Map();
 		const afterMap = new Map();
 		const orphans = [];
@@ -1168,6 +1173,7 @@
 				return;
 			}
 			if (item.action === "remove" || item.action === "mark") return;
+			if (item.action === "reorder") return;
 			if (
 				!key &&
 				Number.isInteger(item.pos) &&
@@ -1200,6 +1206,21 @@
 		beforeMap.forEach((list) => sortAnchored(list));
 		afterMap.forEach((list) => sortAnchored(list));
 		let baseOrder = baseBlocks;
+		if (Array.isArray(baseOrderOverride) && baseOrderOverride.length) {
+			const used = new Set();
+			const ordered = [];
+			baseOrderOverride.forEach((id) => {
+				const block = baseById.get(id);
+				if (!block) return;
+				ordered.push(block);
+				used.add(id);
+			});
+			baseBlocks.forEach((block) => {
+				if (used.has(block.id)) return;
+				ordered.push(block);
+			});
+			baseOrder = ordered;
+		}
 		if (positional.length) {
 			const baseById = new Map(baseBlocks.map((block) => [block.id, block]));
 			baseOrder = baseBlocks.filter((block) => !removeBaseIds.has(block.id));
@@ -1242,8 +1263,45 @@
 		return merged;
 	}
 
+	function buildBaseOrderFromReorders(baseBlocks, localBlocks, explicitOrder) {
+		const baseOrder = Array.isArray(explicitOrder) && explicitOrder.length
+			? explicitOrder.slice()
+			: baseBlocks.map((b) => b.id);
+		const baseIds = new Set(baseBlocks.map((b) => b.id));
+		const filtered = baseOrder.filter((id) => baseIds.has(id));
+		baseBlocks.forEach((block) => {
+			if (!filtered.includes(block.id)) filtered.push(block.id);
+		});
+		const reorderItems = normalizeLocalBlocks(localBlocks)
+			.filter((item) => item.action === "reorder" && item.baseId)
+			.sort((a, b) => {
+				if (Number.isInteger(a.pos) && Number.isInteger(b.pos)) {
+					return a.pos - b.pos;
+				}
+				if (Number.isInteger(a.pos)) return -1;
+				if (Number.isInteger(b.pos)) return 1;
+				return 0;
+			});
+		reorderItems.forEach((item) => {
+			const id = item.baseId;
+			if (!id) return;
+			const currentIdx = filtered.indexOf(id);
+			if (currentIdx >= 0) filtered.splice(currentIdx, 1);
+			const target = Number.isInteger(item.pos)
+				? Math.max(0, Math.min(item.pos, filtered.length))
+				: filtered.length;
+			filtered.splice(target, 0, id);
+		});
+		return filtered;
+	}
+
 	function buildMergedRenderBlocks(baseHtml, localBlocks, options = {}) {
 		const baseBlocks = buildBaseBlocksWithOcc(baseHtml || "");
+		const baseOrderOverride = buildBaseOrderFromReorders(
+			baseBlocks,
+			localBlocks,
+			options.baseOrderOverride,
+		);
 		if (!localBlocks || !localBlocks.length) {
 			return baseBlocks.map((block) => ({
 				html: block.html,
@@ -1253,7 +1311,10 @@
 				occ: block.occ,
 			}));
 		}
-		return applyAnchoredInserts(baseBlocks, localBlocks, options);
+		return applyAnchoredInserts(baseBlocks, localBlocks, {
+			...options,
+			baseOrderOverride,
+		});
 	}
 
 	function getAnchorForIndex(targetIndex, mergedRender) {
@@ -1488,7 +1549,12 @@
 			.sort((a, b) => a - b);
 
 		return items.filter((item) => {
-			if (item.action === "mark" || item.action === "remove") return true;
+			if (
+				item.action === "mark" ||
+				item.action === "remove" ||
+				item.action === "reorder"
+			)
+				return true;
 			const html = (item.html || "").trim();
 			if (!html) return false;
 			if (Number.isInteger(item.pos)) {
@@ -1534,8 +1600,14 @@
 					.map((item) => item.baseId),
 			);
 			if (hasAnchors) {
+				const baseOrderOverride = buildBaseOrderFromReorders(
+					baseBlocks,
+					dirtyOnly,
+					options.baseOrderOverride,
+				);
 				mergedBlocks = applyAnchoredInserts(baseBlocks, dirtyOnly, {
 					respectRemovals,
+					baseOrderOverride,
 				});
 			} else {
 				const withPos = dirtyOnly.filter((item) => Number.isInteger(item.pos));
@@ -1693,6 +1765,10 @@
 					const mergedBlocks = localBlocks.length
 						? applyAnchoredInserts(baseBlocks, localBlocks, {
 								respectRemovals: hasRemovalActions(localBlocks),
+								baseOrderOverride: buildBaseOrderFromReorders(
+									baseBlocks,
+									localBlocks,
+								),
 							})
 						: extractRegion(baseHtml, "main").found
 							? parseBlocks(extractRegion(baseHtml, "main").inner).map((b) => ({
@@ -1762,6 +1838,31 @@
 					removedItems.forEach((item) => {
 						all.push(item);
 						removed.push(item);
+					});
+
+					const reorderItems = localBlocks
+						.filter((item) => item.action === "reorder" && item.baseId)
+						.map((item, idx) => {
+							const base = baseBlocks.find((b) => b.id === item.baseId);
+							const info = base
+								? summarize(base.html || "")
+								: { summary: "Block" };
+							return {
+								id: `${path}::reorder::${item.id || idx}`,
+								idx: mergedBlocks.length + removedItems.length + idx,
+								html: base?.html || "",
+								summary: `Moved: ${info.summary || "Block"}`,
+								selectable: item.status !== "pending",
+								localStatus: item.status || "staged",
+								prNumber: item.prNumber || null,
+								localId: item.id || null,
+								baseId: item.baseId || null,
+								removed: false,
+							};
+						});
+					reorderItems.forEach((item) => {
+						all.push(item);
+						modified.push(item);
 					});
 
 					blockMap[path] = {
@@ -2897,6 +2998,11 @@
 				list.push(item);
 				markMap.set(key, list);
 			});
+		const reorderIds = new Set(
+			localBlocks
+				.filter((item) => item.action === "reorder" && item.baseId)
+				.map((item) => item.baseId),
+		);
 
 		mergedRender.forEach((b, idx) => {
 			const frag = new DOMParser().parseFromString(b.html, "text/html").body;
@@ -2938,14 +3044,19 @@
 				if (committedAtPos >= 0) {
 					// already marked committed
 				} else if (baseId) {
-					const committedRemaining = committedCountsById.get(baseId) || 0;
-					if (committedRemaining > 0) {
-						committedCountsById.set(baseId, committedRemaining - 1);
-						status = "committed";
+					if (reorderIds.has(baseId)) {
+						status = "edited";
 					} else {
-						const remaining = sessionCountsById.get(baseId) || 0;
-						if (remaining > 0) sessionCountsById.set(baseId, remaining - 1);
-						else status = "edited";
+						const committedRemaining = committedCountsById.get(baseId) || 0;
+						if (committedRemaining > 0) {
+							committedCountsById.set(baseId, committedRemaining - 1);
+							status = "committed";
+						} else {
+							const remaining = sessionCountsById.get(baseId) || 0;
+							if (remaining > 0)
+								sessionCountsById.set(baseId, remaining - 1);
+							else status = "edited";
+						}
 					}
 				} else {
 					const committedRemaining = sig
@@ -3328,46 +3439,16 @@
 					const movedKeys = nextOrderKeys.filter(
 						(key, idx) => origIndex.get(key) !== idx,
 					);
-					const cleanedLocal = stripAllBaseMoveEntries(
-						currentLocal,
-						baseOrderKeys,
-						baseHtmlByKey,
+					const cleanedLocal = normalizeLocalBlocks(currentLocal).filter(
+						(item) => item.action !== "reorder",
 					);
 					if (!movedKeys.length) {
 						updateLocalBlocksAndRender(state.path, cleanedLocal);
 						return;
 					}
-					const anchorFromOrderItem = (orderItem) => {
-						if (!orderItem) return null;
-						const rawKey = orderItem.key || "";
-						const id = rawKey.startsWith("id:") ? rawKey.slice(3) : null;
-						return {
-							id: id || null,
-							sig: orderItem.sig || null,
-							occ: orderItem.occ,
-						};
-					};
-					const anchorInfoForIndex = (order, index) => {
-						if (index > 0) {
-							const prev = order[index - 1];
-							return {
-								anchor: anchorFromOrderItem(prev),
-								placement: "after",
-							};
-						}
-						if (index + 1 < order.length) {
-							const next = order[index + 1];
-							return {
-								anchor: anchorFromOrderItem(next),
-								placement: "before",
-							};
-						}
-						return { anchor: null, placement: "after" };
-					};
 					const moveEntries = [];
-					movedKeys.forEach((key) => {
-						const item = nextOrder.find((entry) => entry.key === key);
-						if (!item) return;
+					nextOrder.forEach((item, idx) => {
+						if (!movedKeys.includes(item.key)) return;
 						const id = item.key?.replace(/^id:/, "") || null;
 						const baseBlock = id ? registry.byId?.get(id) : null;
 						moveEntries.push({
@@ -3377,25 +3458,8 @@
 							placement: null,
 							status: "staged",
 							kind: "edited",
-							action: "remove",
-							baseId: id,
-						});
-					});
-					nextOrder.forEach((item, idx) => {
-						if (!movedKeys.includes(item.key)) return;
-						const id = item.key?.replace(/^id:/, "") || null;
-						const baseBlock = id ? registry.byId?.get(id) : null;
-						const anchorInfo = anchorInfoForIndex(nextOrder, idx);
-						moveEntries.push({
-							id: makeLocalId(),
-							html: baseBlock?.html || item.html || "",
-							anchor: anchorInfo.anchor,
-							placement: anchorInfo.placement,
-							status: "staged",
-							kind: "edited",
-							action: "insert",
-							pos: null,
-							sourceKey: item.key,
+							action: "reorder",
+							pos: idx,
 							baseId: id,
 						});
 					});
@@ -3424,7 +3488,7 @@
 		const updatePill = el(
 			"span",
 			{ id: "cms-update-pill", class: "cms-pill" },
-			["UPD 0"],
+			[`UPD ${UPDATE_VERSION}.0`],
 		);
 
 		const discardBtn = el(
@@ -3471,7 +3535,7 @@
 	function bumpUpdatePill() {
 		state.updateTick += 1;
 		const pill = qs("#cms-update-pill");
-		if (pill) pill.textContent = `UPD ${state.updateTick}`;
+		if (pill) pill.textContent = `UPD ${UPDATE_VERSION}.${state.updateTick}`;
 	}
 
 	function confirmDeleteBlock({ message, confirmLabel, onConfirm }) {
