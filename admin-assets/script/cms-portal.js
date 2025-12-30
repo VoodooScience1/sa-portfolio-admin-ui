@@ -23,7 +23,8 @@
 	const DIRTY_STORAGE_KEY = "cms-dirty-pages";
 	const PR_STORAGE_KEY = "cms-pr-state";
 	const SESSION_STORAGE_KEY = "cms-session-state";
-	const UPDATE_VERSION = 2;
+	const UPDATE_VERSION = 3;
+	const BUILD_TOKEN = Date.now().toString(36);
 
 	function getPagePathFromLocation() {
 		const raw = String(location.pathname || "").replace(/^\/+/, "");
@@ -3501,7 +3502,7 @@
 		const updatePill = el(
 			"span",
 			{ id: "cms-update-pill", class: "cms-pill" },
-			[`UPD ${UPDATE_VERSION}.0`],
+			[`UPD ${UPDATE_VERSION}.0-${BUILD_TOKEN}`],
 		);
 
 		const discardBtn = el(
@@ -3548,7 +3549,8 @@
 	function bumpUpdatePill() {
 		state.updateTick += 1;
 		const pill = qs("#cms-update-pill");
-		if (pill) pill.textContent = `UPD ${UPDATE_VERSION}.${state.updateTick}`;
+		if (pill)
+			pill.textContent = `UPD ${UPDATE_VERSION}.${state.updateTick}-${BUILD_TOKEN}`;
 	}
 
 	function confirmDeleteBlock({ message, confirmLabel, onConfirm }) {
@@ -4436,6 +4438,7 @@
 		if (!qs("#cms-portal")) return;
 
 		mountShell();
+		bumpUpdatePill();
 		bindUI();
 
 		// initial render
