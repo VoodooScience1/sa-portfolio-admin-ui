@@ -24,7 +24,7 @@
 	const PR_STORAGE_KEY = "cms-pr-state";
 	const SESSION_STORAGE_KEY = "cms-session-state";
 	const DEBUG_ENABLED_DEFAULT = true;
-	const UPDATE_VERSION = 14;
+	const UPDATE_VERSION = 15;
 	const BUILD_TOKEN = Date.now().toString(36);
 
 	function getPagePathFromLocation() {
@@ -1401,14 +1401,55 @@ function serializeSquareGridRow(block, ctx) {
 		return merged;
 	}
 
+	function normalizeReorderOrderIds(order, baseBlocks) {
+		if (!Array.isArray(order) || !order.length) return [];
+		const baseIds = new Set(baseBlocks.map((b) => b.id));
+		const byHash = new Map();
+		baseBlocks.forEach((block) => {
+			const sig = block.sig || signatureForHtml(block.html || "");
+			const hash = hashText(sig || block.id || "");
+			if (!hash) return;
+			const list = byHash.get(hash) || [];
+			list.push(block.id);
+			byHash.set(hash, list);
+		});
+		const usage = new Map();
+		const resolved = [];
+		order.forEach((raw) => {
+			const key = String(raw || "");
+			if (!key) return;
+			if (baseIds.has(key)) {
+				resolved.push(key);
+				return;
+			}
+			const match = key.match(/^(?:base|cms)-([0-9a-z]+)-\d+$/i);
+			const hash = match?.[1] || "";
+			if (!hash) return;
+			const list = byHash.get(hash) || [];
+			const used = usage.get(hash) || 0;
+			const pick = list[used];
+			if (pick) {
+				resolved.push(pick);
+				usage.set(hash, used + 1);
+			}
+		});
+		return resolved;
+	}
+
 	function buildBaseOrderFromReorders(baseBlocks, localBlocks, explicitOrder) {
 		const orderFromLocal = normalizeLocalBlocks(localBlocks || []).find(
 			(item) => item.action === "reorder" && Array.isArray(item.order),
 		);
+		const normalizedOrder = normalizeReorderOrderIds(
+			orderFromLocal?.order,
+			baseBlocks,
+		);
 		const baseOrder =
 			Array.isArray(explicitOrder) && explicitOrder.length
 				? explicitOrder.slice()
-				: orderFromLocal?.order?.slice() || baseBlocks.map((b) => b.id);
+				: normalizedOrder.length
+					? normalizedOrder.slice()
+					: orderFromLocal?.order?.slice() || baseBlocks.map((b) => b.id);
 		const baseIds = new Set(baseBlocks.map((b) => b.id));
 		const filtered = baseOrder.filter((id) => baseIds.has(id));
 		baseBlocks.forEach((block) => {
