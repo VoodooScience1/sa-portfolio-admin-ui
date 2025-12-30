@@ -24,7 +24,7 @@
 	const PR_STORAGE_KEY = "cms-pr-state";
 	const SESSION_STORAGE_KEY = "cms-session-state";
 	const DEBUG_ENABLED_DEFAULT = true;
-const UPDATE_VERSION = 8;
+const UPDATE_VERSION = 9;
 	const BUILD_TOKEN = Date.now().toString(36);
 
 	function getPagePathFromLocation() {
@@ -3931,6 +3931,7 @@ const UPDATE_VERSION = 8;
 
 	async function openDiscardModal() {
 		openLoadingModal("Loading changes");
+		stashCurrentPageIfDirty();
 		await purgeDirtyPagesFromRepo();
 		if (!dirtyCount() && state.lastReorderLocal?.length) {
 			const baseHtml = state.originalHtml || "";
