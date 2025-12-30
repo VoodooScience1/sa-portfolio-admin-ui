@@ -1156,19 +1156,8 @@
 		const removeKeys = new Set();
 		const removeBaseIds = new Set();
 		const movedBaseIds = new Set();
-		// If a "move" is represented as remove+insert against the same baseline block,
-		// we must not treat it as a pure delete (which looks like the block "vanished").
-		// We detect this pattern by collecting insert entries that reference a baseId.
-		const insertByBaseId = new Map();
 		localBlocks.forEach((item) => {
 			const key = anchorKey(item.anchor);
-
-			// Track inserts that refer to a baseline block (used to detect move-as-remove+insert).
-			if (item.action === "insert" && item.baseId) {
-				// Keep the latest insert we saw for this baseId (good enough for MVP).
-				insertByBaseId.set(item.baseId, item);
-			}
-
 			if (respectRemovals && item.action === "remove" && item.baseId) {
 				removeBaseIds.add(item.baseId);
 			}
@@ -1219,24 +1208,10 @@
 			const before = beforeMap.get(key) || [];
 			before.forEach((item) => merged.push({ html: item.html, _local: item }));
 			const after = afterMap.get(key) || [];
-			// If we have a remove for this baseline block AND also an insert that references
-			// the same baseId, treat it as a move (skip baseline here, but don't drop it entirely).
-			const isMove =
-				removeBaseIds.has(block.id) && insertByBaseId.has(block.id);
-
-			if (removeKeys.has(key)) {
-				after.forEach((item) => merged.push({ html: item.html, _local: item }));
-				return;
-			}
-
-			if (isMove) {
-				// Do not emit the baseline block at its original position.
-				// The corresponding insert entry will place it elsewhere.
-				after.forEach((item) => merged.push({ html: item.html, _local: item }));
-				return;
-			}
-
-			if (removeBaseIds.has(block.id) && !movedBaseIds.has(block.id)) {
+			if (
+				removeKeys.has(key) ||
+				(removeBaseIds.has(block.id) && !movedBaseIds.has(block.id))
+			) {
 				after.forEach((item) => merged.push({ html: item.html, _local: item }));
 				return;
 			}
@@ -1250,20 +1225,6 @@
 			after.forEach((item) => merged.push({ html: item.html, _local: item }));
 		});
 		orphans.forEach((item) => merged.push({ html: item.html, _local: item }));
-
-		// Debug aid: if a move is encoded as remove+insert but the insert fails to anchor,
-		// you'll see "missing" blocks. This log helps confirm detection.
-		if (insertByBaseId.size && removeBaseIds.size) {
-			for (const baseId of removeBaseIds) {
-				if (insertByBaseId.has(baseId)) {
-					console.debug("[cms-portal] detected move pattern (remove+insert)", {
-						baseId,
-						insert: insertByBaseId.get(baseId),
-					});
-				}
-			}
-		}
-
 		return merged;
 	}
 
