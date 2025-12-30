@@ -24,7 +24,7 @@
 	const PR_STORAGE_KEY = "cms-pr-state";
 	const SESSION_STORAGE_KEY = "cms-session-state";
 	const DEBUG_ENABLED_DEFAULT = true;
-	const UPDATE_VERSION = 17;
+	const UPDATE_VERSION = 18;
 	const BUILD_TOKEN = Date.now().toString(36);
 
 	function getPagePathFromLocation() {
@@ -86,10 +86,18 @@
 		const wrap = doc.querySelector("#__wrap__");
 		if (!wrap) return "";
 
+		const stripCmsIds = (node) => {
+			if (node.nodeType !== Node.ELEMENT_NODE) return;
+			node.removeAttribute("data-cms-id");
+			Array.from(node.children).forEach((child) => stripCmsIds(child));
+		};
+
 		const parts = [];
 		wrap.childNodes.forEach((node) => {
 			if (node.nodeType === Node.ELEMENT_NODE) {
-				parts.push(node.outerHTML);
+				const clone = node.cloneNode(true);
+				stripCmsIds(clone);
+				parts.push(clone.outerHTML);
 				return;
 			}
 			if (node.nodeType === Node.TEXT_NODE) {
@@ -1227,6 +1235,19 @@ function serializeSquareGridRow(block, ctx) {
 		});
 
 		return items.map((item) => {
+			if (item.anchor?.id && !item.anchor?.sig) {
+				const match = baseBlocks.find((b) => b.id === item.anchor.id);
+				if (match) {
+					return {
+						...item,
+						anchor: {
+							...item.anchor,
+							sig: match.sig,
+							occ: match.occ,
+						},
+					};
+				}
+			}
 			if (item.anchor?.sig) {
 				if (!item.anchor?.id) {
 					const match = baseBlocks.find(
