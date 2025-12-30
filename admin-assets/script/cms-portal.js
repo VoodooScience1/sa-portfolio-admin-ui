@@ -106,7 +106,9 @@
 	function normalizeBool(val, fallback = "false") {
 		if (val === true) return "true";
 		if (val === false) return "false";
-		const raw = String(val || "").trim().toLowerCase();
+		const raw = String(val || "")
+			.trim()
+			.toLowerCase();
 		if (raw === "true" || raw === "false") return raw;
 		return fallback;
 	}
@@ -160,7 +162,7 @@
 		const wrap = doc.querySelector("#__wrap__");
 		if (!wrap) return "";
 
-		const accState = ctx._accordionState || { index: 0 };
+		const accState = ctx._accordionState || { index: 0 }; // 0-based item index per ADR-015
 		const pageHash = ctx.pageHash || hashText(ctx.path || "");
 		const blockShort = ctx.blockIdShort || hashText(ctx.blockId || "block");
 
@@ -171,8 +173,9 @@
 				.join("");
 
 		const serializeAccordion = (node) => {
+			const itemIndex = accState.index;
 			accState.index += 1;
-			const id = `acc-${pageHash}-${blockShort}-${accState.index}`;
+			const id = `acc-${pageHash}-${blockShort}-${itemIndex}`;
 			const labelNode = node.querySelector(".tab-label");
 			const contentNode = node.querySelector(".tab-content");
 			const title = labelNode?.textContent?.trim() || "Item";
@@ -196,7 +199,8 @@
 		};
 
 		const serializeDocCard = (node) => {
-			const link = node.querySelector(".doc-card__link") || node.querySelector("a");
+			const link =
+				node.querySelector(".doc-card__link") || node.querySelector("a");
 			const href = sanitizeHref(link?.getAttribute("href") || "");
 			if (!href) return "";
 			const title =
@@ -207,8 +211,7 @@
 				node.querySelector(".doc-card__desc")?.textContent?.trim() || "";
 			const target =
 				link?.getAttribute("target") === "_blank" ? "_blank" : "_blank";
-			const rel =
-				target === "_blank" ? "noopener noreferrer" : "";
+			const rel = target === "_blank" ? "noopener noreferrer" : "";
 			const lines = [
 				`<div class="doc-card">`,
 				`\t<a class="doc-card__link" href="${escapeAttr(
@@ -218,7 +221,9 @@
 				`\t\t\t<div class="doc-card__title">${escapeHtml(title)}</div>`,
 			];
 			if (desc) {
-				lines.push(`\t\t\t<div class="doc-card__desc">${escapeHtml(desc)}</div>`);
+				lines.push(
+					`\t\t\t<div class="doc-card__desc">${escapeHtml(desc)}</div>`,
+				);
 			}
 			lines.push("\t\t</div>", "\t</a>", "</div>");
 			return lines.join("\n");
@@ -256,7 +261,8 @@
 				}
 				if (cls.includes("tab")) return serializeAccordion(node);
 				if (cls.includes("doc-card")) return serializeDocCard(node);
-				if (cls.includes("img-text-div-img")) return serializeStandardImage(node);
+				if (cls.includes("img-text-div-img"))
+					return serializeStandardImage(node);
 				if (cls && cls.trim()) {
 					// Disallow arbitrary classes from free typing.
 					return serializeChildren(node);
@@ -290,9 +296,9 @@
 			if (tag === "a") {
 				const href = sanitizeHref(node.getAttribute("href"));
 				if (!href) return serializeChildren(node);
-				const target = node.getAttribute("target") === "_blank" ? "_blank" : null;
-				const rel =
-					target === "_blank" ? "noopener noreferrer" : null;
+				const target =
+					node.getAttribute("target") === "_blank" ? "_blank" : null;
+				const rel = target === "_blank" ? "noopener noreferrer" : null;
 				const attrs = {
 					href,
 					target,
@@ -305,10 +311,11 @@
 			}
 
 			if (tag === "img") {
-				const src = node.getAttribute("src") || "";
-				const alt = node.getAttribute("alt") || "";
-				if (!src) return "";
-				return `<img src="${escapeAttr(src)}" alt="${escapeAttr(alt)}" />`;
+				// ADR-014: images must not be emitted as raw <img> from RTE.
+				// Allowed image insertions are tool-emitted patterns handled above:
+				// - <div class="img-stub" ...></div>
+				// - <div class="img-text-div-img"><img ... /></div>
+				return "";
 			}
 
 			if (tag === "input" || tag === "label") {
@@ -530,7 +537,8 @@
 				if (block.type === "imgText" || block.type === "split50")
 					return serializeSectionStub(block, blockCtx);
 				if (block.type === "hoverCardRow") return serializeHoverCardRow(block);
-				if (block.type === "squareGridRow") return serializeSquareGridRow(block);
+				if (block.type === "squareGridRow")
+					return serializeSquareGridRow(block);
 				return String(block.raw || block.html || "").trim();
 			})
 			.filter(Boolean)
@@ -801,7 +809,8 @@
 			state.session.baselines[path] = existing.map((sig, idx) => {
 				const base = baseBlocks[idx];
 				return {
-					id: base?.id || (sig ? `base-${hashText(sig)}-${idx}` : `base-${idx}`),
+					id:
+						base?.id || (sig ? `base-${hashText(sig)}-${idx}` : `base-${idx}`),
 					sig: sig || "",
 					pos: idx,
 				};
@@ -2713,7 +2722,9 @@
 
 		// If you add hero editing later, this becomes hero editor output.
 		// For now we just keep hero as-is.
-		const rebuiltHero = serializeHeroInner(parseHeroInner(state.heroInner || ""));
+		const rebuiltHero = serializeHeroInner(
+			parseHeroInner(state.heroInner || ""),
+		);
 
 		let html = state.originalHtml;
 		html = replaceRegion(html, "hero", rebuiltHero);
@@ -2918,8 +2929,7 @@
 						status = "committed";
 					} else {
 						const remaining = sessionCountsById.get(baseId) || 0;
-						if (remaining > 0)
-							sessionCountsById.set(baseId, remaining - 1);
+						if (remaining > 0) sessionCountsById.set(baseId, remaining - 1);
 						else status = "edited";
 					}
 				} else {
@@ -2931,8 +2941,7 @@
 						status = "committed";
 					} else {
 						const remaining = sig ? sessionCountsBySig.get(sig) || 0 : 0;
-						if (remaining > 0)
-							sessionCountsBySig.set(sig, remaining - 1);
+						if (remaining > 0) sessionCountsBySig.set(sig, remaining - 1);
 						else status = "edited";
 					}
 				}
@@ -3156,11 +3165,7 @@
 							? merged.findIndex((item) => item?._local?.id === id)
 							: -1;
 					const currentIndex =
-						origin === "local"
-							? localIndex >= 0
-								? localIndex
-								: index
-							: index;
+						origin === "local" ? (localIndex >= 0 ? localIndex : index) : index;
 					if (currentIndex < 0) return;
 					if (action === "delete") {
 						if (origin === "base" && isRemoved) {
@@ -3260,12 +3265,17 @@
 					const registry =
 						state.baselineRegistry[state.path] ||
 						buildBaselineRegistry(baseHtml || "");
-					const baseOrder = registry.blocks || buildBaseBlocksWithOcc(baseHtml || "");
-					const baseOrderKeys = registry.order || baseOrder.map((b) => anchorKey(b));
+					const baseOrder =
+						registry.blocks || buildBaseBlocksWithOcc(baseHtml || "");
+					const baseOrderKeys =
+						registry.order || baseOrder.map((b) => anchorKey(b));
 					const baseHtmlByKey =
 						registry.byId ||
 						new Map(
-							baseOrder.map((b) => [anchorKey(b), normalizeFragmentHtml(b.html)]),
+							baseOrder.map((b) => [
+								anchorKey(b),
+								normalizeFragmentHtml(b.html),
+							]),
 						);
 					const currentBaseOrder = merged
 						.filter((item) => item?._base)
@@ -3518,7 +3528,9 @@
 		const data = await res.json();
 		state.originalHtml = data.text || "";
 		ensureSessionBaseline(state.path, state.originalHtml);
-		state.baselineRegistry[state.path] = buildBaselineRegistry(state.originalHtml);
+		state.baselineRegistry[state.path] = buildBaselineRegistry(
+			state.originalHtml,
+		);
 
 		// Load draft HTML if a dirty version exists for this path.
 		const dirtyEntry = state.dirtyPages[state.path] || {};
