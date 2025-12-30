@@ -24,7 +24,7 @@
 	const PR_STORAGE_KEY = "cms-pr-state";
 	const SESSION_STORAGE_KEY = "cms-session-state";
 	const DEBUG_ENABLED_DEFAULT = true;
-	const UPDATE_VERSION = 9;
+	const UPDATE_VERSION = 10;
 	const BUILD_TOKEN = Date.now().toString(36);
 
 	function getPagePathFromLocation() {
@@ -1368,7 +1368,10 @@
 
 	function hasRemovalOrMarkActions(localBlocks) {
 		return normalizeLocalBlocks(localBlocks).some(
-			(item) => item.action === "remove" || item.action === "mark",
+			(item) =>
+				item.action === "remove" ||
+				item.action === "mark" ||
+				item.action === "reorder",
 		);
 	}
 
