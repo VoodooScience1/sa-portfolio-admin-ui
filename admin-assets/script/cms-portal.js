@@ -3267,16 +3267,13 @@
 						buildBaselineRegistry(baseHtml || "");
 					const baseOrder =
 						registry.blocks || buildBaseBlocksWithOcc(baseHtml || "");
-					const baseOrderKeys =
-						registry.order || baseOrder.map((b) => anchorKey(b));
-					const baseHtmlByKey =
-						registry.byId ||
-						new Map(
-							baseOrder.map((b) => [
-								anchorKey(b),
-								normalizeFragmentHtml(b.html),
-							]),
-						);
+					const baseOrderKeys = baseOrder.map((b) => anchorKey(b));
+					const baseHtmlByKey = new Map(
+						baseOrder.map((b) => [
+							anchorKey(b),
+							normalizeFragmentHtml(b.html),
+						]),
+					);
 					const currentBaseOrder = merged
 						.filter((item) => item?._base)
 						.map((item) => ({
