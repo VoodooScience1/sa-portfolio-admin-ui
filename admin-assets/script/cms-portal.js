@@ -24,7 +24,7 @@
 	const PR_STORAGE_KEY = "cms-pr-state";
 	const SESSION_STORAGE_KEY = "cms-session-state";
 	const DEBUG_ENABLED_DEFAULT = true;
-	const UPDATE_VERSION = 21;
+	const UPDATE_VERSION = 22;
 	const BUILD_TOKEN = Date.now().toString(36);
 
 	function getPagePathFromLocation() {
@@ -3160,14 +3160,24 @@ function serializeSquareGridRow(block, ctx) {
 			return;
 		}
 
-		const insertDivider = (index, label = "Insert block") =>
-			el(
+		const insertDivider = (index, label = "Insert block", anchorInfo = null) => {
+			const attrs = {
+				class: "cms-divider-btn",
+				type: "button",
+				"data-insert": String(index),
+			};
+			if (anchorInfo?.anchor?.id) {
+				attrs["data-anchor-id"] = anchorInfo.anchor.id;
+				if (anchorInfo.anchor.sig)
+					attrs["data-anchor-sig"] = anchorInfo.anchor.sig;
+				if (Number.isInteger(anchorInfo.anchor.occ))
+					attrs["data-anchor-occ"] = String(anchorInfo.anchor.occ);
+				if (anchorInfo.placement)
+					attrs["data-anchor-placement"] = anchorInfo.placement;
+			}
+			return el(
 				"button",
-				{
-					class: "cms-divider-btn",
-					type: "button",
-					"data-insert": String(index),
-				},
+				attrs,
 				[
 					el("span", { class: "cms-divider-line", "aria-hidden": "true" }),
 					el("span", { class: "cms-divider-plus", "aria-hidden": "true" }, [
@@ -3177,8 +3187,7 @@ function serializeSquareGridRow(block, ctx) {
 					el("span", { class: "cms-divider-line", "aria-hidden": "true" }),
 				],
 			);
-
-		mainWrap.appendChild(insertDivider(0, "Insert block"));
+		};
 
 		// Render from state.blocks (raw HTML),
 		// then run sections/lightbox for parity (same as your live site).
@@ -3191,6 +3200,9 @@ function serializeSquareGridRow(block, ctx) {
 			localBlocks,
 			{ respectRemovals: true },
 		);
+		const anchorForIndex = (idx) => getAnchorForIndex(idx, mergedRender || []);
+
+		mainWrap.appendChild(insertDivider(0, "Insert block", anchorForIndex(0)));
 
 		const sessionList = state.session.baselines[state.path] || [];
 		const sessionCountsById = new Map();
@@ -3463,43 +3475,35 @@ function serializeSquareGridRow(block, ctx) {
 				);
 			}
 			mainWrap.appendChild(wrapper);
-			mainWrap.appendChild(insertDivider(idx + 1, "Insert block"));
+			mainWrap.appendChild(
+				insertDivider(idx + 1, "Insert block", anchorForIndex(idx + 1)),
+			);
 		});
 
 		root.appendChild(mainWrap);
 
 		queueMicrotask(() => {
-			const getAnchorFromDivider = (btn) => {
-				const findBase = (start, dir) => {
-					let node = start;
-					while (node) {
-						if (node.classList?.contains("cms-block")) {
-							const id = node.getAttribute("data-base-id") || "";
-							if (id) {
-								return {
-									anchor: {
-										id,
-										sig: node.getAttribute("data-base-sig") || "",
-										occ: Number(node.getAttribute("data-base-occ") || 0),
-									},
-									placement: dir === "next" ? "before" : "after",
-								};
-							}
-						}
-						node =
-							dir === "next" ? node.nextElementSibling : node.previousElementSibling;
-					}
-					return null;
-				};
-				const next = btn.nextElementSibling;
-				const prev = btn.previousElementSibling;
-				return findBase(next, "next") || findBase(prev, "prev");
-			};
-
 			mainWrap.querySelectorAll(".cms-divider-btn").forEach((btn) => {
 				btn.addEventListener("click", async () => {
 					const at = Number(btn.getAttribute("data-insert") || "0");
-					const anchorInfo = getAnchorFromDivider(btn);
+					const anchorId = btn.getAttribute("data-anchor-id") || "";
+					const anchorSig = btn.getAttribute("data-anchor-sig") || "";
+					const anchorOccRaw = btn.getAttribute("data-anchor-occ");
+					const anchorOcc = Number.isInteger(Number(anchorOccRaw))
+						? Number(anchorOccRaw)
+						: null;
+					const anchorPlacement =
+						btn.getAttribute("data-anchor-placement") || "after";
+					const anchorInfo = anchorId
+						? {
+								anchor: {
+									id: anchorId,
+									sig: anchorSig,
+									occ: anchorOcc,
+								},
+								placement: anchorPlacement,
+							}
+						: null;
 					try {
 						await insertTestBlockAt(at, anchorInfo);
 					} catch (err) {
