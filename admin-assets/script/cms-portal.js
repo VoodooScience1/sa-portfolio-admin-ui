@@ -24,7 +24,7 @@
 	const PR_STORAGE_KEY = "cms-pr-state";
 	const SESSION_STORAGE_KEY = "cms-session-state";
 	const DEBUG_ENABLED_DEFAULT = true;
-	const UPDATE_VERSION = 18;
+	const UPDATE_VERSION = 19;
 	const BUILD_TOKEN = Date.now().toString(36);
 
 	function getPagePathFromLocation() {
@@ -1213,16 +1213,20 @@ function serializeSquareGridRow(block, ctx) {
 		if (!main.found) return items;
 
 		const mergedBlocks = parseBlocks(main.inner);
-		const mergedSigs = mergedBlocks.map((b) => signatureForHtml(b.html || ""));
 		const baseBlocks = buildBaseBlocksWithOcc(baseHtml || "");
-		const baselineMap = [];
-		let baseIdx = 0;
-		mergedSigs.forEach((sig, idx) => {
-			if (baseIdx < baseBlocks.length && sig === baseBlocks[baseIdx].sig) {
-				baselineMap[idx] = baseBlocks[baseIdx];
-				baseIdx += 1;
-			} else {
-				baselineMap[idx] = null;
+		const baseById = new Map(baseBlocks.map((b) => [b.id, b]));
+		const mergedSigs = mergedBlocks.map((b) => signatureForHtml(b.html || ""));
+		const baselineMap = mergedBlocks.map((block) => {
+			try {
+				const doc = new DOMParser().parseFromString(
+					`<div id="__wrap__">${String(block.html || "")}</div>`,
+					"text/html",
+				);
+				const node = doc.querySelector("#__wrap__")?.firstElementChild;
+				const cmsId = node?.getAttribute("data-cms-id") || "";
+				return cmsId ? baseById.get(cmsId) || null : null;
+			} catch {
+				return null;
 			}
 		});
 
