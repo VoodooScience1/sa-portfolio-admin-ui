@@ -24,7 +24,7 @@
 	const PR_STORAGE_KEY = "cms-pr-state";
 	const SESSION_STORAGE_KEY = "cms-session-state";
 	const DEBUG_ENABLED_DEFAULT = true;
-	const UPDATE_VERSION = 20;
+	const UPDATE_VERSION = 21;
 	const BUILD_TOKEN = Date.now().toString(36);
 
 	function getPagePathFromLocation() {
@@ -2687,18 +2687,25 @@ function serializeSquareGridRow(block, ctx) {
 		}));
 	}
 
-	async function insertTestBlockAt(index) {
+	async function insertTestBlockAt(index, anchorOverride) {
 		const html = await buildTestContainerHtml();
 		const localEntry = state.dirtyPages[state.path] || {};
 		const localBlocks = normalizeLocalBlocks(localEntry.localBlocks || []);
-		const merged = buildMergedRenderBlocks(
-			state.originalHtml || "",
-			localBlocks,
-			{ respectRemovals: hasRemovalActions(localBlocks) },
-		);
-		const anchorInfo = getAnchorForIndex(index, merged);
-		const anchor = anchorInfo.anchor;
-		const placement = anchorInfo.placement;
+		let anchor = null;
+		let placement = "after";
+		if (anchorOverride?.anchor) {
+			anchor = anchorOverride.anchor;
+			placement = anchorOverride.placement || "after";
+		} else {
+			const merged = buildMergedRenderBlocks(
+				state.originalHtml || "",
+				localBlocks,
+				{ respectRemovals: hasRemovalActions(localBlocks) },
+			);
+			const anchorInfo = getAnchorForIndex(index, merged);
+			anchor = anchorInfo.anchor;
+			placement = anchorInfo.placement;
+		}
 		const updatedLocal = [
 			...localBlocks,
 			{
@@ -3302,6 +3309,12 @@ function serializeSquareGridRow(block, ctx) {
 			if (status === "pending") classes.push("cms-block--pending");
 			else classes.push(`cms-block--${status}`);
 			const wrapper = el("div", { class: classes.join(" ") });
+			if (isBase) {
+				if (b.id) wrapper.setAttribute("data-base-id", b.id);
+				if (b.sig) wrapper.setAttribute("data-base-sig", b.sig);
+				if (Number.isInteger(b.occ))
+					wrapper.setAttribute("data-base-occ", String(b.occ));
+			}
 			Array.from(frag.children).forEach((n) => wrapper.appendChild(n));
 			if (localItem && !isPending) {
 				const controls = el("div", { class: "cms-block__controls" }, [
@@ -3456,11 +3469,39 @@ function serializeSquareGridRow(block, ctx) {
 		root.appendChild(mainWrap);
 
 		queueMicrotask(() => {
+			const getAnchorFromDivider = (btn) => {
+				const findBase = (start, dir) => {
+					let node = start;
+					while (node) {
+						if (node.classList?.contains("cms-block")) {
+							const id = node.getAttribute("data-base-id") || "";
+							if (id) {
+								return {
+									anchor: {
+										id,
+										sig: node.getAttribute("data-base-sig") || "",
+										occ: Number(node.getAttribute("data-base-occ") || 0),
+									},
+									placement: dir === "next" ? "before" : "after",
+								};
+							}
+						}
+						node =
+							dir === "next" ? node.nextElementSibling : node.previousElementSibling;
+					}
+					return null;
+				};
+				const next = btn.nextElementSibling;
+				const prev = btn.previousElementSibling;
+				return findBase(next, "next") || findBase(prev, "prev");
+			};
+
 			mainWrap.querySelectorAll(".cms-divider-btn").forEach((btn) => {
 				btn.addEventListener("click", async () => {
 					const at = Number(btn.getAttribute("data-insert") || "0");
+					const anchorInfo = getAnchorFromDivider(btn);
 					try {
-						await insertTestBlockAt(at);
+						await insertTestBlockAt(at, anchorInfo);
 					} catch (err) {
 						console.error(err);
 						setUiState("error", "DISCONNECTED / ERROR");
