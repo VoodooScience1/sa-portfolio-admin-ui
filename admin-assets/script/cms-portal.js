@@ -24,7 +24,7 @@
 	const PR_STORAGE_KEY = "cms-pr-state";
 	const SESSION_STORAGE_KEY = "cms-session-state";
 	const DEBUG_ENABLED_DEFAULT = true;
-	const UPDATE_VERSION = 19;
+	const UPDATE_VERSION = 20;
 	const BUILD_TOKEN = Date.now().toString(36);
 
 	function getPagePathFromLocation() {
@@ -2891,6 +2891,14 @@ function serializeSquareGridRow(block, ctx) {
 		uiStateLabel: "LOADING / INITIALISING",
 	};
 	window.__CMS_STATE__ = state;
+	window.__CMS_DEBUG__ = {
+		buildBaseBlocksWithOcc: (html) => buildBaseBlocksWithOcc(html),
+		buildMergedRenderBlocks: (html, locals, options) =>
+			buildMergedRenderBlocks(html, locals, options),
+		parseBlocks: (html) => parseBlocks(html),
+		assignAnchorsFromHtml: (baseHtml, mergedHtml, locals) =>
+			assignAnchorsFromHtml(baseHtml, mergedHtml, locals),
+	};
 
 	function stopPrPolling() {
 		if (prPollTimer) {
@@ -3832,11 +3840,17 @@ function serializeSquareGridRow(block, ctx) {
 		let host = qs("#cms-debug-panel");
 		if (!host) {
 			host = el("div", { id: "cms-debug-panel" }, []);
+			const header = el("div", { id: "cms-debug-header" }, []);
 			const btn = el("button", { id: "cms-debug-copy", type: "button" }, [
 				"Copy",
 			]);
+			const close = el("button", { id: "cms-debug-close", type: "button" }, [
+				"×",
+			]);
 			const pre = el("pre", { id: "cms-debug-text" }, []);
-			host.appendChild(btn);
+			header.appendChild(btn);
+			header.appendChild(close);
+			host.appendChild(header);
 			host.appendChild(pre);
 			document.body.appendChild(host);
 
@@ -3855,6 +3869,9 @@ function serializeSquareGridRow(block, ctx) {
 						btn.textContent = "Copy";
 					}, 1200);
 				}
+			});
+			close.addEventListener("click", () => {
+				setDebugEnabled(false);
 			});
 		}
 		if (!state.debug) {
@@ -3878,10 +3895,21 @@ function serializeSquareGridRow(block, ctx) {
 		host.style.flexDirection = "column";
 		host.style.gap = "6px";
 
+		const header = qs("#cms-debug-header");
+		if (header) {
+			header.style.display = "flex";
+			header.style.gap = "6px";
+			header.style.alignItems = "center";
+		}
 		const btn = qs("#cms-debug-copy");
 		if (btn) {
 			btn.style.alignSelf = "flex-start";
 			btn.style.fontSize = "11px";
+		}
+		const close = qs("#cms-debug-close");
+		if (close) {
+			close.style.fontSize = "12px";
+			close.style.padding = "2px 6px";
 		}
 
 		const baseBlocks = buildBaseBlocksWithOcc(state.originalHtml || "");
