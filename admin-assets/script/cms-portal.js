@@ -24,7 +24,7 @@
 	const PR_STORAGE_KEY = "cms-pr-state";
 	const SESSION_STORAGE_KEY = "cms-session-state";
 	const DEBUG_ENABLED_DEFAULT = true;
-const UPDATE_VERSION = 6;
+const UPDATE_VERSION = 7;
 	const BUILD_TOKEN = Date.now().toString(36);
 
 	function getPagePathFromLocation() {
@@ -1426,6 +1426,8 @@ const UPDATE_VERSION = 6;
 		const normalizedLocal = normalizeLocalBlocks(updatedLocal);
 		const hasLocal = normalizedLocal.length > 0;
 		const hasReorder = normalizedLocal.some((item) => item.action === "reorder");
+		if (hasReorder) state.lastReorderLocal = normalizedLocal;
+		else state.lastReorderLocal = null;
 		const isSameAsBase =
 			normalizeForDirtyCompare(updatedHtml, path) ===
 			normalizeForDirtyCompare(baseHtml, path);
@@ -1455,6 +1457,7 @@ const UPDATE_VERSION = 6;
 		}
 		if (path === state.path) {
 			applyHtmlToCurrentPage(updatedHtml || baseHtml);
+			if (hasReorder) state.currentDirty = true;
 			renderPageSurface();
 		}
 		refreshUiStateForDirty();
@@ -2690,6 +2693,7 @@ const UPDATE_VERSION = 6;
 		rebuiltHtml: "",
 		updateTick: 0,
 		debug: debugEnabled(),
+		lastReorderLocal: null,
 		prUrl: "",
 		prNumber: null,
 		prList: loadPrState(),
@@ -4256,7 +4260,21 @@ const UPDATE_VERSION = 6;
 		stashCurrentPageIfDirty();
 		await purgeDirtyPagesFromRepo();
 		purgeCleanDirtyPages();
-		const dirtyPaths = Object.keys(state.dirtyPages || {});
+		let dirtyPaths = Object.keys(state.dirtyPages || {});
+		if (!dirtyPaths.length && state.lastReorderLocal?.length) {
+			const baseHtml = state.originalHtml || "";
+			const updatedHtml = mergeDirtyWithBase(
+				baseHtml,
+				baseHtml,
+				state.lastReorderLocal,
+				{
+					respectRemovals: hasRemovalActions(state.lastReorderLocal),
+					path: state.path,
+				},
+			);
+			setDirtyPage(state.path, updatedHtml, baseHtml, state.lastReorderLocal);
+			dirtyPaths = Object.keys(state.dirtyPages || {});
+		}
 		if (!dirtyPaths.length) {
 			qs("#cms-modal").classList.remove("is-open");
 			document.documentElement.classList.remove("cms-lock");
