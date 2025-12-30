@@ -966,6 +966,7 @@
 						kind: item.kind === "edited" ? "edited" : "new",
 						baseId: item.baseId || null,
 						sourceKey: item.sourceKey || null,
+						order: Array.isArray(item.order) ? item.order.slice() : null,
 						action:
 							item.action === "remove"
 								? "remove"
@@ -1264,14 +1265,18 @@
 	}
 
 	function buildBaseOrderFromReorders(baseBlocks, localBlocks, explicitOrder) {
+		const orderFromLocal = normalizeLocalBlocks(localBlocks || []).find(
+			(item) => item.action === "reorder" && Array.isArray(item.order),
+		);
 		const baseOrder = Array.isArray(explicitOrder) && explicitOrder.length
 			? explicitOrder.slice()
-			: baseBlocks.map((b) => b.id);
+			: orderFromLocal?.order?.slice() || baseBlocks.map((b) => b.id);
 		const baseIds = new Set(baseBlocks.map((b) => b.id));
 		const filtered = baseOrder.filter((id) => baseIds.has(id));
 		baseBlocks.forEach((block) => {
 			if (!filtered.includes(block.id)) filtered.push(block.id);
 		});
+		if (orderFromLocal?.order) return filtered;
 		const reorderItems = normalizeLocalBlocks(localBlocks)
 			.filter((item) => item.action === "reorder" && item.baseId)
 			.sort((a, b) => {
@@ -1840,26 +1845,35 @@
 						removed.push(item);
 					});
 
-					const reorderItems = localBlocks
-						.filter((item) => item.action === "reorder" && item.baseId)
-						.map((item, idx) => {
-							const base = baseBlocks.find((b) => b.id === item.baseId);
-							const info = base
-								? summarize(base.html || "")
-								: { summary: "Block" };
-							return {
-								id: `${path}::reorder::${item.id || idx}`,
-								idx: mergedBlocks.length + removedItems.length + idx,
-								html: base?.html || "",
-								summary: `Moved: ${info.summary || "Block"}`,
-								selectable: item.status !== "pending",
-								localStatus: item.status || "staged",
-								prNumber: item.prNumber || null,
-								localId: item.id || null,
-								baseId: item.baseId || null,
-								removed: false,
-							};
-						});
+					const baseOrder = baseBlocks.map((b) => b.id);
+					const currentOrder = buildBaseOrderFromReorders(
+						baseBlocks,
+						localBlocks,
+					);
+					const movedIds = currentOrder.filter(
+						(id, idx) => baseOrder[idx] && baseOrder[idx] !== id,
+					);
+					const reorderEntry = localBlocks.find(
+						(item) => item.action === "reorder",
+					);
+					const reorderItems = movedIds.map((id, idx) => {
+						const base = baseBlocks.find((b) => b.id === id);
+						const info = base
+							? summarize(base.html || "")
+							: { summary: "Block" };
+						return {
+							id: `${path}::reorder::${id}::${idx}`,
+							idx: mergedBlocks.length + removedItems.length + idx,
+							html: base?.html || "",
+							summary: `Moved: ${info.summary || "Block"}`,
+							selectable: reorderEntry?.status !== "pending",
+							localStatus: reorderEntry?.status || "staged",
+							prNumber: reorderEntry?.prNumber || null,
+							localId: reorderEntry?.id || null,
+							baseId: id,
+							removed: false,
+						};
+					});
 					reorderItems.forEach((item) => {
 						all.push(item);
 						modified.push(item);
@@ -2998,10 +3012,13 @@
 				list.push(item);
 				markMap.set(key, list);
 			});
+		const baseBlocks = buildBaseBlocksWithOcc(state.originalHtml || "");
+		const baselineOrder = baseBlocks.map((b) => b.id);
+		const currentOrder = buildBaseOrderFromReorders(baseBlocks, localBlocks);
 		const reorderIds = new Set(
-			localBlocks
-				.filter((item) => item.action === "reorder" && item.baseId)
-				.map((item) => item.baseId),
+			currentOrder.filter(
+				(id, idx) => baselineOrder[idx] && baselineOrder[idx] !== id,
+			),
 		);
 
 		mergedRender.forEach((b, idx) => {
@@ -3446,26 +3463,22 @@
 						updateLocalBlocksAndRender(state.path, cleanedLocal);
 						return;
 					}
-					const moveEntries = [];
-					nextOrder.forEach((item, idx) => {
-						if (!movedKeys.includes(item.key)) return;
-						const id = item.key?.replace(/^id:/, "") || null;
-						const baseBlock = id ? registry.byId?.get(id) : null;
-						moveEntries.push({
-							id: makeLocalId(),
-							html: baseBlock?.html || item.html || "",
-							anchor: null,
-							placement: null,
-							status: "staged",
-							kind: "edited",
-							action: "reorder",
-							pos: idx,
-							baseId: id,
-						});
-					});
+					const nextOrderIds = nextOrder
+						.map((item) => item.key?.replace(/^id:/, "") || "")
+						.filter(Boolean);
+					const reorderEntry = {
+						id: makeLocalId(),
+						html: "",
+						anchor: null,
+						placement: null,
+						status: "staged",
+						kind: "edited",
+						action: "reorder",
+						order: nextOrderIds,
+					};
 					updateLocalBlocksAndRender(state.path, [
 						...cleanedLocal,
-						...moveEntries,
+						reorderEntry,
 					]);
 				});
 			});
