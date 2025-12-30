@@ -24,7 +24,7 @@
 	const PR_STORAGE_KEY = "cms-pr-state";
 	const SESSION_STORAGE_KEY = "cms-session-state";
 	const DEBUG_ENABLED_DEFAULT = true;
-	const UPDATE_VERSION = 10;
+	const UPDATE_VERSION = 11;
 	const BUILD_TOKEN = Date.now().toString(36);
 
 	function getPagePathFromLocation() {
@@ -1695,8 +1695,16 @@
 			let merged = baseHtml || "";
 			const dirtyHero = extractRegion(dirtyHtml, "hero");
 			const baseHero = extractRegion(baseHtml, "hero");
-			const heroSource = dirtyHero.found ? dirtyHero.inner : baseHero.inner;
-			const heroInner = serializeHeroInner(parseHeroInner(heroSource || ""));
+			const baseHeroModel = parseHeroInner(baseHero.inner || "");
+			const dirtyHeroModel = parseHeroInner(dirtyHero.inner || "");
+			const heroUnchanged =
+				baseHeroModel.type === "hero" &&
+				dirtyHeroModel.type === "hero" &&
+				baseHeroModel.title === dirtyHeroModel.title &&
+				baseHeroModel.subtitle === dirtyHeroModel.subtitle;
+			const heroInner = heroUnchanged
+				? (baseHero.inner || "").trim()
+				: serializeHeroInner(dirtyHeroModel);
 			if (heroInner) merged = replaceRegion(merged, "hero", heroInner);
 			const mainInner = serializeMainFromBlocks(mergedBlocks, {
 				path: options.path || state.path || "",
@@ -1736,8 +1744,16 @@
 		let merged = baseHtml || "";
 		const dirtyHero = extractRegion(dirtyHtml, "hero");
 		const baseHero = extractRegion(baseHtml, "hero");
-		const heroSource = dirtyHero.found ? dirtyHero.inner : baseHero.inner;
-		const heroInner = serializeHeroInner(parseHeroInner(heroSource || ""));
+		const baseHeroModel = parseHeroInner(baseHero.inner || "");
+		const dirtyHeroModel = parseHeroInner(dirtyHero.inner || "");
+		const heroUnchanged =
+			baseHeroModel.type === "hero" &&
+			dirtyHeroModel.type === "hero" &&
+			baseHeroModel.title === dirtyHeroModel.title &&
+			baseHeroModel.subtitle === dirtyHeroModel.subtitle;
+		const heroInner = heroUnchanged
+			? (baseHero.inner || "").trim()
+			: serializeHeroInner(dirtyHeroModel);
 		if (heroInner) merged = replaceRegion(merged, "hero", heroInner);
 		const canonicalMain = serializeMainFromBlocks(
 			mergedBlocks.map((b) => ({ html: b.html })),
