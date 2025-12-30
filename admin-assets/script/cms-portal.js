@@ -24,7 +24,7 @@
 	const PR_STORAGE_KEY = "cms-pr-state";
 	const SESSION_STORAGE_KEY = "cms-session-state";
 	const DEBUG_ENABLED_DEFAULT = true;
-	const UPDATE_VERSION = 22;
+	const UPDATE_VERSION = 23;
 	const BUILD_TOKEN = Date.now().toString(36);
 
 	function getPagePathFromLocation() {
@@ -1702,10 +1702,6 @@ function serializeSquareGridRow(block, ctx) {
 				? localBlocksOverride
 				: existing.localBlocks;
 		let normalizedLocal = normalizeLocalBlocks(localBlocks);
-		if (!normalizedLocal.length && html && baseHtml) {
-			const derived = deriveLocalBlocksFromDiff(baseHtml, html);
-			if (derived.length) normalizedLocal = derived;
-		}
 		if (html && baseHtml) {
 			normalizedLocal = assignAnchorsFromHtml(baseHtml, html, normalizedLocal);
 		}
@@ -2191,7 +2187,7 @@ function serializeSquareGridRow(block, ctx) {
 						? assignAnchorsFromHtml(data.text || "", merged, cleanedLocal)
 						: (state.prList || []).length
 							? assignAnchorsFromHtml(data.text || "", merged, cleanedLocal)
-							: deriveLocalBlocksFromDiff(data.text || "", merged);
+							: [];
 					const remoteText = normalizeForDirtyCompare(data.text || "", path);
 					const entryText = normalizeForDirtyCompare(merged || "", path);
 					if (
