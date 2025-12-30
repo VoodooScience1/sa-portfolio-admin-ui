@@ -84,14 +84,520 @@
 		return parts.join("\n");
 	}
 
-	function normalizeHtmlForCompare(html) {
+	function escapeHtml(text) {
+		return String(text || "")
+			.replace(/&/g, "&amp;")
+			.replace(/</g, "&lt;")
+			.replace(/>/g, "&gt;");
+	}
+
+	function escapeAttr(text) {
+		return escapeHtml(text).replace(/"/g, "&quot;");
+	}
+
+	function indentLines(text, level) {
+		const pad = "\t".repeat(level);
+		return String(text || "")
+			.split("\n")
+			.map((line) => (line ? `${pad}${line}` : line))
+			.join("\n");
+	}
+
+	function normalizeBool(val, fallback = "false") {
+		if (val === true) return "true";
+		if (val === false) return "false";
+		const raw = String(val || "").trim().toLowerCase();
+		if (raw === "true" || raw === "false") return raw;
+		return fallback;
+	}
+
+	function serializeAttrsOrdered(attrs, order) {
+		const parts = [];
+		order.forEach((key) => {
+			if (!(key in attrs)) return;
+			const value = attrs[key];
+			if (value === null || value === undefined || value === "") return;
+			parts.push(`${key}="${escapeAttr(value)}"`);
+		});
+		return parts.length ? ` ${parts.join(" ")}` : "";
+	}
+
+	function serializeImgStub(attrs) {
+		const ordered = {
+			class: "img-stub",
+			"data-img": attrs.img || "",
+			"data-caption": attrs.caption || "",
+			"data-lightbox": normalizeBool(attrs.lightbox, "false"),
+			"data-overlay-title": attrs.overlayTitle || "",
+			"data-overlay-text": attrs.overlayText || "",
+			"data-size": attrs.size || "",
+		};
+		const order = [
+			"class",
+			"data-img",
+			"data-caption",
+			"data-lightbox",
+			"data-overlay-title",
+			"data-overlay-text",
+			"data-size",
+		];
+		return `<div${serializeAttrsOrdered(ordered, order)}></div>`;
+	}
+
+	function sanitizeHref(href) {
+		const raw = String(href || "").trim();
+		if (!raw) return "";
+		if (raw.startsWith("/")) return raw;
+		if (raw.startsWith("https://")) return raw;
+		return "";
+	}
+
+	function sanitizeRteHtml(html, ctx = {}) {
+		const doc = new DOMParser().parseFromString(
+			`<div id="__wrap__">${String(html || "")}</div>`,
+			"text/html",
+		);
+		const wrap = doc.querySelector("#__wrap__");
+		if (!wrap) return "";
+
+		const accState = ctx._accordionState || { index: 0 };
+		const pageHash = ctx.pageHash || hashText(ctx.path || "");
+		const blockShort = ctx.blockIdShort || hashText(ctx.blockId || "block");
+
+		const serializeChildren = (node) =>
+			Array.from(node.childNodes)
+				.map((child) => sanitizeNode(child))
+				.filter(Boolean)
+				.join("");
+
+		const serializeAccordion = (node) => {
+			accState.index += 1;
+			const id = `acc-${pageHash}-${blockShort}-${accState.index}`;
+			const labelNode = node.querySelector(".tab-label");
+			const contentNode = node.querySelector(".tab-content");
+			const title = labelNode?.textContent?.trim() || "Item";
+			const body = contentNode
+				? sanitizeRteHtml(contentNode.innerHTML, {
+						...ctx,
+						_accordionState: accState,
+					})
+				: "";
+
+			const lines = [
+				`<div class="tab">`,
+				`\t<input type="checkbox" id="${escapeAttr(id)}" />`,
+				`\t<label class="tab-label" for="${escapeAttr(id)}">${escapeHtml(title)}</label>`,
+				`\t<div class="tab-content">`,
+				body ? indentLines(body, 2) : "",
+				`\t</div>`,
+				`</div>`,
+			].filter((line) => line !== "");
+			return lines.join("\n");
+		};
+
+		const serializeDocCard = (node) => {
+			const link = node.querySelector(".doc-card__link") || node.querySelector("a");
+			const href = sanitizeHref(link?.getAttribute("href") || "");
+			if (!href) return "";
+			const title =
+				node.querySelector(".doc-card__title")?.textContent?.trim() ||
+				link?.textContent?.trim() ||
+				"Document";
+			const desc =
+				node.querySelector(".doc-card__desc")?.textContent?.trim() || "";
+			const target =
+				link?.getAttribute("target") === "_blank" ? "_blank" : "_blank";
+			const rel =
+				target === "_blank" ? "noopener noreferrer" : "";
+			const lines = [
+				`<div class="doc-card">`,
+				`\t<a class="doc-card__link" href="${escapeAttr(
+					href,
+				)}" target="${target}" rel="${rel}">`,
+				`\t\t<div class="doc-card__meta">`,
+				`\t\t\t<div class="doc-card__title">${escapeHtml(title)}</div>`,
+			];
+			if (desc) {
+				lines.push(`\t\t\t<div class="doc-card__desc">${escapeHtml(desc)}</div>`);
+			}
+			lines.push("\t\t</div>", "\t</a>", "</div>");
+			return lines.join("\n");
+		};
+
+		const serializeStandardImage = (node) => {
+			const img = node.querySelector("img");
+			const src = img?.getAttribute("src") || "";
+			const alt = img?.getAttribute("alt") || "";
+			if (!src) return "";
+			return [
+				`<div class="img-text-div-img">`,
+				`\t<img src="${escapeAttr(src)}" alt="${escapeAttr(alt)}" />`,
+				`</div>`,
+			].join("\n");
+		};
+
+		const sanitizeNode = (node) => {
+			if (node.nodeType === Node.TEXT_NODE) return escapeHtml(node.textContent);
+			if (node.nodeType !== Node.ELEMENT_NODE) return "";
+
+			const tag = node.tagName.toLowerCase();
+			const cls = node.getAttribute("class") || "";
+
+			if (tag === "div") {
+				if (cls.includes("img-stub")) {
+					return serializeImgStub({
+						img: node.getAttribute("data-img") || "",
+						caption: node.getAttribute("data-caption") || "",
+						lightbox: node.getAttribute("data-lightbox") || "false",
+						overlayTitle: node.getAttribute("data-overlay-title") || "",
+						overlayText: node.getAttribute("data-overlay-text") || "",
+						size: node.getAttribute("data-size") || "",
+					});
+				}
+				if (cls.includes("tab")) return serializeAccordion(node);
+				if (cls.includes("doc-card")) return serializeDocCard(node);
+				if (cls.includes("img-text-div-img")) return serializeStandardImage(node);
+				if (cls && cls.trim()) {
+					// Disallow arbitrary classes from free typing.
+					return serializeChildren(node);
+				}
+				const inner = serializeChildren(node);
+				return `<div>${inner}</div>`;
+			}
+
+			if (tag === "p" || tag === "strong" || tag === "em" || tag === "code") {
+				const inner = serializeChildren(node);
+				return `<${tag}>${inner}</${tag}>`;
+			}
+
+			if (tag === "h2" || tag === "h3") {
+				const inner = serializeChildren(node);
+				return `<${tag}>${inner}</${tag}>`;
+			}
+
+			if (tag === "ul" || tag === "ol") {
+				const inner = serializeChildren(node);
+				return `<${tag}>${inner}</${tag}>`;
+			}
+
+			if (tag === "li") {
+				const inner = serializeChildren(node);
+				return `<li>${inner}</li>`;
+			}
+
+			if (tag === "br") return "<br />";
+
+			if (tag === "a") {
+				const href = sanitizeHref(node.getAttribute("href"));
+				if (!href) return serializeChildren(node);
+				const target = node.getAttribute("target") === "_blank" ? "_blank" : null;
+				const rel =
+					target === "_blank" ? "noopener noreferrer" : null;
+				const attrs = {
+					href,
+					target,
+					rel,
+				};
+				const order = ["href", "target", "rel"];
+				return `<a${serializeAttrsOrdered(attrs, order)}>${serializeChildren(
+					node,
+				)}</a>`;
+			}
+
+			if (tag === "img") {
+				const src = node.getAttribute("src") || "";
+				const alt = node.getAttribute("alt") || "";
+				if (!src) return "";
+				return `<img src="${escapeAttr(src)}" alt="${escapeAttr(alt)}" />`;
+			}
+
+			if (tag === "input" || tag === "label") {
+				// Accordion elements are handled by the tab wrapper.
+				return "";
+			}
+
+			return serializeChildren(node);
+		};
+
+		return serializeChildren(wrap).trim();
+	}
+
+	function parseHeroInner(innerHtml) {
+		const doc = new DOMParser().parseFromString(
+			`<div id="__wrap__">${String(innerHtml || "")}</div>`,
+			"text/html",
+		);
+		const wrap = doc.querySelector("#__wrap__");
+		const hero = wrap?.querySelector(".default-div-wrapper.hero-override");
+		if (!hero) {
+			return { type: "legacy", raw: innerHtml || "" };
+		}
+		const title = hero.querySelector("h1")?.textContent?.trim() || "";
+		const subtitle = hero.querySelector("p")?.textContent?.trim() || "";
+		return { type: "hero", title, subtitle };
+	}
+
+	function serializeHeroInner(model) {
+		if (!model || model.type !== "hero") {
+			return String(model?.raw || "").trim();
+		}
+		const title = escapeHtml(model.title || "");
+		const subtitle = escapeHtml(model.subtitle || "");
+		return [
+			`<div class="div-wrapper">`,
+			`\t<div class="default-div-wrapper hero-override">`,
+			`\t\t<h1 style="text-align: center">${title}</h1>`,
+			`\t\t<p style="text-align: center">${subtitle}</p>`,
+			`\t</div>`,
+			`</div>`,
+		].join("\n");
+	}
+
+	function parseMainBlockNode(node) {
+		if (!node || !node.classList) {
+			return { type: "legacy", raw: String(node?.outerHTML || "") };
+		}
+		const cls = node.classList;
+		if (cls.contains("section")) {
+			const type = (node.getAttribute("data-type") || "").trim();
+			if (type === "twoCol") {
+				return {
+					type: "twoCol",
+					left: node.querySelector("[data-col='left']")?.innerHTML || "",
+					right: node.querySelector("[data-col='right']")?.innerHTML || "",
+				};
+			}
+			if (type === "imgText" || type === "split50") {
+				return {
+					type,
+					imgPos: node.getAttribute("data-img-pos") || "left",
+					img: node.getAttribute("data-img") || "",
+					caption: node.getAttribute("data-caption") || "",
+					lightbox: node.getAttribute("data-lightbox") || "false",
+					overlayTitle: node.getAttribute("data-overlay-title") || "",
+					overlayText: node.getAttribute("data-overlay-text") || "",
+					body: node.innerHTML || "",
+				};
+			}
+			return { type: "legacy", raw: node.outerHTML };
+		}
+
+		if (cls.contains("grid-wrapper") && cls.contains("grid-wrapper--row")) {
+			if (node.querySelector(".content.box.box-img")) {
+				const cards = Array.from(
+					node.querySelectorAll(".content.box.box-img"),
+				).map((card) => {
+					const img = card.querySelector("img");
+					const title = card.querySelector(".content-title");
+					const text = card.querySelector(".content-text");
+					return {
+						src: img?.getAttribute("src") || "",
+						alt: img?.getAttribute("alt") || "",
+						lightbox: img?.classList.contains("js-lightbox") || false,
+						overlayTitle: title?.textContent?.trim() || "",
+						overlayText: text?.textContent?.trim() || "",
+					};
+				});
+				return { type: "hoverCardRow", cards };
+			}
+			if (node.querySelector(".box > img")) {
+				const items = Array.from(node.querySelectorAll(".box > img")).map(
+					(img) => ({
+						src: img.getAttribute("src") || "",
+						alt: img.getAttribute("alt") || "",
+						lightbox: img.classList.contains("js-lightbox") || false,
+					}),
+				);
+				return { type: "squareGridRow", items };
+			}
+		}
+
+		return { type: "legacy", raw: node.outerHTML };
+	}
+
+	function parseMainBlocksFromHtml(mainHtml) {
+		const doc = new DOMParser().parseFromString(
+			`<div id="__wrap__">${String(mainHtml || "")}</div>`,
+			"text/html",
+		);
+		const wrap = doc.querySelector("#__wrap__");
+		const nodes = wrap ? Array.from(wrap.children) : [];
+		return nodes.map((node) => parseMainBlockNode(node));
+	}
+
+	function serializeSectionStub(block, ctx) {
+		const type = block.type;
+		const attrs = {
+			class: "section",
+			"data-type": type,
+		};
+		if (block.imgPos && block.imgPos !== "left") {
+			attrs["data-img-pos"] = block.imgPos;
+		}
+		if (block.img) attrs["data-img"] = block.img;
+		if (block.caption) attrs["data-caption"] = block.caption;
+		attrs["data-lightbox"] = normalizeBool(block.lightbox, "false");
+		if (block.overlayTitle) attrs["data-overlay-title"] = block.overlayTitle;
+		if (block.overlayText) attrs["data-overlay-text"] = block.overlayText;
+		const order = [
+			"class",
+			"data-type",
+			"data-img-pos",
+			"data-img",
+			"data-caption",
+			"data-lightbox",
+			"data-overlay-title",
+			"data-overlay-text",
+		];
+		const body = sanitizeRteHtml(block.body || "", ctx);
+		const lines = [`<div${serializeAttrsOrdered(attrs, order)}>`];
+		if (body) lines.push(indentLines(body, 1));
+		lines.push(`</div>`);
+		return lines.join("\n");
+	}
+
+	function serializeTwoCol(block, ctx) {
+		const left = sanitizeRteHtml(block.left || "", ctx);
+		const right = sanitizeRteHtml(block.right || "", ctx);
+		const lines = [
+			`<div class="section" data-type="twoCol">`,
+			`\t<div data-col="left">`,
+			left ? indentLines(left, 2) : "",
+			`\t</div>`,
+			`\t<div data-col="right">`,
+			right ? indentLines(right, 2) : "",
+			`\t</div>`,
+			`</div>`,
+		].filter((line) => line !== "");
+		return lines.join("\n");
+	}
+
+	function serializeHoverCardRow(block) {
+		const lines = [`<div class="grid-wrapper grid-wrapper--row">`];
+		(block.cards || []).forEach((card) => {
+			const imgClass = card.lightbox
+				? "content-image js-lightbox"
+				: "content-image";
+			lines.push(
+				`\t<div class="content box box-img">`,
+				`\t\t<div class="content-overlay"></div>`,
+				`\t\t<img class="${imgClass}" src="${escapeAttr(
+					card.src,
+				)}" alt="${escapeAttr(card.alt)}" />`,
+				`\t\t<div class="content-details fadeIn-bottom">`,
+				`\t\t\t<h3 class="content-title">${escapeHtml(
+					card.overlayTitle || "",
+				)}</h3>`,
+				`\t\t\t<p class="content-text">${escapeHtml(
+					card.overlayText || "",
+				)}</p>`,
+				`\t\t</div>`,
+				`\t</div>`,
+			);
+		});
+		lines.push(`</div>`);
+		return lines.join("\n");
+	}
+
+	function serializeSquareGridRow(block) {
+		const lines = [`<div class="grid-wrapper grid-wrapper--row">`];
+		(block.items || []).forEach((item) => {
+			const imgClass = item.lightbox ? "js-lightbox" : "";
+			const classAttr = imgClass ? ` class="${imgClass}"` : "";
+			lines.push(
+				`\t<div class="box">`,
+				`\t\t<img${classAttr} src="${escapeAttr(
+					item.src,
+				)}" alt="${escapeAttr(item.alt)}" />`,
+				`\t</div>`,
+			);
+		});
+		lines.push(`</div>`);
+		return lines.join("\n");
+	}
+
+	function serializeMainBlocks(blocks, ctx) {
+		return (blocks || [])
+			.map((block, idx) => {
+				const blockCtx = {
+					...ctx,
+					blockId: block.baseId || block.id || `block-${idx}`,
+					blockIdShort: hashText(
+						`${block.baseId || block.id || "block"}::${idx}`,
+					).slice(0, 4),
+				};
+				if (block.type === "twoCol") return serializeTwoCol(block, blockCtx);
+				if (block.type === "imgText" || block.type === "split50")
+					return serializeSectionStub(block, blockCtx);
+				if (block.type === "hoverCardRow") return serializeHoverCardRow(block);
+				if (block.type === "squareGridRow") return serializeSquareGridRow(block);
+				return String(block.raw || block.html || "").trim();
+			})
+			.filter(Boolean)
+			.join("\n\n");
+	}
+
+	function parsePageToModel(html, path) {
 		const text = String(html || "");
 		const hero = extractRegion(text, "hero");
 		const main = extractRegion(text, "main");
-		const heroInner = hero.found ? hero.inner : "";
-		const mainInner = main.found ? main.inner : "";
+		const heroModel = hero.found
+			? parseHeroInner(hero.inner)
+			: { type: "legacy", raw: "" };
+		const mainBlocks = main.found ? parseMainBlocksFromHtml(main.inner) : [];
+		const baselineRegistry = buildBaselineRegistry(text || "");
+		return {
+			path,
+			hero: heroModel,
+			main: mainBlocks,
+			baselineRegistry,
+			rawHero: hero.found ? hero.inner : "",
+			rawMain: main.found ? main.inner : "",
+		};
+	}
 
-		return `${normalizeFragmentHtml(heroInner)}\n---\n${normalizeFragmentHtml(mainInner)}`;
+	function serializeModelToCanonicalHtml(model, baseHtml = "") {
+		const heroInner = serializeHeroInner(model.hero);
+		const mainInner = serializeMainBlocks(model.main, {
+			path: model.path || "",
+		});
+		let output = baseHtml || model?.sourceHtml || "";
+		if (!output) return "";
+		output = replaceRegion(output, "hero", heroInner);
+		output = replaceRegion(output, "main", mainInner);
+
+		if (baseHtml) {
+			const baseOutside = stripOutsideCms(baseHtml);
+			const nextOutside = stripOutsideCms(output);
+			if (baseOutside !== nextOutside) {
+				console.warn("[cms-portal] non-marker content changed");
+			}
+		}
+
+		const roundTrip = parsePageToModel(output, model.path || "");
+		if ((roundTrip.main || []).length !== (model.main || []).length) {
+			console.warn("[cms-portal] round-trip block count mismatch");
+		}
+		return output;
+	}
+
+	function normalizeForDirtyCompare(html, path) {
+		const model = parsePageToModel(html, path);
+		const heroInner = serializeHeroInner(model.hero);
+		const mainInner = serializeMainBlocks(model.main, {
+			path: model.path || path || "",
+		});
+		return `${heroInner}\n---\n${mainInner}`;
+	}
+
+	function canonicalizeFullHtml(html, path) {
+		try {
+			const model = parsePageToModel(html, path);
+			return serializeModelToCanonicalHtml(model, html);
+		} catch (err) {
+			console.warn("[cms-portal] canonicalize failed", err);
+			return html;
+		}
 	}
 
 	function buildDiffSummary(baseHtml, dirtyHtml) {
@@ -640,6 +1146,7 @@
 		const positional = [];
 		const removeKeys = new Set();
 		const removeBaseIds = new Set();
+		const movedBaseIds = new Set();
 		localBlocks.forEach((item) => {
 			const key = anchorKey(item.anchor);
 			if (respectRemovals && item.action === "remove" && item.baseId) {
@@ -651,11 +1158,13 @@
 			}
 			if (item.action === "remove" || item.action === "mark") return;
 			if (
+				!key &&
 				Number.isInteger(item.pos) &&
 				item.baseId &&
 				item.action === "insert"
 			) {
 				positional.push(item);
+				movedBaseIds.add(item.baseId);
 				return;
 			}
 			if (!key) {
@@ -690,7 +1199,10 @@
 			const before = beforeMap.get(key) || [];
 			before.forEach((item) => merged.push({ html: item.html, _local: item }));
 			const after = afterMap.get(key) || [];
-			if (removeKeys.has(key) || removeBaseIds.has(block.id)) {
+			if (
+				removeKeys.has(key) ||
+				(removeBaseIds.has(block.id) && !movedBaseIds.has(block.id))
+			) {
 				after.forEach((item) => merged.push({ html: item.html, _local: item }));
 				return;
 			}
@@ -805,12 +1317,13 @@
 		const baseHtml = state.originalHtml || "";
 		const updatedHtml = mergeDirtyWithBase(baseHtml, baseHtml, updatedLocal, {
 			respectRemovals: hasRemovalActions(updatedLocal),
+			path,
 		});
 		const normalizedLocal = normalizeLocalBlocks(updatedLocal);
 		const hasLocal = normalizedLocal.length > 0;
 		const isSameAsBase =
-			normalizeHtmlForCompare(updatedHtml) ===
-			normalizeHtmlForCompare(baseHtml);
+			normalizeForDirtyCompare(updatedHtml, path) ===
+			normalizeForDirtyCompare(baseHtml, path);
 		const onlyReorders =
 			hasLocal &&
 			normalizedLocal.every(
@@ -894,16 +1407,18 @@
 		if (html && baseHtml) {
 			normalizedLocal = assignAnchorsFromHtml(baseHtml, html, normalizedLocal);
 		}
-		const canonicalHtml =
+		let canonicalHtml =
 			normalizedLocal.length > 0
 				? mergeDirtyWithBase(baseHtml || "", baseHtml || "", normalizedLocal, {
 						respectRemovals: hasRemovalActions(normalizedLocal),
+						path,
 					})
 				: html;
+		canonicalHtml = canonicalizeFullHtml(canonicalHtml, path);
 		state.dirtyPages[path] = {
 			html: canonicalHtml,
-			baseHash: hashText(normalizeHtmlForCompare(baseHtml)),
-			dirtyHash: hashText(normalizeHtmlForCompare(canonicalHtml)),
+			baseHash: hashText(normalizeForDirtyCompare(baseHtml, path)),
+			dirtyHash: hashText(normalizeForDirtyCompare(canonicalHtml, path)),
 			updatedAt: Date.now(),
 			localBlocks: normalizedLocal,
 		};
@@ -1054,14 +1569,14 @@
 
 			let merged = baseHtml || "";
 			const dirtyHero = extractRegion(dirtyHtml, "hero");
-			if (dirtyHero.found && normalizeFragmentHtml(dirtyHero.inner)) {
-				merged = replaceRegion(merged, "hero", dirtyHero.inner);
-			}
-			merged = replaceRegion(
-				merged,
-				"main",
-				mergedBlocks.map((b) => b.html).join("\n\n"),
-			);
+			const baseHero = extractRegion(baseHtml, "hero");
+			const heroSource = dirtyHero.found ? dirtyHero.inner : baseHero.inner;
+			const heroInner = serializeHeroInner(parseHeroInner(heroSource || ""));
+			if (heroInner) merged = replaceRegion(merged, "hero", heroInner);
+			const mainInner = serializeMainFromBlocks(mergedBlocks, {
+				path: options.path || state.path || "",
+			});
+			merged = replaceRegion(merged, "main", mainInner);
 			return merged;
 		} else {
 			const dirtyBlocks = parseBlocks(dirtyMain.inner);
@@ -1095,10 +1610,15 @@
 
 		let merged = baseHtml || "";
 		const dirtyHero = extractRegion(dirtyHtml, "hero");
-		if (dirtyHero.found && normalizeFragmentHtml(dirtyHero.inner)) {
-			merged = replaceRegion(merged, "hero", dirtyHero.inner);
-		}
-		merged = replaceRegion(merged, "main", mergedMain);
+		const baseHero = extractRegion(baseHtml, "hero");
+		const heroSource = dirtyHero.found ? dirtyHero.inner : baseHero.inner;
+		const heroInner = serializeHeroInner(parseHeroInner(heroSource || ""));
+		if (heroInner) merged = replaceRegion(merged, "hero", heroInner);
+		const canonicalMain = serializeMainFromBlocks(
+			mergedBlocks.map((b) => ({ html: b.html })),
+			{ path: options.path || state.path || "" },
+		);
+		merged = replaceRegion(merged, "main", canonicalMain);
 		return merged;
 	}
 
@@ -1140,7 +1660,10 @@
 								baseHtml || dirtyHtml || "",
 								dirtyHtml || baseHtml || "",
 								localBlocks,
-								{ respectRemovals: hasRemovalActions(localBlocks) },
+								{
+									respectRemovals: hasRemovalActions(localBlocks),
+									path,
+								},
 							)
 						: dirtyHtml;
 					const baseBlocks = buildBaseBlocksWithOcc(baseHtml || "");
@@ -1219,6 +1742,7 @@
 					});
 
 					blockMap[path] = {
+						path,
 						baseHtml,
 						dirtyHtml: mergedForList,
 						localBlocks,
@@ -1231,6 +1755,7 @@
 					const main = extractRegion(dirtyHtml, "main");
 					const dirtyBlocks = main.found ? parseBlocks(main.inner) : [];
 					blockMap[path] = {
+						path,
 						baseHtml: "",
 						dirtyHtml,
 						all: dirtyBlocks.map((block, idx) => ({
@@ -1291,15 +1816,18 @@
 						data.text || "",
 						entry.html || "",
 						cleanedLocal,
-						{ respectRemovals: hasRemovalActions(cleanedLocal) },
+						{
+							respectRemovals: hasRemovalActions(cleanedLocal),
+							path,
+						},
 					);
 					const remappedLocal = hasRemovalOrMarkActions(cleanedLocal)
 						? assignAnchorsFromHtml(data.text || "", merged, cleanedLocal)
 						: (state.prList || []).length
 							? assignAnchorsFromHtml(data.text || "", merged, cleanedLocal)
 							: deriveLocalBlocksFromDiff(data.text || "", merged);
-					const remoteText = normalizeHtmlForCompare(data.text || "");
-					const entryText = normalizeHtmlForCompare(merged || "");
+					const remoteText = normalizeForDirtyCompare(data.text || "", path);
+					const entryText = normalizeForDirtyCompare(merged || "", path);
 					if (
 						!cleanedLocal.length &&
 						!normalizeLocalBlocks(entry.localBlocks || []).length
@@ -1359,11 +1887,14 @@
 		if (!baseHtml) return "";
 		const localBlocks = normalizeLocalBlocks(entry?.localBlocks || []);
 		if (!selectedIds || !selectedIds.size) {
-			return action === "discard"
-				? baseHtml
-				: mergeDirtyWithBase(baseHtml, baseHtml, [], {
-						respectRemovals: true,
-					});
+			const result =
+				action === "discard"
+					? baseHtml
+					: mergeDirtyWithBase(baseHtml, baseHtml, [], {
+							respectRemovals: true,
+							path: entry?.path || state.path,
+						});
+			return canonicalizeFullHtml(result, entry?.path || state.path);
 		}
 		const selectedLocalIds = getSelectedLocalIds(entry, selectedIds);
 		const selectedLocal = localBlocks
@@ -1375,31 +1906,38 @@
 				return item;
 			});
 		if (action === "commit") {
-			return mergeDirtyWithBase(baseHtml, baseHtml, selectedLocal, {
+			const result = mergeDirtyWithBase(baseHtml, baseHtml, selectedLocal, {
 				respectRemovals: true,
+				path: entry?.path || state.path,
 			});
+			return canonicalizeFullHtml(result, entry?.path || state.path);
 		}
 		const remainingLocal = localBlocks.filter(
 			(item) => !selectedLocalIds.has(item.id),
 		);
-		return mergeDirtyWithBase(baseHtml, baseHtml, remainingLocal, {
+		const result = mergeDirtyWithBase(baseHtml, baseHtml, remainingLocal, {
 			respectRemovals: hasRemovalActions(remainingLocal),
+			path: entry?.path || state.path,
 		});
+		return canonicalizeFullHtml(result, entry?.path || state.path);
 	}
 
 	// Remove only the selected blocks from the current dirty HTML (keep everything else).
 	function buildDirtyAfterSelection(entry, selectedIds) {
 		const baseHtml = entry?.baseHtml || entry?.dirtyHtml || "";
 		if (!baseHtml) return "";
-		if (!selectedIds || !selectedIds.size) return entry?.dirtyHtml || baseHtml;
+		if (!selectedIds || !selectedIds.size)
+			return canonicalizeFullHtml(entry?.dirtyHtml || baseHtml, entry?.path);
 		const localBlocks = normalizeLocalBlocks(entry?.localBlocks || []);
 		const selectedLocalIds = getSelectedLocalIds(entry, selectedIds);
 		const remainingLocal = localBlocks.filter(
 			(item) => !selectedLocalIds.has(item.id),
 		);
-		return mergeDirtyWithBase(baseHtml, baseHtml, remainingLocal, {
+		const result = mergeDirtyWithBase(baseHtml, baseHtml, remainingLocal, {
 			respectRemovals: hasRemovalActions(remainingLocal),
+			path: entry?.path || state.path,
 		});
+		return canonicalizeFullHtml(result, entry?.path || state.path);
 	}
 
 	function applyHtmlToCurrentPage(updatedHtml) {
@@ -1411,8 +1949,8 @@
 		state.blocks = parseBlocks(state.mainInner);
 		// Use the same normaliser as the dirty store to avoid whitespace drift.
 		state.currentDirty =
-			normalizeHtmlForCompare(updatedHtml) !==
-			normalizeHtmlForCompare(state.originalHtml);
+			normalizeForDirtyCompare(updatedHtml, state.path) !==
+			normalizeForDirtyCompare(state.originalHtml, state.path);
 	}
 
 	function renderDirtyPageList({
@@ -1729,6 +2267,16 @@
 		};
 	}
 
+	function stripOutsideCms(html) {
+		const hero = extractRegion(html, "hero");
+		const main = extractRegion(html, "main");
+		if (!hero.found || !main.found) return html;
+		const beforeHero = html.slice(0, hero.startIndex);
+		const between = html.slice(hero.endIndex, main.startIndex);
+		const afterMain = html.slice(main.endIndex);
+		return `${beforeHero}${between}${afterMain}`;
+	}
+
 	// Replace ONLY the content between the two marker comments.
 	// Keeps the markers themselves intact.
 	function replaceRegion(html, name, newInnerHtml) {
@@ -1753,11 +2301,17 @@
 		return `${before}\n${cleaned}\n${after}`;
 	}
 
-	function serializeMainFromBlocks(blocks) {
-		return (blocks || [])
-			.map((b) => (b.html || "").trim())
-			.filter(Boolean)
-			.join("\n\n");
+	function serializeMainFromBlocks(blocks, ctx = {}) {
+		const models = (blocks || []).map((b) => {
+			const doc = new DOMParser().parseFromString(
+				`<div id="__wrap__">${String(b.html || "")}</div>`,
+				"text/html",
+			);
+			const node = doc.querySelector("#__wrap__")?.firstElementChild;
+			if (!node) return { type: "legacy", raw: String(b.html || "") };
+			return parseMainBlockNode(node);
+		});
+		return serializeMainBlocks(models, ctx);
 	}
 
 	function normalizeBlocks() {
@@ -2153,17 +2707,19 @@
 	function rebuildPreviewHtml() {
 		if (!state.originalHtml) return;
 
-		const rebuiltMain = serializeMainFromBlocks(state.blocks);
+		const rebuiltMain = serializeMainFromBlocks(state.blocks, {
+			path: state.path || "",
+		});
 
 		// If you add hero editing later, this becomes hero editor output.
 		// For now we just keep hero as-is.
-		const rebuiltHero = (state.heroInner || "").trim();
+		const rebuiltHero = serializeHeroInner(parseHeroInner(state.heroInner || ""));
 
 		let html = state.originalHtml;
 		html = replaceRegion(html, "hero", rebuiltHero);
 		html = replaceRegion(html, "main", rebuiltMain);
 
-		state.rebuiltHtml = html;
+		state.rebuiltHtml = canonicalizeFullHtml(html, state.path);
 
 		// Re-extract from the rebuilt html for rendering (proof the replacement is correct)
 		const hero2 = extractRegion(state.rebuiltHtml, "hero");
@@ -2750,6 +3306,33 @@
 						updateLocalBlocksAndRender(state.path, cleanedLocal);
 						return;
 					}
+					const anchorFromOrderItem = (orderItem) => {
+						if (!orderItem) return null;
+						const rawKey = orderItem.key || "";
+						const id = rawKey.startsWith("id:") ? rawKey.slice(3) : null;
+						return {
+							id: id || null,
+							sig: orderItem.sig || null,
+							occ: orderItem.occ,
+						};
+					};
+					const anchorInfoForIndex = (order, index) => {
+						if (index > 0) {
+							const prev = order[index - 1];
+							return {
+								anchor: anchorFromOrderItem(prev),
+								placement: "after",
+							};
+						}
+						if (index + 1 < order.length) {
+							const next = order[index + 1];
+							return {
+								anchor: anchorFromOrderItem(next),
+								placement: "before",
+							};
+						}
+						return { anchor: null, placement: "after" };
+					};
 					const moveEntries = [];
 					movedKeys.forEach((key) => {
 						const item = nextOrder.find((entry) => entry.key === key);
@@ -2771,15 +3354,16 @@
 						if (!movedKeys.includes(item.key)) return;
 						const id = item.key?.replace(/^id:/, "") || null;
 						const baseBlock = id ? registry.byId?.get(id) : null;
+						const anchorInfo = anchorInfoForIndex(nextOrder, idx);
 						moveEntries.push({
 							id: makeLocalId(),
 							html: baseBlock?.html || item.html || "",
-							anchor: null,
-							placement: null,
+							anchor: anchorInfo.anchor,
+							placement: anchorInfo.placement,
 							status: "staged",
 							kind: "edited",
 							action: "insert",
-							pos: idx,
+							pos: null,
 							sourceKey: item.key,
 							baseId: id,
 						});
@@ -2949,11 +3533,14 @@
 				state.originalHtml,
 				dirtyHtml,
 				cleanedLocal,
-				{ respectRemovals: hasRemovalActions(cleanedLocal) },
+				{
+					respectRemovals: hasRemovalActions(cleanedLocal),
+					path: state.path,
+				},
 			);
 			if (
-				normalizeHtmlForCompare(mergedDirty) ===
-				normalizeHtmlForCompare(state.originalHtml)
+				normalizeForDirtyCompare(mergedDirty, state.path) ===
+				normalizeForDirtyCompare(state.originalHtml, state.path)
 			) {
 				if (!hasRemovalOrMarkActions(cleanedLocal)) {
 					clearDirtyPage(state.path);
@@ -3198,7 +3785,10 @@
 					entry.baseHtml || entry.dirtyHtml || "",
 					entry.baseHtml || entry.dirtyHtml || "",
 					remainingLocal,
-					{ respectRemovals: hasRemovalActions(remainingLocal) },
+					{
+						respectRemovals: hasRemovalActions(remainingLocal),
+						path,
+					},
 				);
 				const remappedLocal = assignAnchorsFromHtml(
 					entry.baseHtml || entry.dirtyHtml || "",
@@ -3559,7 +4149,10 @@
 					remainingBase,
 					remainingBase,
 					remainingLocal,
-					{ respectRemovals: hasRemovalActions(remainingLocal) },
+					{
+						respectRemovals: hasRemovalActions(remainingLocal),
+						path,
+					},
 				);
 				const remappedLocal = assignAnchorsFromHtml(
 					remainingBase,
