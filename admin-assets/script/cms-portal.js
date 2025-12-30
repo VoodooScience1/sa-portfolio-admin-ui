@@ -24,7 +24,7 @@
 	const PR_STORAGE_KEY = "cms-pr-state";
 	const SESSION_STORAGE_KEY = "cms-session-state";
 	const DEBUG_ENABLED_DEFAULT = true;
-const UPDATE_VERSION = 9;
+	const UPDATE_VERSION = 9;
 	const BUILD_TOKEN = Date.now().toString(36);
 
 	function getPagePathFromLocation() {
@@ -1283,9 +1283,10 @@ const UPDATE_VERSION = 9;
 		const orderFromLocal = normalizeLocalBlocks(localBlocks || []).find(
 			(item) => item.action === "reorder" && Array.isArray(item.order),
 		);
-		const baseOrder = Array.isArray(explicitOrder) && explicitOrder.length
-			? explicitOrder.slice()
-			: orderFromLocal?.order?.slice() || baseBlocks.map((b) => b.id);
+		const baseOrder =
+			Array.isArray(explicitOrder) && explicitOrder.length
+				? explicitOrder.slice()
+				: orderFromLocal?.order?.slice() || baseBlocks.map((b) => b.id);
 		const baseIds = new Set(baseBlocks.map((b) => b.id));
 		const filtered = baseOrder.filter((id) => baseIds.has(id));
 		baseBlocks.forEach((block) => {
@@ -1425,7 +1426,9 @@ const UPDATE_VERSION = 9;
 		});
 		const normalizedLocal = normalizeLocalBlocks(updatedLocal);
 		const hasLocal = normalizedLocal.length > 0;
-		const hasReorder = normalizedLocal.some((item) => item.action === "reorder");
+		const hasReorder = normalizedLocal.some(
+			(item) => item.action === "reorder",
+		);
 		if (hasReorder) state.lastReorderLocal = normalizedLocal;
 		else state.lastReorderLocal = null;
 		const isSameAsBase =
@@ -3091,8 +3094,7 @@ const UPDATE_VERSION = 9;
 							status = "committed";
 						} else {
 							const remaining = sessionCountsById.get(baseId) || 0;
-							if (remaining > 0)
-								sessionCountsById.set(baseId, remaining - 1);
+							if (remaining > 0) sessionCountsById.set(baseId, remaining - 1);
 							else status = "edited";
 						}
 					}
@@ -3468,10 +3470,7 @@ const UPDATE_VERSION = 9;
 						registry.blocks || buildBaseBlocksWithOcc(baseHtml || "");
 					const baseOrderKeys = baseOrder.map((b) => anchorKey(b));
 					const baseHtmlByKey = new Map(
-						baseOrder.map((b) => [
-							anchorKey(b),
-							normalizeFragmentHtml(b.html),
-						]),
+						baseOrder.map((b) => [anchorKey(b), normalizeFragmentHtml(b.html)]),
 					);
 					const currentBaseOrder = merged
 						.filter((item) => item?._base)
@@ -3657,11 +3656,9 @@ const UPDATE_VERSION = 9;
 		let host = qs("#cms-debug-panel");
 		if (!host) {
 			host = el("div", { id: "cms-debug-panel" }, []);
-			const btn = el(
-				"button",
-				{ id: "cms-debug-copy", type: "button" },
-				["Copy"],
-			);
+			const btn = el("button", { id: "cms-debug-copy", type: "button" }, [
+				"Copy",
+			]);
 			const pre = el("pre", { id: "cms-debug-text" }, []);
 			host.appendChild(btn);
 			host.appendChild(pre);
