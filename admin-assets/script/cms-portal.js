@@ -1156,7 +1156,9 @@
 		const removeKeys = new Set();
 		const removeBaseIds = new Set();
 		const movedBaseIds = new Set();
-		localBlocks.forEach((item) => {
+		const orderIndex = new Map();
+		localBlocks.forEach((item, idx) => {
+			orderIndex.set(item, idx);
 			const key = anchorKey(item.anchor);
 			if (respectRemovals && item.action === "remove" && item.baseId) {
 				removeBaseIds.add(item.baseId);
@@ -1185,6 +1187,18 @@
 			list.push(item);
 			map.set(key, list);
 		});
+		const sortAnchored = (list) => {
+			list.sort((a, b) => {
+				const aHas = Number.isInteger(a.pos);
+				const bHas = Number.isInteger(b.pos);
+				if (aHas && bHas && a.pos !== b.pos) return a.pos - b.pos;
+				if (aHas && !bHas) return -1;
+				if (!aHas && bHas) return 1;
+				return (orderIndex.get(a) || 0) - (orderIndex.get(b) || 0);
+			});
+		};
+		beforeMap.forEach((list) => sortAnchored(list));
+		afterMap.forEach((list) => sortAnchored(list));
 		let baseOrder = baseBlocks;
 		if (positional.length) {
 			const baseById = new Map(baseBlocks.map((block) => [block.id, block]));
@@ -2543,6 +2557,7 @@
 		path: getPagePathFromLocation(),
 		originalHtml: "",
 		rebuiltHtml: "",
+		updateTick: 0,
 		prUrl: "",
 		prNumber: null,
 		prList: loadPrState(),
@@ -3397,6 +3412,11 @@
 			{ id: "cms-status", class: "cms-pill warn" },
 			["LOADING"],
 		);
+		const updatePill = el(
+			"span",
+			{ id: "cms-update-pill", class: "cms-pill" },
+			["UPD 0"],
+		);
 
 		const discardBtn = el(
 			"button",
@@ -3426,13 +3446,23 @@
 		stripHost.appendChild(
 			el("div", { class: "cms-strip" }, [
 				el("div", { class: "cms-strip-left" }, ["Development Portal"]),
-				el("div", { class: "cms-strip-mid" }, [statusPill, prLink]),
+				el("div", { class: "cms-strip-mid" }, [
+					statusPill,
+					updatePill,
+					prLink,
+				]),
 				el("div", { class: "cms-strip-right cms-controls" }, [
 					discardBtn,
 					exitBtn,
 				]),
 			]),
 		);
+	}
+
+	function bumpUpdatePill() {
+		state.updateTick += 1;
+		const pill = qs("#cms-update-pill");
+		if (pill) pill.textContent = `UPD ${state.updateTick}`;
 	}
 
 	function confirmDeleteBlock({ message, confirmLabel, onConfirm }) {
@@ -3495,6 +3525,7 @@
 		if (!res.ok) return;
 		const data = await res.json();
 		state.originalHtml = data.text || state.originalHtml;
+		bumpUpdatePill();
 		const dirtyEntry = state.dirtyPages[path] || {};
 		const workingHtml = dirtyEntry.html || state.originalHtml;
 		const hero = extractRegion(workingHtml, "hero");
@@ -3528,6 +3559,7 @@
 		state.baselineRegistry[state.path] = buildBaselineRegistry(
 			state.originalHtml,
 		);
+		bumpUpdatePill();
 
 		// Load draft HTML if a dirty version exists for this path.
 		const dirtyEntry = state.dirtyPages[state.path] || {};
