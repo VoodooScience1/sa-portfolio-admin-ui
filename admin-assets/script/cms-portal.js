@@ -24,7 +24,7 @@
 	const PR_STORAGE_KEY = "cms-pr-state";
 	const SESSION_STORAGE_KEY = "cms-session-state";
 	const DEBUG_ENABLED_DEFAULT = true;
-	const UPDATE_VERSION = 15;
+	const UPDATE_VERSION = 16;
 	const BUILD_TOKEN = Date.now().toString(36);
 
 	function getPagePathFromLocation() {
@@ -2666,45 +2666,14 @@ function serializeSquareGridRow(block, ctx) {
 		const html = await buildTestContainerHtml();
 		const localEntry = state.dirtyPages[state.path] || {};
 		const localBlocks = normalizeLocalBlocks(localEntry.localBlocks || []);
-		const baseBlocks = buildBaseBlocksWithOcc(state.originalHtml || "");
-		const rendered = state.blocks.map((b) => signatureForHtml(b.html || ""));
-		const baseIndex = baseBlocks.map((b) => b.sig);
-		const baselineMap = [];
-		let basePtr = 0;
-		rendered.forEach((sig, idx) => {
-			if (basePtr < baseIndex.length && sig === baseIndex[basePtr]) {
-				baselineMap[idx] = baseBlocks[basePtr];
-				basePtr += 1;
-			} else {
-				baselineMap[idx] = null;
-			}
-		});
-		let anchor = null;
-		let placement = "after";
-		for (let i = index - 1; i >= 0; i -= 1) {
-			if (baselineMap[i]) {
-				anchor = {
-					id: baselineMap[i].id,
-					sig: baselineMap[i].sig,
-					occ: baselineMap[i].occ,
-				};
-				placement = "after";
-				break;
-			}
-		}
-		if (!anchor) {
-			for (let i = index; i < baselineMap.length; i += 1) {
-				if (baselineMap[i]) {
-					anchor = {
-						id: baselineMap[i].id,
-						sig: baselineMap[i].sig,
-						occ: baselineMap[i].occ,
-					};
-					placement = "before";
-					break;
-				}
-			}
-		}
+		const merged = buildMergedRenderBlocks(
+			state.originalHtml || "",
+			localBlocks,
+			{ respectRemovals: hasRemovalActions(localBlocks) },
+		);
+		const anchorInfo = getAnchorForIndex(index, merged);
+		const anchor = anchorInfo.anchor;
+		const placement = anchorInfo.placement;
 		const updatedLocal = [
 			...localBlocks,
 			{
