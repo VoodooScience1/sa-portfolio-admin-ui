@@ -24,7 +24,7 @@
 	const PR_STORAGE_KEY = "cms-pr-state";
 	const SESSION_STORAGE_KEY = "cms-session-state";
 	const DEBUG_ENABLED_DEFAULT = true;
-const UPDATE_VERSION = 7;
+const UPDATE_VERSION = 8;
 	const BUILD_TOKEN = Date.now().toString(36);
 
 	function getPagePathFromLocation() {
@@ -1837,7 +1837,6 @@ const UPDATE_VERSION = 7;
 							baseId: isBase ? block.id : localItem?.baseId || null,
 							removed: false,
 						};
-						all.push(item);
 						if (!isBase) added.push(item);
 					});
 
@@ -1860,7 +1859,6 @@ const UPDATE_VERSION = 7;
 							};
 						});
 					removedItems.forEach((item) => {
-						all.push(item);
 						removed.push(item);
 					});
 
@@ -1894,9 +1892,10 @@ const UPDATE_VERSION = 7;
 						};
 					});
 					reorderItems.forEach((item) => {
-						all.push(item);
 						modified.push(item);
 					});
+
+					all.push(...added, ...modified, ...removed);
 
 					blockMap[path] = {
 						path,
@@ -3933,6 +3932,19 @@ const UPDATE_VERSION = 7;
 	async function openDiscardModal() {
 		openLoadingModal("Loading changes");
 		await purgeDirtyPagesFromRepo();
+		if (!dirtyCount() && state.lastReorderLocal?.length) {
+			const baseHtml = state.originalHtml || "";
+			const updatedHtml = mergeDirtyWithBase(
+				baseHtml,
+				baseHtml,
+				state.lastReorderLocal,
+				{
+					respectRemovals: hasRemovalActions(state.lastReorderLocal),
+					path: state.path,
+				},
+			);
+			setDirtyPage(state.path, updatedHtml, baseHtml, state.lastReorderLocal);
+		}
 		purgeCleanDirtyPages();
 		if (!dirtyCount()) {
 			qs("#cms-modal").classList.remove("is-open");
