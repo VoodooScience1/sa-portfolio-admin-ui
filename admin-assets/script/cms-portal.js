@@ -24,7 +24,7 @@
 	const PR_STORAGE_KEY = "cms-pr-state";
 	const SESSION_STORAGE_KEY = "cms-session-state";
 	const DEBUG_ENABLED_DEFAULT = true;
-	const UPDATE_VERSION = 4;
+	const UPDATE_VERSION = 5;
 	const BUILD_TOKEN = Date.now().toString(36);
 
 	function getPagePathFromLocation() {
@@ -3394,8 +3394,25 @@
 						0,
 						Math.min(currentIndex + delta, merged.length - 1),
 					);
-					if (targetIndex === currentIndex) return;
+					if (targetIndex === currentIndex) {
+						recordMoveDebug({
+							action,
+							origin,
+							currentIndex,
+							targetIndex,
+							reason: "no-op",
+						});
+						return;
+					}
 					if (origin === "local") {
+						recordMoveDebug({
+							action,
+							origin,
+							currentIndex,
+							targetIndex,
+							id,
+							step: "local-move",
+						});
 						const remaining = currentLocal.filter((item) => item.id !== id);
 						const mergedWithout = buildMergedRenderBlocks(baseHtml, remaining, {
 							respectRemovals: hasRemovalActions(remaining),
@@ -3425,7 +3442,16 @@
 						return;
 					}
 					const baseBlock = merged[currentIndex];
-					if (!baseBlock?._base) return;
+					if (!baseBlock?._base) {
+						recordMoveDebug({
+							action,
+							origin,
+							currentIndex,
+							targetIndex,
+							reason: "missing-base",
+						});
+						return;
+					}
 					const baseKey = anchorKey({
 						id: baseBlock.id,
 						sig: baseBlock.sig,
@@ -3455,12 +3481,32 @@
 					const currentBaseIndex = currentBaseOrder.findIndex(
 						(item) => item.key === baseKey,
 					);
-					if (currentBaseIndex < 0) return;
+					if (currentBaseIndex < 0) {
+						recordMoveDebug({
+							action,
+							origin,
+							currentIndex,
+							targetIndex,
+							baseKey,
+							reason: "base-index-miss",
+						});
+						return;
+					}
 					const targetBaseIndex = Math.max(
 						0,
 						Math.min(currentBaseIndex + delta, currentBaseOrder.length - 1),
 					);
-					if (targetBaseIndex === currentBaseIndex) return;
+					if (targetBaseIndex === currentBaseIndex) {
+						recordMoveDebug({
+							action,
+							origin,
+							currentIndex,
+							targetIndex,
+							baseKey,
+							reason: "base-no-op",
+						});
+						return;
+					}
 					const nextOrder = [...currentBaseOrder];
 					const [movingBase] = nextOrder.splice(currentBaseIndex, 1);
 					nextOrder.splice(targetBaseIndex, 0, movingBase);
@@ -3477,9 +3523,25 @@
 						(item) => item.action !== "reorder",
 					);
 					if (!movedKeys.length) {
+						recordMoveDebug({
+							action,
+							origin,
+							currentIndex,
+							targetIndex,
+							baseKey,
+							reason: "no-moved-keys",
+						});
 						updateLocalBlocksAndRender(state.path, cleanedLocal);
 						return;
 					}
+					recordMoveDebug({
+						action,
+						origin,
+						currentIndex,
+						targetIndex,
+						baseKey,
+						movedCount: movedKeys.length,
+					});
 					const nextOrderIds = nextOrder
 						.map((item) => item.key?.replace(/^id:/, "") || "")
 						.filter(Boolean);
@@ -3631,7 +3693,17 @@
 				)
 				.join(" | ")}`,
 		);
+		if (state.lastMove) {
+			lines.push(`lastMove: ${JSON.stringify(state.lastMove)}`);
+		}
 		host.textContent = lines.join("\n");
+	}
+
+	function recordMoveDebug(info) {
+		if (!state.debug) return;
+		state.lastMove = info;
+		console.log("[cms-debug] move", info);
+		renderDebugOverlay();
 	}
 
 	function confirmDeleteBlock({ message, confirmLabel, onConfirm }) {
