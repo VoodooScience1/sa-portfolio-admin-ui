@@ -23,7 +23,8 @@
 	const DIRTY_STORAGE_KEY = "cms-dirty-pages";
 	const PR_STORAGE_KEY = "cms-pr-state";
 	const SESSION_STORAGE_KEY = "cms-session-state";
-const UPDATE_VERSION = 4;
+	const DEBUG_ENABLED_DEFAULT = true;
+	const UPDATE_VERSION = 4;
 	const BUILD_TOKEN = Date.now().toString(36);
 
 	function getPagePathFromLocation() {
@@ -57,6 +58,19 @@ const UPDATE_VERSION = 4;
 		);
 		return n;
 	};
+
+	function debugEnabled() {
+		const raw = localStorage.getItem("cms-debug");
+		if (raw === null) return DEBUG_ENABLED_DEFAULT;
+		return raw === "1";
+	}
+
+	function setDebugEnabled(val) {
+		localStorage.setItem("cms-debug", val ? "1" : "0");
+		state.debug = Boolean(val);
+		renderDebugOverlay();
+		renderDebugPill();
+	}
 
 	function buildSummaryForHtml(html) {
 		const main = extractRegion(html, "main");
@@ -2674,6 +2688,7 @@ const UPDATE_VERSION = 4;
 		originalHtml: "",
 		rebuiltHtml: "",
 		updateTick: 0,
+		debug: debugEnabled(),
 		prUrl: "",
 		prNumber: null,
 		prList: loadPrState(),
@@ -2692,6 +2707,7 @@ const UPDATE_VERSION = 4;
 		uiState: "loading",
 		uiStateLabel: "LOADING / INITIALISING",
 	};
+	window.__CMS_STATE__ = state;
 
 	function stopPrPolling() {
 		if (prPollTimer) {
@@ -3488,6 +3504,7 @@ const UPDATE_VERSION = 4;
 		// Parity behaviours
 		window.runSections?.();
 		window.initLightbox?.();
+		renderDebugOverlay();
 	}
 
 	// -------------------------
@@ -3503,6 +3520,16 @@ const UPDATE_VERSION = 4;
 			"span",
 			{ id: "cms-update-pill", class: "cms-pill" },
 			[`UPD ${UPDATE_VERSION}.0-${BUILD_TOKEN}`],
+		);
+		const debugPill = el(
+			"button",
+			{
+				id: "cms-debug-pill",
+				class: "cms-pill",
+				type: "button",
+				title: "Toggle debug panel",
+			},
+			[state.debug ? "DBG ON" : "DBG OFF"],
 		);
 
 		const discardBtn = el(
@@ -3536,6 +3563,7 @@ const UPDATE_VERSION = 4;
 				el("div", { class: "cms-strip-mid" }, [
 					statusPill,
 					updatePill,
+					debugPill,
 					prLink,
 				]),
 				el("div", { class: "cms-strip-right cms-controls" }, [
@@ -3546,11 +3574,64 @@ const UPDATE_VERSION = 4;
 		);
 	}
 
+	function renderDebugPill() {
+		const pill = qs("#cms-debug-pill");
+		if (!pill) return;
+		pill.textContent = state.debug ? "DBG ON" : "DBG OFF";
+	}
+
 	function bumpUpdatePill() {
 		state.updateTick += 1;
 		const pill = qs("#cms-update-pill");
 		if (pill)
 			pill.textContent = `UPD ${UPDATE_VERSION}.${state.updateTick}-${BUILD_TOKEN}`;
+	}
+
+	function renderDebugOverlay() {
+		let host = qs("#cms-debug-panel");
+		if (!host) {
+			host = el("pre", { id: "cms-debug-panel" }, []);
+			document.body.appendChild(host);
+		}
+		if (!state.debug) {
+			host.style.display = "none";
+			return;
+		}
+		host.style.display = "block";
+		host.style.position = "fixed";
+		host.style.right = "10px";
+		host.style.bottom = "10px";
+		host.style.maxWidth = "45vw";
+		host.style.maxHeight = "45vh";
+		host.style.overflow = "auto";
+		host.style.padding = "10px";
+		host.style.background = "rgba(0,0,0,0.8)";
+		host.style.color = "#fff";
+		host.style.fontSize = "11px";
+		host.style.zIndex = "99999";
+
+		const baseBlocks = buildBaseBlocksWithOcc(state.originalHtml || "");
+		const baselineOrder = baseBlocks.map((b) => b.id);
+		const localBlocks = normalizeLocalBlocks(
+			state.dirtyPages[state.path]?.localBlocks || [],
+		);
+		const currentOrder = buildBaseOrderFromReorders(baseBlocks, localBlocks);
+		const short = (id) => (id ? String(id).slice(0, 10) : "null");
+		const lines = [];
+		lines.push(`path: ${state.path}`);
+		lines.push(`baseline: ${baselineOrder.map(short).join(", ")}`);
+		lines.push(`current : ${currentOrder.map(short).join(", ")}`);
+		lines.push(
+			`locals  : ${localBlocks
+				.map(
+					(l) =>
+						`${l.action}:${short(l.baseId)}:${l.pos ?? "x"}:${short(
+							l.anchor?.id,
+						)}`,
+				)
+				.join(" | ")}`,
+		);
+		host.textContent = lines.join("\n");
 	}
 
 	function confirmDeleteBlock({ message, confirmLabel, onConfirm }) {
@@ -4375,6 +4456,9 @@ const UPDATE_VERSION = 4;
 		qs("#cms-discard")?.addEventListener("click", () => {
 			openDiscardModal().catch((err) => console.error(err));
 		});
+		qs("#cms-debug-pill")?.addEventListener("click", () => {
+			setDebugEnabled(!state.debug);
+		});
 
 		const attachNavCommit = () => {
 			const link = document.querySelector('a[data-role="admin-link"]');
@@ -4439,6 +4523,7 @@ const UPDATE_VERSION = 4;
 
 		mountShell();
 		bumpUpdatePill();
+		renderDebugOverlay();
 		bindUI();
 
 		// initial render
