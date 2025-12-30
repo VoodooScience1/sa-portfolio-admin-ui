@@ -24,7 +24,7 @@
 	const PR_STORAGE_KEY = "cms-pr-state";
 	const SESSION_STORAGE_KEY = "cms-session-state";
 	const DEBUG_ENABLED_DEFAULT = true;
-	const UPDATE_VERSION = 13;
+	const UPDATE_VERSION = 14;
 	const BUILD_TOKEN = Date.now().toString(36);
 
 	function getPagePathFromLocation() {
@@ -448,16 +448,30 @@
 		);
 		const wrap = doc.querySelector("#__wrap__");
 		const nodes = wrap ? Array.from(wrap.children) : [];
-		return nodes.map((node) => parseMainBlockNode(node));
+		const occMap = new Map();
+		return nodes.map((node, idx) => {
+			const parsed = parseMainBlockNode(node);
+			if (parsed.cmsId) return parsed;
+			const sig = signatureForHtml(node?.outerHTML || "");
+			const occ = sig ? occMap.get(sig) || 0 : 0;
+			if (sig) occMap.set(sig, occ + 1);
+			return {
+				...parsed,
+				cmsId: makeCmsIdFromSig(sig, occ, node?.outerHTML || String(idx)),
+			};
+		});
 	}
 
 	function getBlockCmsId(block, idx, ctx) {
 		if (block?.cmsId) return block.cmsId;
 		if (block?.baseId) return block.baseId;
 		if (block?.id) return block.id;
+		const sig =
+			ctx?.sig || signatureForHtml(block?.raw || block?.html || "");
+		const occ =
+			Number.isInteger(ctx?.occ) ? ctx.occ : Number.isInteger(block?.occ) ? block.occ : idx;
 		if (ctx?.blockId) return ctx.blockId;
-		const sig = signatureForHtml(block?.raw || block?.html || "");
-		return `cms-${hashText(sig || String(idx))}-${idx}`;
+		return makeCmsIdFromSig(sig, occ, block?.raw || block?.html || String(idx));
 	}
 
 	function serializeSectionStub(block, ctx) {
@@ -568,11 +582,20 @@ function serializeSquareGridRow(block, ctx) {
 	}
 
 	function serializeMainBlocks(blocks, ctx) {
-		return (blocks || [])
+		const list = blocks || [];
+		const occMap = new Map();
+		return list
 			.map((block, idx) => {
+				const sig =
+					signatureForHtml(block?.raw || block?.html || "") ||
+					hashText(JSON.stringify(block || {}));
+				const occ = sig ? occMap.get(sig) || 0 : 0;
+				if (sig) occMap.set(sig, occ + 1);
 				const blockCtx = {
 					...ctx,
 					index: idx,
+					sig,
+					occ,
 					blockId: block.baseId || block.id || `block-${idx}`,
 					blockIdShort: hashText(
 						`${block.baseId || block.id || "block"}::${idx}`,
@@ -850,6 +873,11 @@ function serializeSquareGridRow(block, ctx) {
 		return normalizeFragmentHtml(html || "");
 	}
 
+	function makeCmsIdFromSig(sig, occ, fallback = "") {
+		const token = sig || fallback || String(occ || 0);
+		return `cms-${hashText(token)}-${occ || 0}`;
+	}
+
 	function buildBaseBlocksWithOcc(baseHtml) {
 		const main = extractRegion(baseHtml || "", "main");
 		const blocks = main.found ? parseBlocks(main.inner) : [];
@@ -859,6 +887,7 @@ function serializeSquareGridRow(block, ctx) {
 			const occ = sig ? occMap.get(sig) || 0 : 0;
 			if (sig) occMap.set(sig, occ + 1);
 			let baseId = "";
+			let updatedHtml = block.html || "";
 			try {
 				const doc = new DOMParser().parseFromString(
 					`<div id="__wrap__">${String(block.html || "")}</div>`,
@@ -866,13 +895,20 @@ function serializeSquareGridRow(block, ctx) {
 				);
 				const node = doc.querySelector("#__wrap__")?.firstElementChild;
 				baseId = node?.getAttribute("data-cms-id") || "";
+				if (!baseId && sig) baseId = makeCmsIdFromSig(sig, occ, block.html);
+				if (node && baseId && !node.getAttribute("data-cms-id")) {
+					node.setAttribute("data-cms-id", baseId);
+					updatedHtml = node.outerHTML;
+				}
 			} catch {
 				baseId = "";
 			}
 			if (!baseId) {
-				baseId = sig ? `base-${hashText(sig)}-${idx}` : `base-${idx}`;
+				baseId = sig
+					? makeCmsIdFromSig(sig, occ, block.html)
+					: makeCmsIdFromSig(String(idx), occ, block.html);
 			}
-			return { html: block.html, sig, occ, id: baseId, pos: idx };
+			return { html: updatedHtml, sig, occ, id: baseId, pos: idx };
 		});
 	}
 
@@ -904,7 +940,10 @@ function serializeSquareGridRow(block, ctx) {
 				const base = baseBlocks[idx];
 				return {
 					id:
-						base?.id || (sig ? `base-${hashText(sig)}-${idx}` : `base-${idx}`),
+						base?.id ||
+						(sig
+							? makeCmsIdFromSig(sig, idx, String(idx))
+							: makeCmsIdFromSig(String(idx), idx, String(idx))),
 					sig: sig || "",
 					pos: idx,
 				};
@@ -914,10 +953,15 @@ function serializeSquareGridRow(block, ctx) {
 		}
 		const main = extractRegion(baseHtml || "", "main");
 		const blocks = main.found ? parseBlocks(main.inner) : [];
+		const occMap = new Map();
 		state.session.baselines[path] = blocks.map((b, idx) => {
 			const sig = signatureForHtml(b.html || "");
+			const occ = sig ? occMap.get(sig) || 0 : 0;
+			if (sig) occMap.set(sig, occ + 1);
 			return {
-				id: sig ? `base-${hashText(sig)}-${idx}` : `base-${idx}`,
+				id: sig
+					? makeCmsIdFromSig(sig, occ, b.html || "")
+					: makeCmsIdFromSig(String(idx), occ, b.html || ""),
 				sig,
 				pos: idx,
 			};
