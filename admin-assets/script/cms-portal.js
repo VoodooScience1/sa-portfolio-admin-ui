@@ -24,7 +24,7 @@
 	const PR_STORAGE_KEY = "cms-pr-state";
 	const SESSION_STORAGE_KEY = "cms-session-state";
 	const DEBUG_ENABLED_DEFAULT = true;
-	const UPDATE_VERSION = 24;
+	const UPDATE_VERSION = 25;
 	const BUILD_TOKEN = Date.now().toString(36);
 
 	function getPagePathFromLocation() {
@@ -1155,57 +1155,6 @@ function serializeSquareGridRow(block, ctx) {
 		return options.pendingOnly ? normalizePendingBlocks(filtered) : filtered;
 	}
 
-	function deriveLocalBlocksFromDiff(baseHtml, dirtyHtml) {
-		const baseMain = extractRegion(baseHtml || "", "main");
-		const dirtyMain = extractRegion(dirtyHtml || "", "main");
-		if (!baseMain.found || !dirtyMain.found) return [];
-		const baseBlocks = buildBaseBlocksWithOcc(baseHtml || "");
-		const dirtyBlocks = parseBlocks(dirtyMain.inner);
-		let baseIndex = 0;
-		let lastBaseline = null;
-		const locals = [];
-		dirtyBlocks.forEach((block, idx) => {
-			const html = (block.html || "").trim();
-			if (!html) return;
-			const sig = signatureForHtml(html);
-			const baseSig = baseBlocks[baseIndex]?.sig || "";
-			if (sig && baseIndex < baseBlocks.length && sig === baseSig) {
-				lastBaseline = baseBlocks[baseIndex];
-				baseIndex += 1;
-				return;
-			}
-			let anchor = null;
-			let placement = "after";
-			if (baseIndex < baseBlocks.length) {
-				anchor = {
-					id: baseBlocks[baseIndex].id,
-					sig: baseBlocks[baseIndex].sig,
-					occ: baseBlocks[baseIndex].occ,
-				};
-				placement = "before";
-			} else if (lastBaseline) {
-				anchor = {
-					id: lastBaseline.id,
-					sig: lastBaseline.sig,
-					occ: lastBaseline.occ,
-				};
-				placement = "after";
-			}
-			locals.push({
-				id: makeLocalId(),
-				html,
-				pos: idx,
-				anchor,
-				placement,
-				status: "staged",
-				prNumber: null,
-				kind: "new",
-				action: "insert",
-			});
-		});
-		return locals;
-	}
-
 	function assignAnchorsFromHtml(baseHtml, mergedHtml, localBlocks) {
 		const items = normalizeLocalBlocks(localBlocks);
 		if (!items.length) return items;
@@ -1756,7 +1705,6 @@ function serializeSquareGridRow(block, ctx) {
 
 		const baseBlocks = parseBlocks(main.inner);
 		const baseByPos = baseBlocks.map((b) => (b.html || "").trim());
-		const baseSet = new Set(baseByPos.filter(Boolean));
 		const localsWithPos = items
 			.filter((item) => Number.isInteger(item.pos))
 			.map((item) => item.pos)
@@ -2905,14 +2853,18 @@ function serializeSquareGridRow(block, ctx) {
 		uiStateLabel: "LOADING / INITIALISING",
 	};
 	window.__CMS_STATE__ = state;
-	window.__CMS_DEBUG__ = {
-		buildBaseBlocksWithOcc: (html) => buildBaseBlocksWithOcc(html),
-		buildMergedRenderBlocks: (html, locals, options) =>
-			buildMergedRenderBlocks(html, locals, options),
-		parseBlocks: (html) => parseBlocks(html),
-		assignAnchorsFromHtml: (baseHtml, mergedHtml, locals) =>
-			assignAnchorsFromHtml(baseHtml, mergedHtml, locals),
-	};
+	if (state.debug) {
+		window.__CMS_DEBUG__ = {
+			buildBaseBlocksWithOcc: (html) => buildBaseBlocksWithOcc(html),
+			buildMergedRenderBlocks: (html, locals, options) =>
+				buildMergedRenderBlocks(html, locals, options),
+			parseBlocks: (html) => parseBlocks(html),
+			assignAnchorsFromHtml: (baseHtml, mergedHtml, locals) =>
+				assignAnchorsFromHtml(baseHtml, mergedHtml, locals),
+		};
+	} else {
+		delete window.__CMS_DEBUG__;
+	}
 
 	function stopPrPolling() {
 		if (prPollTimer) {
