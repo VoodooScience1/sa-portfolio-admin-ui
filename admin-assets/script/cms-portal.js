@@ -24,7 +24,7 @@
 	const PR_STORAGE_KEY = "cms-pr-state";
 	const SESSION_STORAGE_KEY = "cms-session-state";
 	const DEBUG_ENABLED_DEFAULT = true;
-	const UPDATE_VERSION = 23;
+	const UPDATE_VERSION = 24;
 	const BUILD_TOKEN = Date.now().toString(36);
 
 	function getPagePathFromLocation() {
@@ -1801,7 +1801,18 @@ function serializeSquareGridRow(block, ctx) {
 		const dirtyOnly = [];
 		if (useLocal) {
 			localBlocks.forEach((item) => {
-				if (item && item.html) dirtyOnly.push(item);
+				if (!item) return;
+				if (item.html) {
+					dirtyOnly.push(item);
+					return;
+				}
+				if (
+					item.action === "reorder" ||
+					item.action === "remove" ||
+					item.action === "mark"
+				) {
+					dirtyOnly.push(item);
+				}
 			});
 			// Ignore dirtyHtml main when localBlocks are present to avoid duplication.
 			const hasAnchors =
