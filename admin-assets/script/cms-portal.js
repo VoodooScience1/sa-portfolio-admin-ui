@@ -24,7 +24,7 @@
 	const PR_STORAGE_KEY = "cms-pr-state";
 	const SESSION_STORAGE_KEY = "cms-session-state";
 	const DEBUG_ENABLED_DEFAULT = true;
-	const UPDATE_VERSION = 5;
+const UPDATE_VERSION = 6;
 	const BUILD_TOKEN = Date.now().toString(36);
 
 	function getPagePathFromLocation() {
@@ -1425,6 +1425,7 @@
 		});
 		const normalizedLocal = normalizeLocalBlocks(updatedLocal);
 		const hasLocal = normalizedLocal.length > 0;
+		const hasReorder = normalizedLocal.some((item) => item.action === "reorder");
 		const isSameAsBase =
 			normalizeForDirtyCompare(updatedHtml, path) ===
 			normalizeForDirtyCompare(baseHtml, path);
@@ -1433,7 +1434,7 @@
 			normalizedLocal.every(
 				(item) => item.action !== "mark" && item.kind !== "new",
 			);
-		if (isSameAsBase && onlyReorders) {
+		if (isSameAsBase && onlyReorders && !hasReorder) {
 			clearDirtyPage(path);
 			if (path === state.path) {
 				applyHtmlToCurrentPage(baseHtml);
@@ -3652,8 +3653,33 @@
 	function renderDebugOverlay() {
 		let host = qs("#cms-debug-panel");
 		if (!host) {
-			host = el("pre", { id: "cms-debug-panel" }, []);
+			host = el("div", { id: "cms-debug-panel" }, []);
+			const btn = el(
+				"button",
+				{ id: "cms-debug-copy", type: "button" },
+				["Copy"],
+			);
+			const pre = el("pre", { id: "cms-debug-text" }, []);
+			host.appendChild(btn);
+			host.appendChild(pre);
 			document.body.appendChild(host);
+
+			btn.addEventListener("click", async () => {
+				const text = qs("#cms-debug-text")?.textContent || "";
+				if (!text) return;
+				try {
+					await navigator.clipboard.writeText(text);
+					btn.textContent = "Copied";
+					setTimeout(() => {
+						btn.textContent = "Copy";
+					}, 1200);
+				} catch {
+					btn.textContent = "Failed";
+					setTimeout(() => {
+						btn.textContent = "Copy";
+					}, 1200);
+				}
+			});
 		}
 		if (!state.debug) {
 			host.style.display = "none";
@@ -3671,6 +3697,16 @@
 		host.style.color = "#fff";
 		host.style.fontSize = "11px";
 		host.style.zIndex = "99999";
+		host.style.borderRadius = "6px";
+		host.style.display = "flex";
+		host.style.flexDirection = "column";
+		host.style.gap = "6px";
+
+		const btn = qs("#cms-debug-copy");
+		if (btn) {
+			btn.style.alignSelf = "flex-start";
+			btn.style.fontSize = "11px";
+		}
 
 		const baseBlocks = buildBaseBlocksWithOcc(state.originalHtml || "");
 		const baselineOrder = baseBlocks.map((b) => b.id);
@@ -3696,7 +3732,8 @@
 		if (state.lastMove) {
 			lines.push(`lastMove: ${JSON.stringify(state.lastMove)}`);
 		}
-		host.textContent = lines.join("\n");
+		const pre = qs("#cms-debug-text");
+		if (pre) pre.textContent = lines.join("\n");
 	}
 
 	function recordMoveDebug(info) {
