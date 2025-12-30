@@ -23,7 +23,7 @@
 	const DIRTY_STORAGE_KEY = "cms-dirty-pages";
 	const PR_STORAGE_KEY = "cms-pr-state";
 	const SESSION_STORAGE_KEY = "cms-session-state";
-	const UPDATE_VERSION = 3;
+const UPDATE_VERSION = 4;
 	const BUILD_TOKEN = Date.now().toString(36);
 
 	function getPagePathFromLocation() {
@@ -1596,9 +1596,9 @@
 				if (item && item.html) dirtyOnly.push(item);
 			});
 			// Ignore dirtyHtml main when localBlocks are present to avoid duplication.
-			const hasAnchors = dirtyOnly.some(
-				(item) => item.anchor && item.anchor.sig,
-			);
+			const hasAnchors =
+				dirtyOnly.some((item) => item.anchor && item.anchor.sig) ||
+				dirtyOnly.some((item) => item.action === "reorder");
 			let mergedBlocks = [];
 			const removeBaseIds = new Set(
 				dirtyOnly
