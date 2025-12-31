@@ -2957,6 +2957,47 @@ function serializeSquareGridRow(block, ctx) {
 		}
 	}
 
+	function findClosestCell() {
+		const selection = window.getSelection();
+		if (!selection || !selection.anchorNode) return null;
+		let node = selection.anchorNode;
+		if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+		return node?.closest ? node.closest("td,th") : null;
+	}
+
+	function addTableRowAfterCell() {
+		const cell = findClosestCell();
+		const row = cell?.closest("tr");
+		if (!row) return;
+		const table = row.closest("table");
+		if (!table) return;
+		const newRow = row.cloneNode(true);
+		Array.from(newRow.children).forEach((c) => (c.textContent = ""));
+		row.parentElement?.insertBefore(newRow, row.nextSibling);
+	}
+
+	function addTableColumnAfterCell() {
+		const cell = findClosestCell();
+		const row = cell?.closest("tr");
+		if (!row) return;
+		const index = Array.from(row.children).indexOf(cell);
+		const table = row.closest("table");
+		if (!table) return;
+		const rows = table.querySelectorAll("tr");
+		rows.forEach((r) => {
+			const cells = r.querySelectorAll("th,td");
+			const base = cells[index] || cells[cells.length - 1];
+			const tag = base?.tagName?.toLowerCase() === "th" ? "th" : "td";
+			const next = document.createElement(tag);
+			next.textContent = "";
+			if (base && base.parentElement) {
+				base.parentElement.insertBefore(next, base.nextSibling);
+			} else {
+				r.appendChild(next);
+			}
+		});
+	}
+
 	async function fetchImageLibrary() {
 		const res = await fetch("/api/repo/tree?path=assets/img", {
 			headers: { Accept: "application/json" },
@@ -2965,6 +3006,129 @@ function serializeSquareGridRow(block, ctx) {
 		if (!res.ok) throw new Error(data?.error || "Failed to load image list");
 		const items = Array.isArray(data.items) ? data.items : [];
 		return items.filter((item) => item.type === "file");
+	}
+
+	function openImageSourcePicker({ onSelect, title = "Choose image" }) {
+		const sourceInput = el("input", {
+			type: "text",
+			class: "cms-field__input",
+			placeholder: "/assets/img/...",
+		});
+		const librarySelect = el("select", { class: "cms-field__select" }, [
+			el("option", { value: "" }, ["Select an existing image"]),
+		]);
+		const loadBtn = el(
+			"button",
+			{ class: "cms-btn cms-modal__action cms-btn--success", type: "button", "data-action": "load-library" },
+			["Load library"],
+		);
+		loadBtn.addEventListener("click", async () => {
+			try {
+				loadBtn.disabled = true;
+				const images = await fetchImageLibrary();
+				librarySelect.innerHTML = "";
+				librarySelect.appendChild(
+					el("option", { value: "" }, ["Select an existing image"]),
+				);
+				images.forEach((item) => {
+					librarySelect.appendChild(
+						el("option", { value: item.path }, [item.name]),
+					);
+				});
+			} catch (err) {
+				console.error(err);
+			} finally {
+				loadBtn.disabled = false;
+			}
+		});
+		librarySelect.addEventListener("change", () => {
+			const path = librarySelect.value;
+			if (!path) return;
+			sourceInput.value = `/${path}`.replace(/^\/+/, "/");
+		});
+
+		const fileInput = el("input", {
+			type: "file",
+			class: "cms-field__input",
+		});
+		const nameInput = el("input", {
+			type: "text",
+			class: "cms-field__input",
+			placeholder: "Filename (e.g. hero.jpg)",
+		});
+		const uploadBtn = el(
+			"button",
+			{ class: "cms-btn cms-modal__action cms-btn--success", type: "button", "data-action": "upload" },
+			["Upload image"],
+		);
+		uploadBtn.addEventListener("click", () => {
+			const file = fileInput.files?.[0];
+			if (!file) return;
+			const filename = (nameInput.value || file.name || "").trim();
+			if (!filename) return;
+			const reader = new FileReader();
+			reader.onload = () => {
+				const dataUrl = String(reader.result || "");
+				const base64 = dataUrl.split(",")[1] || "";
+				addAssetUpload({
+					name: filename,
+					content: base64,
+					path: `assets/img/${filename}`,
+				});
+				sourceInput.value = `/assets/img/${filename}`;
+			};
+			reader.readAsDataURL(file);
+		});
+
+		openModal({
+			title,
+			bodyNodes: [
+				el("div", { class: "cms-modal__group" }, [
+					el("div", { class: "cms-modal__group-title" }, ["Image source"]),
+					buildField({ label: "Source", input: sourceInput }),
+					buildField({ label: "Existing images", input: librarySelect }),
+					loadBtn,
+				]),
+				el("div", { class: "cms-modal__group" }, [
+					el("div", { class: "cms-modal__group-title" }, ["Upload new image"]),
+					buildField({ label: "File", input: fileInput }),
+					buildField({ label: "Filename", input: nameInput }),
+					uploadBtn,
+				]),
+			],
+			footerNodes: [
+				el(
+					"button",
+					{
+						class: "cms-btn cms-modal__action cms-btn--danger",
+						type: "button",
+						"data-close": "true",
+					},
+					["Close"],
+				),
+				el(
+					"button",
+					{
+						class: "cms-btn cms-modal__action cms-btn--success",
+						type: "button",
+						"data-action": "select",
+					},
+					["Use image"],
+				),
+			],
+		});
+
+		const modal = document.querySelector(".cms-modal");
+		const useBtn = modal?.querySelector(
+			".cms-btn.cms-modal__action.cms-btn--success[data-action=\"select\"]",
+		);
+		if (!useBtn) return;
+		useBtn.addEventListener("click", () => {
+			const src = sourceInput.value.trim();
+			if (!src) return;
+			onSelect?.(src);
+			closeModal();
+		});
 	}
 
 	function openImageInsertModal(editor) {
@@ -3011,7 +3175,11 @@ function serializeSquareGridRow(block, ctx) {
 		]);
 		const loadBtn = el(
 			"button",
-			{ class: "cms-btn cms-modal__action cms-btn--success", type: "button" },
+			{
+				class: "cms-btn cms-modal__action cms-btn--success",
+				type: "button",
+				"data-action": "load-library",
+			},
 			["Load library"],
 		);
 
@@ -3052,7 +3220,11 @@ function serializeSquareGridRow(block, ctx) {
 		});
 		const uploadBtn = el(
 			"button",
-			{ class: "cms-btn cms-modal__action cms-btn--success", type: "button" },
+			{
+				class: "cms-btn cms-modal__action cms-btn--success",
+				type: "button",
+				"data-action": "upload",
+			},
 			["Upload image"],
 		);
 
@@ -3124,6 +3296,7 @@ function serializeSquareGridRow(block, ctx) {
 					{
 						class: "cms-btn cms-modal__action cms-btn--success",
 						type: "button",
+						"data-action": "insert-image",
 					},
 					["Insert"],
 				),
@@ -3132,7 +3305,7 @@ function serializeSquareGridRow(block, ctx) {
 
 		const modal = document.querySelector(".cms-modal");
 		const insertBtn = modal?.querySelector(
-			".cms-btn.cms-modal__action.cms-btn--success",
+			".cms-btn.cms-modal__action.cms-btn--success[data-action=\"insert-image\"]",
 		);
 		if (!insertBtn) return;
 		insertBtn.addEventListener("click", () => {
@@ -3381,7 +3554,9 @@ function serializeSquareGridRow(block, ctx) {
 		} else {
 			let headingInput = null;
 			let imgInput = null;
+			let imagePickBtn = null;
 			let captionInput = null;
+			let overlayEnabledInput = null;
 			let overlayTitleInput = null;
 			let overlayTextInput = null;
 			let lightboxInput = null;
@@ -3399,6 +3574,22 @@ function serializeSquareGridRow(block, ctx) {
 					class: "cms-field__input",
 					value: parsed.img || "",
 					placeholder: "/assets/img/...",
+				});
+				imagePickBtn = el(
+					"button",
+					{
+						class: "cms-btn cms-modal__action cms-btn--success",
+						type: "button",
+					},
+					["Choose image"],
+				);
+				imagePickBtn.addEventListener("click", () => {
+					openImageSourcePicker({
+						onSelect: (src) => {
+							imgInput.value = src;
+						},
+						title: "Choose image for block",
+					});
 				});
 				captionInput = el("input", {
 					type: "text",
@@ -3418,6 +3609,21 @@ function serializeSquareGridRow(block, ctx) {
 					value: parsed.overlayText || "",
 					placeholder: "Overlay text (optional)",
 				});
+				overlayEnabledInput = el("input", {
+					type: "checkbox",
+					class: "cms-field__checkbox",
+				});
+				overlayEnabledInput.checked = Boolean(
+					(parsed.overlayTitle || "").trim() ||
+						(parsed.overlayText || "").trim(),
+				);
+				const syncOverlayState = () => {
+					const enabled = overlayEnabledInput.checked;
+					overlayTitleInput.disabled = !enabled;
+					overlayTextInput.disabled = !enabled;
+				};
+				syncOverlayState();
+				overlayEnabledInput.addEventListener("change", syncOverlayState);
 				lightboxInput = el("input", {
 					type: "checkbox",
 					class: "cms-field__checkbox",
@@ -3458,6 +3664,7 @@ function serializeSquareGridRow(block, ctx) {
 						note: "Required for image blocks.",
 					}),
 				);
+				settingsNodes.push(imagePickBtn);
 				settingsNodes.push(
 					buildField({ label: "Caption", input: captionInput }),
 				);
@@ -3472,6 +3679,15 @@ function serializeSquareGridRow(block, ctx) {
 						label: "Lightbox",
 						input: el("label", { class: "cms-field__toggle" }, [
 							lightboxInput,
+							el("span", { class: "cms-field__toggle-text" }, ["Enable"]),
+						]),
+					}),
+				);
+				settingsNodes.push(
+					buildField({
+						label: "Overlay",
+						input: el("label", { class: "cms-field__toggle" }, [
+							overlayEnabledInput,
 							el("span", { class: "cms-field__toggle-text" }, ["Enable"]),
 						]),
 					}),
@@ -3519,7 +3735,9 @@ function serializeSquareGridRow(block, ctx) {
 			settings = {
 				headingInput,
 				imgInput,
+				imagePickBtn,
 				captionInput,
+				overlayEnabledInput,
 				overlayTitleInput,
 				overlayTextInput,
 				lightboxInput,
@@ -3542,8 +3760,13 @@ function serializeSquareGridRow(block, ctx) {
 			if (settings.imgInput) {
 				updated.img = settings.imgInput.value.trim();
 				updated.caption = settings.captionInput?.value.trim() || "";
-				updated.overlayTitle = settings.overlayTitleInput?.value.trim() || "";
-				updated.overlayText = settings.overlayTextInput?.value.trim() || "";
+				const overlayEnabled = settings.overlayEnabledInput?.checked;
+				updated.overlayTitle = overlayEnabled
+					? settings.overlayTitleInput?.value.trim() || ""
+					: "";
+				updated.overlayText = overlayEnabled
+					? settings.overlayTextInput?.value.trim() || ""
+					: "";
 				updated.lightbox = settings.lightboxInput?.checked ? "true" : "false";
 				updated.imgPos = settings.posSelect?.value || "left";
 			}
