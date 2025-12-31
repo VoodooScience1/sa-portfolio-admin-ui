@@ -14,7 +14,7 @@
  */
 
 (() => {
-	const PORTAL_VERSION = "2025-12-31-17";
+	const PORTAL_VERSION = "2025-12-31-18";
 	window.__CMS_PORTAL_VERSION__ = PORTAL_VERSION;
 	console.log(`[cms-portal] loaded v${PORTAL_VERSION}`);
 
@@ -3384,6 +3384,7 @@ function serializeSquareGridRow(block, ctx) {
 			el("button", { type: "button", "data-cmd": "table-col" }, ["Col +"]),
 			el("button", { type: "button", "data-cmd": "code" }, ["Code"]),
 			el("button", { type: "button", "data-cmd": "code-block" }, ["Block code"]),
+			el("button", { type: "button", "data-cmd": "code-wrap" }, ["Code wrap"]),
 			el("button", { type: "button", "data-cmd": "img" }, ["Image"]),
 		]);
 		const editor = el("div", {
@@ -3763,6 +3764,28 @@ function serializeSquareGridRow(block, ctx) {
 				code.textContent = initialText;
 				pre.appendChild(code);
 				if (!range.collapsed) range.deleteContents();
+				range.insertNode(pre);
+				ensureCodeToolbar(pre);
+				const nextRange = document.createRange();
+				nextRange.selectNodeContents(code);
+				nextRange.collapse(false);
+				selection.removeAllRanges();
+				selection.addRange(nextRange);
+			} else if (cmd === "code-wrap") {
+				const selection = window.getSelection();
+				if (!selection || selection.rangeCount === 0) return;
+				const range = selection.getRangeAt(0);
+				if (range.collapsed) return;
+				let node = range.commonAncestorContainer;
+				if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+				if (node?.closest && node.closest("pre, code")) return;
+				const pre = document.createElement("pre");
+				const code = document.createElement("code");
+				const raw = range.toString();
+				updateCodeLanguage(code, "auto");
+				code.textContent = raw;
+				pre.appendChild(code);
+				range.deleteContents();
 				range.insertNode(pre);
 				ensureCodeToolbar(pre);
 				const nextRange = document.createRange();
