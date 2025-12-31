@@ -14,7 +14,7 @@
  */
 
 (() => {
-	const PORTAL_VERSION = "2025-12-31-15";
+	const PORTAL_VERSION = "2025-12-31-16";
 	window.__CMS_PORTAL_VERSION__ = PORTAL_VERSION;
 	console.log(`[cms-portal] loaded v${PORTAL_VERSION}`);
 
@@ -209,75 +209,6 @@
 		return fallback;
 	}
 
-	const PRETTIER_URLS = [
-		"https://unpkg.com/prettier@3.2.5/standalone.js",
-		"https://unpkg.com/prettier@3.2.5/plugins/babel.js",
-		"https://unpkg.com/prettier@3.2.5/plugins/html.js",
-		"https://unpkg.com/prettier@3.2.5/plugins/postcss.js",
-		"https://unpkg.com/prettier@3.2.5/plugins/markdown.js",
-		"https://unpkg.com/prettier@3.2.5/plugins/yaml.js",
-	];
-	const RUFF_FMT_URL =
-		"https://unpkg.com/@wasm-fmt/ruff_fmt@0.14.10/ruff_fmt.js";
-
-	function loadExternalScript(src) {
-		return new Promise((resolve, reject) => {
-			const s = document.createElement("script");
-			s.src = src;
-			s.async = true;
-			s.onload = () => resolve();
-			s.onerror = () => reject(new Error(`Failed to load: ${src}`));
-			document.head.appendChild(s);
-		});
-	}
-
-	async function loadPrettier() {
-		if (window.prettier && window.prettierPlugins) return;
-		for (const src of PRETTIER_URLS) {
-			// eslint-disable-next-line no-await-in-loop
-			await loadExternalScript(src);
-		}
-	}
-
-	async function loadPythonFormatter() {
-		if (window.__RuffFmtReady) return window.__RuffFmtReady;
-		window.__RuffFmtReady = (async () => {
-			const mod = await import(RUFF_FMT_URL);
-			await mod.default();
-			window.__RuffFmt = mod;
-			return mod;
-		})().catch((err) => {
-			console.error(err);
-			window.__RuffFmtReady = null;
-			return null;
-		});
-		return window.__RuffFmtReady;
-	}
-
-	async function formatPythonCode(code) {
-		const mod = await loadPythonFormatter();
-		if (!mod || typeof mod.format !== "function") return null;
-		return mod.format(code, null, {
-			indent_style: "space",
-			indent_width: 4,
-			line_width: 88,
-			line_ending: "lf",
-		});
-	}
-
-	function getParserForLang(lang) {
-		const raw = String(lang || "").trim().toLowerCase();
-		if (!raw || raw === "auto") return null;
-		if (raw === "js" || raw === "javascript") return "babel";
-		if (raw === "json") return "json";
-		if (raw === "html") return "html";
-		if (raw === "css") return "css";
-		if (raw === "md" || raw === "markdown") return "markdown";
-		if (raw === "yml" || raw === "yaml") return "yaml";
-		if (raw === "py" || raw === "python") return null;
-		return null;
-	}
-
 	function guessLanguageFromText(text) {
 		const raw = String(text || "").trim();
 		if (!raw) return "auto";
@@ -298,160 +229,6 @@
 		const cls = codeEl.getAttribute("class") || "";
 		const match = cls.match(/language-([a-z0-9_-]+)/i);
 		return match ? match[1] : codeEl.getAttribute("data-lang") || "";
-	}
-
-	function normalizeCodeIndent(text, lang = "") {
-		const raw = String(text || "").replace(/\r\n/g, "\n");
-		const lines = raw.split("\n");
-		while (lines.length && lines[0].trim() === "") lines.shift();
-		while (lines.length && lines[lines.length - 1].trim() === "") lines.pop();
-		if (!lines.length) return "";
-		const indents = lines
-			.filter((line) => line.trim() !== "")
-			.map((line) => (line.match(/^[\t ]+/)?.[0] || "").length);
-		const min = indents.length ? Math.min(...indents) : 0;
-		const out = lines.map((line) => line.slice(min)).join("\n");
-		const lower = String(lang || "").toLowerCase();
-		if (lower === "py" || lower === "python") {
-			return out.replace(/^\t+/gm, (tabs) => " ".repeat(tabs.length * 4));
-		}
-		return out;
-	}
-
-	function normalizeCodeForFormat(text, lang = "") {
-		const trimmed = String(text || "").replace(/\r\n/g, "\n");
-		return trimmed.replace(/^[\t ]+/gm, "");
-	}
-
-	function normalizeCodeForSave(text, lang = "") {
-		return String(text || "").replace(/\r\n/g, "\n");
-	}
-
-	function formatHtmlFragment(prettier, plugins, code) {
-		const text = String(code || "");
-		if (/^\s*<\/[a-z]/i.test(text)) return null;
-		const wrapped = `<div>${text}</div>`;
-		const maybeFormatted = prettier.format(wrapped, {
-			parser: "html",
-			plugins,
-			useTabs: true,
-			tabWidth: 4,
-		});
-		return Promise.resolve(maybeFormatted).then((formatted) => {
-			const doc = new DOMParser().parseFromString(formatted, "text/html");
-			const inner = doc.body?.firstElementChild?.innerHTML;
-			return typeof inner === "string" ? inner : text;
-		});
-	}
-
-	async function formatCodeBlocksInEditor(editor) {
-		try {
-			if (!editor) return;
-			const normalizeCodeBlock = (pre) => {
-				if (!pre) return null;
-				const existing = pre.querySelector("code");
-				const lang = getLangFromCodeEl(existing);
-				const text = pre.textContent || "";
-				pre.innerHTML = "";
-				const code = document.createElement("code");
-				if (lang) {
-					code.className = `language-${lang}`;
-					code.setAttribute("data-lang", lang);
-				}
-				code.textContent = text.replace(/\n+$/g, "");
-				code.classList.add("nohighlight");
-				code.setAttribute("contenteditable", "true");
-				code.setAttribute("spellcheck", "false");
-				pre.appendChild(code);
-				return code;
-			};
-			const blocks = Array.from(editor.querySelectorAll("pre"))
-				.map((pre) => normalizeCodeBlock(pre))
-				.filter(Boolean);
-			if (!blocks.length) return;
-			const needsPython = blocks.some((codeEl) => {
-				const lang =
-					getLangFromCodeEl(codeEl) ||
-					guessLanguageFromText(codeEl.textContent);
-				return lang === "py" || lang === "python";
-			});
-			const needsPrettier = blocks.some((codeEl) => {
-				const lang =
-					getLangFromCodeEl(codeEl) ||
-					guessLanguageFromText(codeEl.textContent);
-				return Boolean(getParserForLang(lang));
-			});
-			if (needsPrettier) {
-				await loadPrettier().catch(() => {});
-			}
-			if (needsPython) {
-				await loadPythonFormatter();
-			}
-			const prettier = window.prettier;
-			const plugins = window.prettierPlugins
-				? Object.values(window.prettierPlugins)
-				: [];
-			for (const codeEl of blocks) {
-				let lang = getLangFromCodeEl(codeEl);
-				codeEl.textContent = normalizeCodeForFormat(
-					codeEl.textContent || "",
-					lang,
-				);
-				if (!lang || lang === "auto") {
-					lang = guessLanguageFromText(codeEl.textContent);
-					if (lang && lang !== "auto") {
-						codeEl.className = `language-${lang}`;
-						codeEl.setAttribute("data-lang", lang);
-					}
-				}
-				if (lang === "py" || lang === "python") {
-					try {
-						const formatted = await formatPythonCode(
-							codeEl.textContent || "",
-						);
-						if (typeof formatted === "string") {
-							codeEl.textContent = formatted.replace(/\s+$/, "");
-						}
-					} catch {
-						// ignore formatter errors
-					}
-					continue;
-				}
-				const parser = getParserForLang(lang);
-				if (!parser || !prettier || !plugins.length) continue;
-				try {
-					let formatted;
-					if (parser === "html") {
-						formatted = await formatHtmlFragment(
-							prettier,
-							plugins,
-							codeEl.textContent || "",
-						);
-					} else {
-						const maybeFormatted = prettier.format(codeEl.textContent || "", {
-							parser,
-							plugins,
-							useTabs: true,
-							tabWidth: 4,
-						});
-						formatted =
-							maybeFormatted && typeof maybeFormatted.then === "function"
-								? await maybeFormatted
-								: maybeFormatted;
-					}
-					if (typeof formatted === "string") {
-						codeEl.textContent = normalizeCodeForSave(
-							formatted.replace(/\s+$/, ""),
-							lang,
-						);
-					}
-				} catch {
-					// ignore formatter errors (invalid HTML fragments, etc)
-				}
-			}
-		} catch {
-			// never throw; formatter must be best-effort
-		}
 	}
 
 	function serializeAttrsOrdered(attrs, order) {
@@ -767,9 +544,7 @@
 		if (tag === "pre") {
 			const codeChild = node.querySelector("code");
 			const lang = getLangFromCodeEl(codeChild);
-			const text = escapeHtml(
-				normalizeCodeForSave(node.textContent || "", lang),
-			);
+			const text = escapeHtml(node.textContent || "");
 			if (lang) {
 				return `<pre><code class="language-${escapeAttr(lang)}">${text}</code></pre>`;
 			}
@@ -3586,16 +3361,6 @@ function serializeSquareGridRow(block, ctx) {
 	}
 
 	function buildRteEditor({ label, initialHtml }) {
-		const codeLangOptions = [
-			{ value: "auto", label: "Auto" },
-			{ value: "javascript", label: "JS" },
-			{ value: "json", label: "JSON" },
-			{ value: "html", label: "HTML" },
-			{ value: "css", label: "CSS" },
-			{ value: "python", label: "Python" },
-			{ value: "markdown", label: "Markdown" },
-			{ value: "yaml", label: "YAML" },
-		];
 		const toolbar = el("div", { class: "cms-rte__toolbar" }, [
 			el("button", { type: "button", "data-cmd": "bold" }, ["B"]),
 			el("button", { type: "button", "data-cmd": "italic" }, ["I"]),
@@ -3653,7 +3418,7 @@ function serializeSquareGridRow(block, ctx) {
 				codeEl.setAttribute("data-lang", clean);
 			}
 			codeEl.classList.add("nohighlight");
-			codeEl.setAttribute("contenteditable", "false");
+			codeEl.setAttribute("contenteditable", "true");
 			codeEl.setAttribute("spellcheck", "false");
 		};
 
@@ -3661,7 +3426,7 @@ function serializeSquareGridRow(block, ctx) {
 			if (!pre) return;
 			const codeEl = pre.querySelector("code");
 			if (!codeEl) return;
-			pre.setAttribute("contenteditable", "false");
+			pre.removeAttribute("contenteditable");
 			const textLang = getLangFromCodeEl(codeEl);
 			const detected = textLang || guessLanguageFromText(codeEl.textContent);
 			if (!textLang && detected && detected !== "auto") {
@@ -3795,93 +3560,6 @@ function serializeSquareGridRow(block, ctx) {
 			editor,
 			imagePanel,
 		]);
-
-		const openCodeBlockModal = ({ pre = null, initialText = "", initialLang = "" }) => {
-			const textArea = el("textarea", {
-				class: "cms-modal__textarea",
-				rows: 12,
-				spellcheck: "false",
-			});
-			textArea.value = initialText;
-			const langSelect = el(
-				"select",
-				{ class: "cms-field__select" },
-				codeLangOptions.map((opt) =>
-					el("option", { value: opt.value }, [opt.label]),
-				),
-			);
-			const detected =
-				initialLang || guessLanguageFromText(initialText) || "auto";
-			langSelect.value = detected;
-			openModal({
-				title: pre ? "Edit code" : "Insert code",
-				bodyNodes: [
-					buildField({ label: "Language", input: langSelect }),
-					buildField({ label: "Code", input: textArea }),
-				],
-				footerNodes: [
-					el(
-						"button",
-						{
-							class: "cms-btn cms-modal__action cms-btn--danger",
-							type: "button",
-							"data-close": "true",
-						},
-						["Close"],
-					),
-					el(
-						"button",
-						{
-							class: "cms-btn cms-modal__action cms-btn--success",
-							type: "button",
-							"data-action": "save-code-block",
-						},
-						["Save"],
-					),
-				],
-			});
-			const modal = document.querySelector(".cms-modal");
-			const saveBtn = modal?.querySelector(
-				".cms-btn.cms-modal__action.cms-btn--success[data-action=\"save-code-block\"]",
-			);
-			if (!saveBtn) return;
-			saveBtn.addEventListener("click", async () => {
-				let lang = langSelect.value || "auto";
-				if (lang === "auto") {
-					lang = guessLanguageFromText(textArea.value) || "auto";
-				}
-				const temp = document.createElement("div");
-				const tempPre = document.createElement("pre");
-				const tempCode = document.createElement("code");
-				updateCodeLanguage(tempCode, lang);
-				tempCode.textContent = textArea.value;
-				tempPre.appendChild(tempCode);
-				temp.appendChild(tempPre);
-				await formatCodeBlocksInEditor(temp);
-				const formatted = temp.querySelector("code")?.textContent || textArea.value;
-				if (pre) {
-					const code = pre.querySelector("code") || document.createElement("code");
-					updateCodeLanguage(code, lang);
-					code.textContent = formatted;
-					if (!code.parentElement) {
-						pre.innerHTML = "";
-						pre.appendChild(code);
-					}
-					ensureCodeToolbar(pre);
-				} else {
-					const newPre = document.createElement("pre");
-					const newCode = document.createElement("code");
-					updateCodeLanguage(newCode, lang);
-					newCode.textContent = formatted;
-					newPre.appendChild(newCode);
-					insertHtmlAtCursor(editor, newPre.outerHTML);
-					editor.querySelectorAll("pre").forEach((node) =>
-						ensureCodeToolbar(node),
-					);
-				}
-				closeModal();
-			});
-		};
 
 		const openImagePanel = ({ targetStub = null } = {}) => {
 			activeImageTarget = targetStub;
@@ -4043,17 +3721,22 @@ function serializeSquareGridRow(block, ctx) {
 				let node = range.commonAncestorContainer;
 				if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
 				const existingPre = node?.closest ? node.closest("pre") : null;
-				if (existingPre) {
-					const code = existingPre.querySelector("code");
-					openCodeBlockModal({
-						pre: existingPre,
-						initialText: code?.textContent || "",
-						initialLang: getLangFromCodeEl(code),
-					});
-					return;
-				}
+				if (existingPre) return;
 				const initialText = range.collapsed ? "" : range.toString();
-				openCodeBlockModal({ initialText });
+				const pre = document.createElement("pre");
+				const code = document.createElement("code");
+				const detected = guessLanguageFromText(initialText) || "auto";
+				updateCodeLanguage(code, detected);
+				code.textContent = initialText;
+				pre.appendChild(code);
+				if (!range.collapsed) range.deleteContents();
+				range.insertNode(pre);
+				ensureCodeToolbar(pre);
+				const nextRange = document.createRange();
+				nextRange.selectNodeContents(code);
+				nextRange.collapse(false);
+				selection.removeAllRanges();
+				selection.addRange(nextRange);
 			} else if (cmd === "img") {
 				openImagePanel();
 			}
@@ -4140,11 +3823,9 @@ function serializeSquareGridRow(block, ctx) {
 			const pre = target?.closest("pre");
 			if (!pre) return;
 			const code = pre.querySelector("code");
-			openCodeBlockModal({
-				pre,
-				initialText: code?.textContent || "",
-				initialLang: getLangFromCodeEl(code),
-			});
+			if (code) {
+				code.setAttribute("contenteditable", "true");
+			}
 		});
 		editor.addEventListener("click", (event) => {
 			const stub = event.target.closest(".img-stub");
@@ -4155,7 +3836,6 @@ function serializeSquareGridRow(block, ctx) {
 		return {
 			wrap,
 			editor,
-			formatCodeBlocks: () => formatCodeBlocksInEditor(editor),
 		};
 	}
 
@@ -4262,8 +3942,8 @@ function serializeSquareGridRow(block, ctx) {
 				initialHtml: parsed.right || "",
 			});
 			editors = [
-				{ key: "left", editor: left.editor, formatCodeBlocks: left.formatCodeBlocks },
-				{ key: "right", editor: right.editor, formatCodeBlocks: right.formatCodeBlocks },
+				{ key: "left", editor: left.editor },
+				{ key: "right", editor: right.editor },
 			];
 			openModal({
 				title: "Edit block",
@@ -4393,9 +4073,7 @@ function serializeSquareGridRow(block, ctx) {
 				label: "Content",
 				initialHtml: parsed.body || "",
 			});
-			editors = [
-				{ key: "body", editor: body.editor, formatCodeBlocks: body.formatCodeBlocks },
-			];
+			editors = [{ key: "body", editor: body.editor }];
 
 			const settingsNodes = [];
 			if (headingInput) {
@@ -4537,8 +4215,7 @@ function serializeSquareGridRow(block, ctx) {
 				updated.imgPos = settings.posSelect?.value || "left";
 			}
 			await Promise.all(
-				editors.map(async ({ key, editor, formatCodeBlocks }) => {
-					await formatCodeBlocks?.();
+				editors.map(async ({ key, editor }) => {
 					const raw = editor.innerHTML;
 					if (key === "left") updated.left = sanitizeRteHtml(raw, ctx);
 					else if (key === "right") updated.right = sanitizeRteHtml(raw, ctx);
@@ -4959,7 +4636,7 @@ function serializeSquareGridRow(block, ctx) {
 		if (!lower) return "";
 		if (lower === "js" || lower === "javascript") return "javascript";
 		if (lower === "json") return "json";
-		if (lower === "html") return "xml";
+		if (lower === "html") return "html";
 		if (lower === "css") return "css";
 		if (lower === "md" || lower === "markdown") return "markdown";
 		if (lower === "yml" || lower === "yaml") return "yaml";
@@ -4980,7 +4657,7 @@ function serializeSquareGridRow(block, ctx) {
 		});
 		blocks.forEach((code) => {
 			const lang = getLangFromCodeEl(code);
-			const text = normalizeCodeForSave(code.textContent || "", lang);
+			const text = String(code.textContent || "");
 			code.className = "";
 			if (lang) {
 				code.className = `language-${lang}`;
