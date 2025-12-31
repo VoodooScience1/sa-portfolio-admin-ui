@@ -14,7 +14,7 @@
  */
 
 (() => {
-	const PORTAL_VERSION = "2025-12-31-10";
+	const PORTAL_VERSION = "2025-12-31-11";
 	window.__CMS_PORTAL_VERSION__ = PORTAL_VERSION;
 	console.log(`[cms-portal] loaded v${PORTAL_VERSION}`);
 
@@ -4936,6 +4936,21 @@ function serializeSquareGridRow(block, ctx) {
 		setTimeout(scheduleHighlightStaticCodeBlocks, 200);
 	}
 
+	function stripHighlightFromCodeBlocks(root) {
+		const scope = root || document;
+		scope.querySelectorAll("pre code").forEach((code) => {
+			const lang = getLangFromCodeEl(code);
+			const text = code.textContent || "";
+			code.className = "";
+			if (lang) {
+				code.className = `language-${lang}`;
+				code.setAttribute("data-lang", lang);
+			}
+			code.removeAttribute("data-highlighted");
+			code.textContent = text;
+		});
+	}
+
 	function renderPageSurface() {
 		const entry = state.dirtyPages[state.path];
 		if (entry?.html) {
@@ -5325,7 +5340,11 @@ function serializeSquareGridRow(block, ctx) {
 		});
 
 		root.appendChild(mainWrap);
-		scheduleHighlightStaticCodeBlocks();
+		if (window.__CMS_DISABLE_HIGHLIGHT__) {
+			stripHighlightFromCodeBlocks(mainWrap);
+		} else {
+			scheduleHighlightStaticCodeBlocks();
+		}
 
 		queueMicrotask(() => {
 			mainWrap.querySelectorAll(".cms-divider-btn").forEach((btn) => {
