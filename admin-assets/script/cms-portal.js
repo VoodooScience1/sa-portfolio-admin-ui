@@ -14,7 +14,7 @@
  */
 
 (() => {
-	const PORTAL_VERSION = "2025-12-31-3";
+	const PORTAL_VERSION = "2025-12-31-4";
 	window.__CMS_PORTAL_VERSION__ = PORTAL_VERSION;
 	console.log(`[cms-portal] loaded v${PORTAL_VERSION}`);
 
@@ -300,6 +300,21 @@
 		return match ? match[1] : codeEl.getAttribute("data-lang") || "";
 	}
 
+	function formatHtmlFragment(prettier, plugins, code) {
+		const text = String(code || "");
+		if (/^\s*<\/[a-z]/i.test(text)) return null;
+		const wrapped = `<div>${text}</div>`;
+		const maybeFormatted = prettier.format(wrapped, {
+			parser: "html",
+			plugins,
+		});
+		return Promise.resolve(maybeFormatted).then((formatted) => {
+			const doc = new DOMParser().parseFromString(formatted, "text/html");
+			const inner = doc.body?.firstElementChild?.innerHTML;
+			return typeof inner === "string" ? inner : text;
+		});
+	}
+
 	async function formatCodeBlocksInEditor(editor) {
 		try {
 			if (!editor) return;
@@ -352,14 +367,23 @@
 				const parser = getParserForLang(lang);
 				if (!parser || !prettier || !plugins.length) continue;
 				try {
-					const maybeFormatted = prettier.format(codeEl.textContent || "", {
-						parser,
-						plugins,
-					});
-					const formatted =
-						maybeFormatted && typeof maybeFormatted.then === "function"
-							? await maybeFormatted
-							: maybeFormatted;
+					let formatted;
+					if (parser === "html") {
+						formatted = await formatHtmlFragment(
+							prettier,
+							plugins,
+							codeEl.textContent || "",
+						);
+					} else {
+						const maybeFormatted = prettier.format(codeEl.textContent || "", {
+							parser,
+							plugins,
+						});
+						formatted =
+							maybeFormatted && typeof maybeFormatted.then === "function"
+								? await maybeFormatted
+								: maybeFormatted;
+					}
 					if (typeof formatted === "string") {
 						codeEl.textContent = formatted.replace(/\s+$/, "");
 					}
@@ -420,8 +444,18 @@
 	}
 
 	function sanitizeRteHtml(html, ctx = {}) {
+		let rawHtml = String(html || "");
+		rawHtml = rawHtml.replace(
+			/<code\b[^>]*>([\s\S]*?)<\/code>/gi,
+			(match, inner) => {
+				const escaped = String(inner || "")
+					.replace(/</g, "&lt;")
+					.replace(/>/g, "&gt;");
+				return match.replace(inner, escaped);
+			},
+		);
 		const doc = new DOMParser().parseFromString(
-			`<div id="__wrap__">${String(html || "")}</div>`,
+			`<div id="__wrap__">${rawHtml}</div>`,
 			"text/html",
 		);
 		const wrap = doc.querySelector("#__wrap__");
