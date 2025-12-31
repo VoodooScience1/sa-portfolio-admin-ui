@@ -24,7 +24,65 @@
 	const PR_STORAGE_KEY = "cms-pr-state";
 	const SESSION_STORAGE_KEY = "cms-session-state";
 	const DEBUG_ENABLED_DEFAULT = true;
-	const UPDATE_VERSION = 26;
+	const UPDATE_VERSION = 27;
+
+	const BLOCK_LIBRARY = [
+		{
+			id: "std-container",
+			label: "Standard container",
+			partial: "/admin-assets/partials/CloudFlareCMS/std-container.html",
+		},
+		{
+			id: "small-img-lrg-txt",
+			label: "Small image + large text",
+			partial: "/admin-assets/partials/CloudFlareCMS/small-img-lrg-txt.html",
+		},
+		{
+			id: "split-50",
+			label: "50/50 split",
+			partial: "/admin-assets/partials/CloudFlareCMS/50-50-split.html",
+		},
+		{
+			id: "two-col",
+			label: "Two column",
+			partial: "/admin-assets/partials/CloudFlareCMS/two-col.html",
+		},
+		{
+			id: "hover-cards",
+			label: "Hover cards row",
+			partial: "/admin-assets/partials/CloudFlareCMS/hover-cards.html",
+		},
+		{
+			id: "square-grid",
+			label: "Square grid row",
+			partial: "/admin-assets/partials/CloudFlareCMS/square-grid.html",
+		},
+		{
+			id: "accordion",
+			label: "Accordion (simple)",
+			partial: "/admin-assets/partials/CloudFlareCMS/std-accordion.html",
+		},
+		{
+			id: "accordion-styled",
+			label: "Accordion (styled)",
+			partial: "/admin-assets/partials/CloudFlareCMS/styled-accordion.html",
+		},
+		{
+			id: "divider",
+			label: "Divider",
+			partial: "/admin-assets/partials/CloudFlareCMS/divider.html",
+		},
+		{
+			id: "doc-card",
+			label: "Document card",
+			partial: "/admin-assets/partials/CloudFlareCMS/doc-card.html",
+		},
+		{
+			id: "empty-block",
+			label: "Empty block (dev)",
+			partial: "/admin-assets/partials/CloudFlareCMS/empty-block.html",
+		},
+	];
 	const BUILD_TOKEN = Date.now().toString(36);
 
 	function getPagePathFromLocation() {
@@ -2656,6 +2714,15 @@ function serializeSquareGridRow(block, ctx) {
 
 	async function insertTestBlockAt(index, anchorOverride) {
 		const html = await buildTestContainerHtml();
+		return insertHtmlAt(index, anchorOverride, html);
+	}
+
+	async function insertBlockFromPartial(index, anchorOverride, partialPath) {
+		const html = await loadPartialHtml(partialPath);
+		return insertHtmlAt(index, anchorOverride, html);
+	}
+
+	async function insertHtmlAt(index, anchorOverride, html) {
 		const localEntry = state.dirtyPages[state.path] || {};
 		const localBlocks = normalizeLocalBlocks(localEntry.localBlocks || []);
 		let anchor = null;
@@ -2698,6 +2765,43 @@ function serializeSquareGridRow(block, ctx) {
 		setDirtyPage(state.path, state.rebuiltHtml, "", updatedLocal);
 		refreshUiStateForDirty();
 		renderPageSurface();
+	}
+
+	function openInsertBlockModal(index, anchorInfo) {
+		const list = el("div", { class: "cms-modal__list" }, []);
+		BLOCK_LIBRARY.forEach((item) => {
+			const row = el("div", { class: "cms-modal__row" }, [
+				el("span", { class: "cms-modal__label" }, [item.label]),
+				el(
+					"button",
+					{ class: "cms-btn", type: "button" },
+					["Insert"],
+				),
+			]);
+			const btn = row.querySelector("button");
+			btn.addEventListener("click", async () => {
+				closeModal();
+				try {
+					await insertBlockFromPartial(index, anchorInfo, item.partial);
+				} catch (err) {
+					console.error(err);
+					setUiState("error", "DISCONNECTED / ERROR");
+					renderPageSurface();
+				}
+			});
+			list.appendChild(row);
+		});
+		openModal({
+			title: "Insert block",
+			bodyNodes: [list],
+			footerNodes: [
+				el(
+					"button",
+					{ class: "cms-btn cms-modal__action", type: "button", "data-close": "true" },
+					["Close"],
+				),
+			],
+		});
 	}
 
 	function stashCurrentPageIfDirty() {
@@ -3113,15 +3217,7 @@ function serializeSquareGridRow(block, ctx) {
 			// (The old DOM is deleted, so old handlers go with it.)
 			queueMicrotask(() => {
 				qs("#cms-add-first")?.addEventListener("click", () => {
-					(async () => {
-						try {
-							await insertTestBlockAt(0);
-						} catch (err) {
-							console.error(err);
-							setUiState("error", "DISCONNECTED / ERROR");
-							renderPageSurface();
-						}
-					})();
+					openInsertBlockModal(0, null);
 				});
 			});
 
@@ -3453,7 +3549,7 @@ function serializeSquareGridRow(block, ctx) {
 
 		queueMicrotask(() => {
 			mainWrap.querySelectorAll(".cms-divider-btn").forEach((btn) => {
-				btn.addEventListener("click", async () => {
+				btn.addEventListener("click", () => {
 					const at = Number(btn.getAttribute("data-insert") || "0");
 					const anchorId = btn.getAttribute("data-anchor-id") || "";
 					const anchorSig = btn.getAttribute("data-anchor-sig") || "";
@@ -3473,13 +3569,7 @@ function serializeSquareGridRow(block, ctx) {
 								placement: anchorPlacement,
 							}
 						: null;
-					try {
-						await insertTestBlockAt(at, anchorInfo);
-					} catch (err) {
-						console.error(err);
-						setUiState("error", "DISCONNECTED / ERROR");
-						renderPageSurface();
-					}
+					openInsertBlockModal(at, anchorInfo);
 				});
 			});
 			mainWrap.querySelectorAll(".cms-block__btn").forEach((btn) => {
@@ -3496,10 +3586,13 @@ function serializeSquareGridRow(block, ctx) {
 					const isRemoved = btn.getAttribute("data-removed") === "true";
 					if (action === "edit") {
 						openModal({
-							title: "Edit block",
+							title: "Edit block (stub)",
 							bodyNodes: [
 								el("p", { class: "cms-modal__text" }, [
-									"Block editing is coming next. This button is ready.",
+									"RTE is wired next. This stub will become the editor.",
+								]),
+								el("div", { class: "cms-modal__note" }, [
+									"Editing is disabled in this stub.",
 								]),
 							],
 							footerNodes: [
