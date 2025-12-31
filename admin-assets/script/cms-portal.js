@@ -14,7 +14,7 @@
  */
 
 (() => {
-	const PORTAL_VERSION = "2025-12-31-11";
+	const PORTAL_VERSION = "2025-12-31-12";
 	window.__CMS_PORTAL_VERSION__ = PORTAL_VERSION;
 	console.log(`[cms-portal] loaded v${PORTAL_VERSION}`);
 
@@ -300,7 +300,7 @@
 		return match ? match[1] : codeEl.getAttribute("data-lang") || "";
 	}
 
-	function normalizeCodeIndent(text) {
+	function normalizeCodeIndent(text, lang = "") {
 		const raw = String(text || "").replace(/\r\n/g, "\n");
 		const lines = raw.split("\n");
 		while (lines.length && lines[0].trim() === "") lines.shift();
@@ -310,8 +310,12 @@
 			.filter((line) => line.trim() !== "")
 			.map((line) => (line.match(/^[\t ]+/)?.[0] || "").length);
 		const min = indents.length ? Math.min(...indents) : 0;
-		if (!min) return lines.join("\n");
-		return lines.map((line) => line.slice(min)).join("\n");
+		const out = lines.map((line) => line.slice(min)).join("\n");
+		const lower = String(lang || "").toLowerCase();
+		if (lower === "py" || lower === "python") {
+			return out.replace(/^\t+/gm, (tabs) => " ".repeat(tabs.length * 4));
+		}
+		return out;
 	}
 
 	function formatHtmlFragment(prettier, plugins, code) {
@@ -4922,6 +4926,14 @@ function serializeSquareGridRow(block, ctx) {
 			return true;
 		});
 		blocks.forEach((code) => {
+			const lang = getLangFromCodeEl(code);
+			const text = normalizeCodeIndent(code.textContent || "", lang);
+			code.className = "";
+			if (lang) {
+				code.className = `language-${lang}`;
+				code.setAttribute("data-lang", lang);
+			}
+			code.textContent = text;
 			code.removeAttribute("data-highlighted");
 			window.hljs.highlightElement(code);
 		});
@@ -4936,20 +4948,6 @@ function serializeSquareGridRow(block, ctx) {
 		setTimeout(scheduleHighlightStaticCodeBlocks, 200);
 	}
 
-	function stripHighlightFromCodeBlocks(root) {
-		const scope = root || document;
-		scope.querySelectorAll("pre code").forEach((code) => {
-			const lang = getLangFromCodeEl(code);
-			const text = code.textContent || "";
-			code.className = "";
-			if (lang) {
-				code.className = `language-${lang}`;
-				code.setAttribute("data-lang", lang);
-			}
-			code.removeAttribute("data-highlighted");
-			code.textContent = text;
-		});
-	}
 
 	function renderPageSurface() {
 		const entry = state.dirtyPages[state.path];
@@ -5340,11 +5338,7 @@ function serializeSquareGridRow(block, ctx) {
 		});
 
 		root.appendChild(mainWrap);
-		if (window.__CMS_DISABLE_HIGHLIGHT__) {
-			stripHighlightFromCodeBlocks(mainWrap);
-		} else {
-			scheduleHighlightStaticCodeBlocks();
-		}
+		scheduleHighlightStaticCodeBlocks();
 
 		queueMicrotask(() => {
 			mainWrap.querySelectorAll(".cms-divider-btn").forEach((btn) => {
