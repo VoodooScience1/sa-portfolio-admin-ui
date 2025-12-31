@@ -14,7 +14,7 @@
  */
 
 (() => {
-	const PORTAL_VERSION = "2025-12-31-5";
+	const PORTAL_VERSION = "2025-12-31-6";
 	window.__CMS_PORTAL_VERSION__ = PORTAL_VERSION;
 	console.log(`[cms-portal] loaded v${PORTAL_VERSION}`);
 
@@ -460,6 +460,17 @@
 		);
 		const wrap = doc.querySelector("#__wrap__");
 		if (!wrap) return "";
+
+		wrap.querySelectorAll("pre").forEach((pre) => {
+			const code = pre.querySelector("code") || pre;
+			const text = code.innerText || code.textContent || "";
+			const lang = getLangFromCodeEl(code);
+			const clean = doc.createElement("code");
+			if (lang) clean.className = `language-${lang}`;
+			clean.textContent = text;
+			pre.innerHTML = "";
+			pre.appendChild(clean);
+		});
 
 		const accState = ctx._accordionState || { index: 0 }; // 0-based item index per ADR-015
 		const pageHash = ctx.pageHash || hashText(ctx.path || "");
@@ -3531,6 +3542,8 @@ function serializeSquareGridRow(block, ctx) {
 				codeEl.setAttribute("data-lang", clean);
 			}
 			codeEl.classList.add("nohighlight");
+			codeEl.setAttribute("contenteditable", "plaintext-only");
+			codeEl.setAttribute("spellcheck", "false");
 		};
 
 		const ensureCodeToolbar = (pre) => {
@@ -3559,6 +3572,7 @@ function serializeSquareGridRow(block, ctx) {
 				if (pre.contains(el)) el.remove();
 			});
 			pre.classList.add("cms-code-block");
+			updateCodeLanguage(codeEl, getLangFromCodeEl(codeEl) || detected || "auto");
 			const tool = el("div", {
 				class: "cms-code-toolbar",
 				contenteditable: "false",
@@ -3938,37 +3952,47 @@ function serializeSquareGridRow(block, ctx) {
 			if (event.shiftKey) document.execCommand("outdent");
 			else document.execCommand("indent");
 		});
+		const insertPlainTextIntoCode = (target, text) => {
+			const code = target?.closest("code") || target?.querySelector?.("code");
+			if (!code) return false;
+			const selection = window.getSelection();
+			if (!selection) return false;
+			const range = document.createRange();
+			range.selectNodeContents(code);
+			range.collapse(false);
+			selection.removeAllRanges();
+			selection.addRange(range);
+			document.execCommand("insertText", false, text);
+			return true;
+		};
+
 		editor.addEventListener(
 			"paste",
 			(event) => {
-				const selection = window.getSelection();
-				if (!selection || selection.rangeCount === 0) return;
-				const range = selection.getRangeAt(0);
-				let node = range.commonAncestorContainer;
-				if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
-				const codeBlock = node?.closest ? node.closest("pre, code") : null;
+				const target = event.target instanceof Element ? event.target : null;
+				const codeBlock = target?.closest("pre, code");
 				if (!codeBlock) return;
 				const text = event.clipboardData?.getData("text/plain");
 				if (!text) return;
 				event.preventDefault();
-				document.execCommand("insertText", false, text);
+				insertPlainTextIntoCode(codeBlock, text);
 			},
 			true,
 		);
-		editor.addEventListener("beforeinput", (event) => {
-			if (event.inputType !== "insertFromPaste") return;
-			const selection = window.getSelection();
-			if (!selection || selection.rangeCount === 0) return;
-			const range = selection.getRangeAt(0);
-			let node = range.commonAncestorContainer;
-			if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
-			const codeBlock = node?.closest ? node.closest("pre, code") : null;
-			if (!codeBlock) return;
-			const text = event.data || "";
-			if (!text) return;
-			event.preventDefault();
-			document.execCommand("insertText", false, text);
-		});
+		editor.addEventListener(
+			"beforeinput",
+			(event) => {
+				if (event.inputType !== "insertFromPaste") return;
+				const target = event.target instanceof Element ? event.target : null;
+				const codeBlock = target?.closest("pre, code");
+				if (!codeBlock) return;
+				const text = event.data || "";
+				if (!text) return;
+				event.preventDefault();
+				insertPlainTextIntoCode(codeBlock, text);
+			},
+			true,
+		);
 		editor.addEventListener("click", (event) => {
 			const stub = event.target.closest(".img-stub");
 			if (stub && editor.contains(stub)) {
@@ -5491,9 +5515,6 @@ function serializeSquareGridRow(block, ctx) {
 		// Parity behaviours
 		window.runSections?.();
 		window.initLightbox?.();
-		if (window.hljs?.highlightAll) {
-			window.hljs.highlightAll();
-		}
 		renderDebugOverlay();
 	}
 
