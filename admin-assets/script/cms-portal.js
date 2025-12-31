@@ -376,24 +376,58 @@
 			return `<${tag}>${inner}</${tag}>`;
 		}
 
-			if (tag === "h2" || tag === "h3") {
-				const inner = serializeChildren(node);
-				return `<${tag}>${inner}</${tag}>`;
-			}
+		if (tag === "h1") {
+			return serializeChildren(node);
+		}
 
-			if (tag === "ul" || tag === "ol") {
-				const inner = serializeChildren(node);
-				return `<${tag}>${inner}</${tag}>`;
-			}
+		if (tag === "h2" || tag === "h3") {
+			const inner = serializeChildren(node);
+			return `<${tag}>${inner}</${tag}>`;
+		}
 
-			if (tag === "li") {
-				const inner = serializeChildren(node);
-				return `<li>${inner}</li>`;
-			}
+		if (tag === "blockquote") {
+			const inner = serializeChildren(node);
+			return `<blockquote>${inner}</blockquote>`;
+		}
 
-			if (tag === "br") return "<br />";
+		if (tag === "table") {
+			const inner = serializeChildren(node);
+			return `<table>${inner}</table>`;
+		}
 
-			if (tag === "a") {
+		if (tag === "thead" || tag === "tbody") {
+			const inner = serializeChildren(node);
+			return `<${tag}>${inner}</${tag}>`;
+		}
+
+		if (tag === "tr") {
+			const inner = serializeChildren(node);
+			return `<tr>${inner}</tr>`;
+		}
+
+		if (tag === "th" || tag === "td") {
+			const inner = serializeChildren(node);
+			return `<${tag}>${inner}</${tag}>`;
+		}
+
+		if (tag === "pre") {
+			const inner = serializeChildren(node);
+			return `<pre>${inner}</pre>`;
+		}
+
+		if (tag === "ul" || tag === "ol") {
+			const inner = serializeChildren(node);
+			return `<${tag}>${inner}</${tag}>`;
+		}
+
+		if (tag === "li") {
+			const inner = serializeChildren(node);
+			return `<li>${inner}</li>`;
+		}
+
+		if (tag === "br") return "<br />";
+
+		if (tag === "a") {
 				const href = sanitizeHref(node.getAttribute("href"));
 				if (!href) return serializeChildren(node);
 				const target =
@@ -469,11 +503,27 @@
 		if (cls.contains("section")) {
 			const type = (node.getAttribute("data-type") || "").trim();
 			if (type === "twoCol") {
+				const leftNode = node.querySelector("[data-col='left']");
+				const rightNode = node.querySelector("[data-col='right']");
+				const headingEl = leftNode?.querySelector("h2,h3");
+				const headingTag = headingEl
+					? headingEl.tagName.toLowerCase()
+					: "h2";
+				const safeHeadingTag = headingTag === "h1" ? "h2" : headingTag;
+				let leftHtml = leftNode?.innerHTML || "";
+				if (headingEl && leftNode) {
+					const clone = leftNode.cloneNode(true);
+					const removeHeading = clone.querySelector("h2,h3");
+					if (removeHeading) removeHeading.remove();
+					leftHtml = clone.innerHTML || "";
+				}
 				return {
 					type: "twoCol",
 					cmsId,
-					left: node.querySelector("[data-col='left']")?.innerHTML || "",
-					right: node.querySelector("[data-col='right']")?.innerHTML || "",
+					heading: headingEl?.textContent?.trim() || "",
+					headingTag: safeHeadingTag,
+					left: leftHtml,
+					right: rightNode?.innerHTML || "",
 				};
 			}
 			if (type === "imgText" || type === "split50") {
@@ -481,6 +531,7 @@
 				const headingTag = headingEl
 					? headingEl.tagName.toLowerCase()
 					: "h2";
+				const safeHeadingTag = headingTag === "h1" ? "h2" : headingTag;
 				let body = node.innerHTML || "";
 				if (headingEl) {
 					const clone = node.cloneNode(true);
@@ -498,7 +549,7 @@
 					overlayTitle: node.getAttribute("data-overlay-title") || "",
 					overlayText: node.getAttribute("data-overlay-text") || "",
 					heading: headingEl?.textContent?.trim() || "",
-					headingTag,
+					headingTag: safeHeadingTag,
 					body,
 				};
 			}
@@ -615,6 +666,11 @@
 
 	function serializeTwoCol(block, ctx) {
 		const cmsId = getBlockCmsId(block, ctx?.index ?? 0, ctx);
+		const headingText = (block.heading || "").trim();
+		const headingTag = (block.headingTag || "h2").toLowerCase();
+		const headingHtml = headingText
+			? `<${headingTag}>${escapeHtml(headingText)}</${headingTag}>`
+			: "";
 		const left = sanitizeRteHtml(block.left || "", ctx);
 		const right = sanitizeRteHtml(block.right || "", ctx);
 		const lines = [
@@ -622,6 +678,7 @@
 				cmsId,
 			)}" data-type="twoCol">`,
 			`\t<div data-col="left">`,
+			headingHtml ? `\t\t${headingHtml}` : "",
 			left ? indentLines(left, 2) : "",
 			`\t</div>`,
 			`\t<div data-col="right">`,
@@ -2581,7 +2638,33 @@ function serializeSquareGridRow(block, ctx) {
 			rebuildPreviewHtml();
 			renderPageSurface();
 		}
+		if (!dirtyCount()) state.assetUploads = [];
 		refreshUiStateForDirty();
+	}
+
+	function addAssetUpload({ name, content, path }) {
+		if (!name || !content) return;
+		const clean = String(path || "").trim() || `assets/img/${name}`;
+		state.assetUploads = (state.assetUploads || []).filter(
+			(item) => item.path !== clean,
+		);
+		state.assetUploads.push({
+			path: clean,
+			content,
+			encoding: "base64",
+		});
+	}
+
+	function mergePrFiles(pageFiles, assetFiles) {
+		const merged = [];
+		const seen = new Set();
+		[...(assetFiles || []), ...(pageFiles || [])].forEach((file) => {
+			const path = String(file?.path || "").trim();
+			if (!path || seen.has(path)) return;
+			seen.add(path);
+			merged.push(file);
+		});
+		return merged;
 	}
 
 	async function submitPr(paths, note, payloads = null) {
@@ -2590,13 +2673,19 @@ function serializeSquareGridRow(block, ctx) {
 			state.prUrl = "";
 			state.prNumber = null;
 
-			const files =
+			const pageFiles =
 				Array.isArray(payloads) && payloads.length
 					? payloads
 					: paths.map((path) => ({
 							path,
 							text: state.dirtyPages[path]?.html || "",
 						}));
+			const assetFiles = (state.assetUploads || []).map((item) => ({
+				path: item.path,
+				content: item.content,
+				encoding: item.encoding || "base64",
+			}));
+			const files = mergePrFiles(pageFiles, assetFiles);
 
 			const baseNote = String(note || "Created by Portfolio CMS").trim();
 			const body = `${baseNote}\n\n@VoodooScience1 please review + merge.`;
@@ -2633,6 +2722,7 @@ function serializeSquareGridRow(block, ctx) {
 				paths.forEach((path) => clearDirtyPage(path));
 				purgeCleanDirtyPages();
 			}
+			state.assetUploads = [];
 
 			setUiState("pr", buildPrLabel());
 			renderPageSurface();
@@ -2853,14 +2943,228 @@ function serializeSquareGridRow(block, ctx) {
 		});
 	}
 
+	function insertHtmlAtCursor(editor, html) {
+		if (!editor) return;
+		editor.focus();
+		const ok = document.execCommand("insertHTML", false, html);
+		if (!ok) {
+			const range = window.getSelection()?.getRangeAt(0);
+			if (!range) return;
+			range.deleteContents();
+			range.insertNode(
+				document.createRange().createContextualFragment(html),
+			);
+		}
+	}
+
+	async function fetchImageLibrary() {
+		const res = await fetch("/api/repo/tree?path=assets/img", {
+			headers: { Accept: "application/json" },
+		});
+		const data = await res.json().catch(() => ({}));
+		if (!res.ok) throw new Error(data?.error || "Failed to load image list");
+		const items = Array.isArray(data.items) ? data.items : [];
+		return items.filter((item) => item.type === "file");
+	}
+
+	function openImageInsertModal(editor) {
+		let images = [];
+		const status = el("div", { class: "cms-modal__note" }, [
+			"Choose an existing image or upload a new one. Uploads will be included in the next PR.",
+		]);
+		const sourceInput = el("input", {
+			type: "text",
+			class: "cms-field__input",
+			placeholder: "/assets/img/...",
+		});
+		const captionInput = el("input", {
+			type: "text",
+			class: "cms-field__input",
+			placeholder: "Optional caption",
+		});
+		const overlayTitleInput = el("input", {
+			type: "text",
+			class: "cms-field__input",
+			placeholder: "Overlay title (optional)",
+		});
+		const overlayTextInput = el("input", {
+			type: "text",
+			class: "cms-field__input",
+			placeholder: "Overlay text (optional)",
+		});
+		const sizeSelect = el(
+			"select",
+			{ class: "cms-field__select" },
+			[
+				el("option", { value: "sml" }, ["Small"]),
+				el("option", { value: "lrg" }, ["Large"]),
+			],
+		);
+		const lightboxInput = el("input", {
+			type: "checkbox",
+			class: "cms-field__checkbox",
+		});
+		lightboxInput.checked = true;
+
+		const librarySelect = el("select", { class: "cms-field__select" }, [
+			el("option", { value: "" }, ["Select an existing image"]),
+		]);
+		const loadBtn = el(
+			"button",
+			{ class: "cms-btn cms-modal__action cms-btn--success", type: "button" },
+			["Load library"],
+		);
+
+		loadBtn.addEventListener("click", async () => {
+			try {
+				loadBtn.disabled = true;
+				images = await fetchImageLibrary();
+				librarySelect.innerHTML = "";
+				librarySelect.appendChild(
+					el("option", { value: "" }, ["Select an existing image"]),
+				);
+				images.forEach((item) => {
+					librarySelect.appendChild(
+						el("option", { value: item.path }, [item.name]),
+					);
+				});
+			} catch (err) {
+				console.error(err);
+			} finally {
+				loadBtn.disabled = false;
+			}
+		});
+
+		librarySelect.addEventListener("change", () => {
+			const path = librarySelect.value;
+			if (!path) return;
+			sourceInput.value = `/${path}`.replace(/^\/+/, "/");
+		});
+
+		const fileInput = el("input", {
+			type: "file",
+			class: "cms-field__input",
+		});
+		const nameInput = el("input", {
+			type: "text",
+			class: "cms-field__input",
+			placeholder: "Filename (e.g. hero.jpg)",
+		});
+		const uploadBtn = el(
+			"button",
+			{ class: "cms-btn cms-modal__action cms-btn--success", type: "button" },
+			["Upload image"],
+		);
+
+		uploadBtn.addEventListener("click", () => {
+			const file = fileInput.files?.[0];
+			if (!file) return;
+			const filename = (nameInput.value || file.name || "").trim();
+			if (!filename) return;
+			const reader = new FileReader();
+			reader.onload = () => {
+				const dataUrl = String(reader.result || "");
+				const base64 = dataUrl.split(",")[1] || "";
+				addAssetUpload({
+					name: filename,
+					content: base64,
+					path: `assets/img/${filename}`,
+				});
+				sourceInput.value = `/assets/img/${filename}`;
+			};
+			reader.readAsDataURL(file);
+		});
+
+		openModal({
+			title: "Insert image",
+			bodyNodes: [
+				el("div", { class: "cms-modal__group" }, [
+					el("div", { class: "cms-modal__group-title" }, ["Image source"]),
+					buildField({ label: "Source", input: sourceInput }),
+					buildField({
+						label: "Existing images",
+						input: librarySelect,
+					}),
+					loadBtn,
+				]),
+				el("div", { class: "cms-modal__group" }, [
+					el("div", { class: "cms-modal__group-title" }, ["Upload new image"]),
+					buildField({ label: "File", input: fileInput }),
+					buildField({ label: "Filename", input: nameInput }),
+					uploadBtn,
+				]),
+				el("div", { class: "cms-modal__group" }, [
+					el("div", { class: "cms-modal__group-title" }, ["Display settings"]),
+					buildField({ label: "Caption", input: captionInput }),
+					buildField({ label: "Overlay title", input: overlayTitleInput }),
+					buildField({ label: "Overlay text", input: overlayTextInput }),
+					buildField({ label: "Size", input: sizeSelect }),
+					buildField({
+						label: "Lightbox",
+						input: el("label", { class: "cms-field__toggle" }, [
+							lightboxInput,
+							el("span", { class: "cms-field__toggle-text" }, ["Enable"]),
+						]),
+					}),
+				]),
+				status,
+			],
+			footerNodes: [
+				el(
+					"button",
+					{
+						class: "cms-btn cms-modal__action cms-btn--danger",
+						type: "button",
+						"data-close": "true",
+					},
+					["Close"],
+				),
+				el(
+					"button",
+					{
+						class: "cms-btn cms-modal__action cms-btn--success",
+						type: "button",
+					},
+					["Insert"],
+				),
+			],
+		});
+
+		const modal = document.querySelector(".cms-modal");
+		const insertBtn = modal?.querySelector(
+			".cms-btn.cms-modal__action.cms-btn--success",
+		);
+		if (!insertBtn) return;
+		insertBtn.addEventListener("click", () => {
+			const src = sourceInput.value.trim();
+			if (!src) return;
+			const html = serializeImgStub({
+				img: src,
+				caption: captionInput.value.trim(),
+				lightbox: lightboxInput.checked ? "true" : "false",
+				overlayTitle: overlayTitleInput.value.trim(),
+				overlayText: overlayTextInput.value.trim(),
+				size: sizeSelect.value || "sml",
+			});
+			insertHtmlAtCursor(editor, html);
+			closeModal();
+		});
+	}
+
 	function buildRteEditor({ label, initialHtml }) {
 		const toolbar = el("div", { class: "cms-rte__toolbar" }, [
 			el("button", { type: "button", "data-cmd": "bold" }, ["B"]),
 			el("button", { type: "button", "data-cmd": "italic" }, ["I"]),
 			el("button", { type: "button", "data-cmd": "underline" }, ["U"]),
+			el("button", { type: "button", "data-cmd": "h2" }, ["H2"]),
+			el("button", { type: "button", "data-cmd": "h3" }, ["H3"]),
+			el("button", { type: "button", "data-cmd": "quote" }, ["❝"]),
 			el("button", { type: "button", "data-cmd": "ul" }, ["•"]),
 			el("button", { type: "button", "data-cmd": "ol" }, ["1."]),
+			el("button", { type: "button", "data-cmd": "table" }, ["Table"]),
 			el("button", { type: "button", "data-cmd": "code" }, ["</>"]),
+			el("button", { type: "button", "data-cmd": "pre" }, ["Pre"]),
+			el("button", { type: "button", "data-cmd": "img" }, ["Image"]),
 		]);
 		const editor = el("div", {
 			class: "cms-rte",
@@ -2882,8 +3186,32 @@ function serializeSquareGridRow(block, ctx) {
 			if (cmd === "bold") document.execCommand("bold");
 			else if (cmd === "italic") document.execCommand("italic");
 			else if (cmd === "underline") document.execCommand("underline");
+			else if (cmd === "h2") document.execCommand("formatBlock", false, "H2");
+			else if (cmd === "h3") document.execCommand("formatBlock", false, "H3");
+			else if (cmd === "quote")
+				document.execCommand("formatBlock", false, "BLOCKQUOTE");
 			else if (cmd === "ul") document.execCommand("insertUnorderedList");
 			else if (cmd === "ol") document.execCommand("insertOrderedList");
+			else if (cmd === "table") {
+				const tableHtml = [
+					"<table>",
+					"\t<thead>",
+					"\t\t<tr><th>Header</th><th>Header</th></tr>",
+					"\t</thead>",
+					"\t<tbody>",
+					"\t\t<tr><td>Cell</td><td>Cell</td></tr>",
+					"\t</tbody>",
+					"</table>",
+				].join("\n");
+				insertHtmlAtCursor(editor, tableHtml);
+			} else if (cmd === "pre") {
+				const selection = window.getSelection();
+				const text = selection?.toString() || "";
+				const html = `<pre><code>${escapeHtml(text || "Code")}</code></pre>`;
+				insertHtmlAtCursor(editor, html);
+			} else if (cmd === "img") {
+				openImageInsertModal(editor);
+			}
 			else if (cmd === "code") {
 				const selection = window.getSelection();
 				if (!selection || selection.rangeCount === 0) return;
@@ -2896,6 +3224,18 @@ function serializeSquareGridRow(block, ctx) {
 				range.insertNode(code);
 				selection.removeAllRanges();
 			}
+		});
+		editor.addEventListener("keydown", (event) => {
+			if (event.key !== "Tab") return;
+			const selection = window.getSelection();
+			if (!selection || !selection.anchorNode) return;
+			let node = selection.anchorNode;
+			if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+			const li = node?.closest ? node.closest("li") : null;
+			if (!li) return;
+			event.preventDefault();
+			if (event.shiftKey) document.execCommand("outdent");
+			else document.execCommand("indent");
 		});
 		return { wrap, editor };
 	}
@@ -2988,6 +3328,12 @@ function serializeSquareGridRow(block, ctx) {
 		let editors = [];
 		let settings = {};
 		if (parsed.type === "twoCol") {
+			const headingInput = el("input", {
+				type: "text",
+				class: "cms-field__input",
+				value: parsed.heading || "",
+				placeholder: "Heading",
+			});
 			const left = buildRteEditor({
 				label: "Left column",
 				initialHtml: parsed.left || "",
@@ -3002,7 +3348,15 @@ function serializeSquareGridRow(block, ctx) {
 			];
 			openModal({
 				title: "Edit block",
-				bodyNodes: [left.wrap, right.wrap],
+				bodyNodes: [
+					buildField({
+						label: "Heading",
+						input: headingInput,
+						note: "Optional block heading.",
+					}),
+					left.wrap,
+					right.wrap,
+				],
 				footerNodes: [
 					el(
 						"button",
@@ -3023,6 +3377,7 @@ function serializeSquareGridRow(block, ctx) {
 					),
 				],
 			});
+			settings = { headingInput };
 		} else {
 			let headingInput = null;
 			let imgInput = null;
@@ -3398,6 +3753,7 @@ function serializeSquareGridRow(block, ctx) {
 		updateTick: 0,
 		debug: debugEnabled(),
 		lastReorderLocal: null,
+		assetUploads: [],
 		prUrl: "",
 		prNumber: null,
 		prList: loadPrState(),
