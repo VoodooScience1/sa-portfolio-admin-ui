@@ -207,6 +207,129 @@
 		return fallback;
 	}
 
+	const PRETTIER_URLS = [
+		"https://unpkg.com/prettier@3.2.5/standalone.js",
+		"https://unpkg.com/prettier@3.2.5/plugins/babel.js",
+		"https://unpkg.com/prettier@3.2.5/plugins/html.js",
+		"https://unpkg.com/prettier@3.2.5/plugins/postcss.js",
+		"https://unpkg.com/prettier@3.2.5/plugins/markdown.js",
+		"https://unpkg.com/prettier@3.2.5/plugins/yaml.js",
+	];
+	const RUFF_FMT_URL =
+		"https://unpkg.com/@wasm-fmt/ruff_fmt@0.14.10/ruff_fmt.js";
+
+	function loadExternalScript(src) {
+		return new Promise((resolve, reject) => {
+			const s = document.createElement("script");
+			s.src = src;
+			s.async = true;
+			s.onload = () => resolve();
+			s.onerror = () => reject(new Error(`Failed to load: ${src}`));
+			document.head.appendChild(s);
+		});
+	}
+
+	async function loadPrettier() {
+		if (window.prettier && window.prettierPlugins) return;
+		for (const src of PRETTIER_URLS) {
+			// eslint-disable-next-line no-await-in-loop
+			await loadExternalScript(src);
+		}
+	}
+
+	async function loadPythonFormatter() {
+		if (window.__RuffFmtReady) return window.__RuffFmtReady;
+		window.__RuffFmtReady = (async () => {
+			const mod = await import(RUFF_FMT_URL);
+			await mod.default();
+			window.__RuffFmt = mod;
+			return mod;
+		})().catch((err) => {
+			console.error(err);
+			window.__RuffFmtReady = null;
+			return null;
+		});
+		return window.__RuffFmtReady;
+	}
+
+	async function formatPythonCode(code) {
+		const mod = await loadPythonFormatter();
+		if (!mod || typeof mod.format !== "function") return null;
+		return mod.format(code, null, {
+			indent_style: "space",
+			indent_width: 4,
+			line_width: 88,
+			line_ending: "lf",
+		});
+	}
+
+	function getParserForLang(lang) {
+		const raw = String(lang || "").trim().toLowerCase();
+		if (!raw || raw === "auto") return null;
+		if (raw === "js" || raw === "javascript") return "babel";
+		if (raw === "json") return "json";
+		if (raw === "html") return "html";
+		if (raw === "css") return "css";
+		if (raw === "md" || raw === "markdown") return "markdown";
+		if (raw === "yml" || raw === "yaml") return "yaml";
+		if (raw === "py" || raw === "python") return null;
+		return null;
+	}
+
+	function getLangFromCodeEl(codeEl) {
+		if (!codeEl) return "";
+		const cls = codeEl.getAttribute("class") || "";
+		const match = cls.match(/language-([a-z0-9_-]+)/i);
+		return match ? match[1] : codeEl.getAttribute("data-lang") || "";
+	}
+
+	async function formatCodeBlocksInEditor(editor) {
+		if (!editor) return;
+		const blocks = Array.from(editor.querySelectorAll("pre > code"));
+		if (!blocks.length) return;
+		const needsPython = blocks.some((codeEl) => {
+			const lang = getLangFromCodeEl(codeEl);
+			return lang === "py" || lang === "python";
+		});
+		const needsPrettier = blocks.some((codeEl) => {
+			const lang = getLangFromCodeEl(codeEl);
+			return Boolean(getParserForLang(lang));
+		});
+		if (needsPrettier) {
+			await loadPrettier().catch((err) => console.error(err));
+		}
+		if (needsPython) {
+			await loadPythonFormatter();
+		}
+		const prettier = window.prettier;
+		const plugins = window.prettierPlugins
+			? Object.values(window.prettierPlugins)
+			: [];
+		for (const codeEl of blocks) {
+			const lang = getLangFromCodeEl(codeEl);
+			if (lang === "py" || lang === "python") {
+				try {
+					const formatted = await formatPythonCode(codeEl.textContent || "");
+					if (formatted) codeEl.textContent = formatted.trimEnd();
+				} catch (err) {
+					console.error(err);
+				}
+				continue;
+			}
+			const parser = getParserForLang(lang);
+			if (!parser || !prettier || !plugins.length) continue;
+			try {
+				const formatted = prettier.format(codeEl.textContent || "", {
+					parser,
+					plugins,
+				});
+				codeEl.textContent = formatted.trimEnd();
+			} catch (err) {
+				console.error(err);
+			}
+		}
+	}
+
 	function serializeAttrsOrdered(attrs, order) {
 		const parts = [];
 		order.forEach((key) => {
@@ -381,6 +504,12 @@
 			tag === "code"
 		) {
 			const inner = serializeChildren(node);
+			if (tag === "code") {
+				const lang = getLangFromCodeEl(node);
+				if (lang) {
+					return `<code class="language-${escapeAttr(lang)}">${inner}</code>`;
+				}
+			}
 			return `<${tag}>${inner}</${tag}>`;
 		}
 
@@ -3243,6 +3372,20 @@ function serializeSquareGridRow(block, ctx) {
 	}
 
 	function buildRteEditor({ label, initialHtml }) {
+		const langSelect = el(
+			"select",
+			{ class: "cms-rte__lang" },
+			[
+				el("option", { value: "auto" }, ["Auto"]),
+				el("option", { value: "javascript" }, ["JS"]),
+				el("option", { value: "json" }, ["JSON"]),
+				el("option", { value: "html" }, ["HTML"]),
+				el("option", { value: "css" }, ["CSS"]),
+				el("option", { value: "python" }, ["Python"]),
+				el("option", { value: "markdown" }, ["Markdown"]),
+				el("option", { value: "yaml" }, ["YAML"]),
+			],
+		);
 		const toolbar = el("div", { class: "cms-rte__toolbar" }, [
 			el("button", { type: "button", "data-cmd": "bold" }, ["B"]),
 			el("button", { type: "button", "data-cmd": "italic" }, ["I"]),
@@ -3258,6 +3401,7 @@ function serializeSquareGridRow(block, ctx) {
 			el("button", { type: "button", "data-cmd": "code" }, ["Code"]),
 			el("button", { type: "button", "data-cmd": "code-block" }, ["Block code"]),
 			el("button", { type: "button", "data-cmd": "img" }, ["Image"]),
+			langSelect,
 		]);
 		const editor = el("div", {
 			class: "cms-rte",
@@ -3543,12 +3687,27 @@ function serializeSquareGridRow(block, ctx) {
 					return;
 				}
 				if (range.collapsed) return;
+				if (range.collapsed) return;
 				const pre = document.createElement("pre");
 				const code = document.createElement("code");
+				const lang = String(langSelect.value || "").trim();
+				if (lang && lang !== "auto") {
+					code.className = `language-${lang}`;
+					code.setAttribute("data-lang", lang);
+				}
 				code.textContent = range.toString();
 				pre.appendChild(code);
-				range.deleteContents();
-				range.insertNode(pre);
+				const rawText = code.textContent;
+				const parser = getParserForLang(lang);
+				if (parser) {
+					formatCodeBlocksInEditor(pre).then(() => {
+						range.deleteContents();
+						range.insertNode(pre);
+					});
+				} else {
+					range.deleteContents();
+					range.insertNode(pre);
+				}
 				selection.removeAllRanges();
 				const newRange = document.createRange();
 				newRange.selectNodeContents(pre);
@@ -3575,7 +3734,11 @@ function serializeSquareGridRow(block, ctx) {
 				openImagePanel({ targetStub: stub });
 			}
 		});
-		return { wrap, editor };
+		return {
+			wrap,
+			editor,
+			formatCodeBlocks: () => formatCodeBlocksInEditor(editor),
+		};
 	}
 
 	function stripEditEntriesForBase(localBlocks, anchor) {
@@ -3681,8 +3844,8 @@ function serializeSquareGridRow(block, ctx) {
 				initialHtml: parsed.right || "",
 			});
 			editors = [
-				{ key: "left", editor: left.editor },
-				{ key: "right", editor: right.editor },
+				{ key: "left", editor: left.editor, formatCodeBlocks: left.formatCodeBlocks },
+				{ key: "right", editor: right.editor, formatCodeBlocks: right.formatCodeBlocks },
 			];
 			openModal({
 				title: "Edit block",
@@ -3812,7 +3975,9 @@ function serializeSquareGridRow(block, ctx) {
 				label: "Content",
 				initialHtml: parsed.body || "",
 			});
-			editors = [{ key: "body", editor: body.editor }];
+			editors = [
+				{ key: "body", editor: body.editor, formatCodeBlocks: body.formatCodeBlocks },
+			];
 
 			const settingsNodes = [];
 			if (headingInput) {
@@ -3953,7 +4118,8 @@ function serializeSquareGridRow(block, ctx) {
 				updated.lightbox = settings.lightboxInput?.checked ? "true" : "false";
 				updated.imgPos = settings.posSelect?.value || "left";
 			}
-			editors.forEach(({ key, editor }) => {
+			editors.forEach(({ key, editor, formatCodeBlocks }) => {
+				formatCodeBlocks?.();
 				const raw = editor.innerHTML;
 				if (key === "left") updated.left = sanitizeRteHtml(raw, ctx);
 				else if (key === "right") updated.right = sanitizeRteHtml(raw, ctx);
