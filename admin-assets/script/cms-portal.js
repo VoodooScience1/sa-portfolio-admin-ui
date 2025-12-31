@@ -2947,14 +2947,21 @@ function serializeSquareGridRow(block, ctx) {
 		if (!editor) return;
 		editor.focus();
 		const ok = document.execCommand("insertHTML", false, html);
-		if (!ok) {
-			const range = window.getSelection()?.getRangeAt(0);
-			if (!range) return;
-			range.deleteContents();
-			range.insertNode(
-				document.createRange().createContextualFragment(html),
-			);
+		if (ok) return;
+		const selection = window.getSelection();
+		if (!selection) return;
+		let range = null;
+		if (selection.rangeCount > 0) {
+			range = selection.getRangeAt(0);
+		} else {
+			range = document.createRange();
+			range.selectNodeContents(editor);
+			range.collapse(false);
 		}
+		range.deleteContents();
+		range.insertNode(document.createRange().createContextualFragment(html));
+		selection.removeAllRanges();
+		selection.addRange(range);
 	}
 
 	function findClosestCell() {
@@ -3378,10 +3385,49 @@ function serializeSquareGridRow(block, ctx) {
 				].join("\n");
 				insertHtmlAtCursor(editor, tableHtml);
 			} else if (cmd === "pre") {
-				const selection = window.getSelection();
-				const text = selection?.toString() || "";
-				const html = `<pre><code>${escapeHtml(text || "Code")}</code></pre>`;
-				insertHtmlAtCursor(editor, html);
+				const textarea = el("textarea", {
+					class: "cms-field__input cms-field__textarea",
+					placeholder: "Paste code here...",
+				});
+				openModal({
+					title: "Insert code block",
+					bodyNodes: [
+						buildField({
+							label: "Code",
+							input: textarea,
+						}),
+					],
+					footerNodes: [
+						el(
+							"button",
+							{
+								class: "cms-btn cms-modal__action cms-btn--danger",
+								type: "button",
+								"data-close": "true",
+							},
+							["Close"],
+						),
+						el(
+							"button",
+							{
+								class: "cms-btn cms-modal__action cms-btn--success",
+								type: "button",
+							},
+							["Save"],
+						),
+					],
+				});
+				const modal = document.querySelector(".cms-modal");
+				const saveBtn = modal?.querySelector(
+					".cms-btn.cms-modal__action.cms-btn--success",
+				);
+				if (!saveBtn) return;
+				saveBtn.addEventListener("click", () => {
+					const raw = textarea.value || "";
+					const html = `<pre><code>${escapeHtml(raw)}</code></pre>`;
+					insertHtmlAtCursor(editor, html);
+					closeModal();
+				});
 			} else if (cmd === "img") {
 				openImageInsertModal(editor);
 			}
