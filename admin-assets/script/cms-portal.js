@@ -14,7 +14,7 @@
  */
 
 (() => {
-	const PORTAL_VERSION = "2025-12-31-16";
+	const PORTAL_VERSION = "2025-12-31-17";
 	window.__CMS_PORTAL_VERSION__ = PORTAL_VERSION;
 	console.log(`[cms-portal] loaded v${PORTAL_VERSION}`);
 
@@ -193,9 +193,18 @@
 
 	function indentLines(text, level) {
 		const pad = "\t".repeat(level);
-		return String(text || "")
-			.split("\n")
-			.map((line) => (line ? `${pad}${line}` : line))
+		const lines = String(text || "").split("\n");
+		let inPre = false;
+		return lines
+			.map((line) => {
+				const lower = line.toLowerCase();
+				const startsPre = lower.includes("<pre");
+				const endsPre = lower.includes("</pre");
+				const out = !inPre && line ? `${pad}${line}` : line;
+				if (startsPre) inPre = true;
+				if (endsPre) inPre = false;
+				return out;
+			})
 			.join("\n");
 	}
 
@@ -3383,6 +3392,23 @@ function serializeSquareGridRow(block, ctx) {
 			"data-rte": "true",
 		});
 		editor.innerHTML = initialHtml || "";
+		let lastRange = null;
+		const saveSelection = () => {
+			const selection = window.getSelection();
+			if (!selection || selection.rangeCount === 0) return;
+			const range = selection.getRangeAt(0);
+			const container = range.commonAncestorContainer;
+			if (!editor.contains(container)) return;
+			lastRange = range.cloneRange();
+		};
+		const restoreSelection = () => {
+			if (!lastRange) return false;
+			const selection = window.getSelection();
+			if (!selection) return false;
+			selection.removeAllRanges();
+			selection.addRange(lastRange);
+			return true;
+		};
 
 		const TOOLBAR_TEXT_RE =
 			/Auto\s*JS\s*JSON\s*HTML\s*CSS\s*Python\s*Markdown\s*YAML\s*Format/g;
@@ -3407,6 +3433,11 @@ function serializeSquareGridRow(block, ctx) {
 		};
 
 		stripToolbarText(editor);
+		editor.addEventListener("keyup", saveSelection);
+		editor.addEventListener("mouseup", saveSelection);
+		editor.addEventListener("focus", saveSelection);
+		editor.addEventListener("input", saveSelection);
+		document.addEventListener("selectionchange", saveSelection);
 
 		const updateCodeLanguage = (codeEl, lang) => {
 			if (!codeEl) return;
@@ -3645,6 +3676,7 @@ function serializeSquareGridRow(block, ctx) {
 				activeImageTarget.setAttribute("data-size", attrs.size || "sml");
 			} else {
 				const html = serializeImgStub(attrs);
+				restoreSelection();
 				insertHtmlAtCursor(editor, html);
 			}
 			closeImagePanel();
@@ -3663,6 +3695,7 @@ function serializeSquareGridRow(block, ctx) {
 			if (!btn) return;
 			const cmd = btn.getAttribute("data-cmd");
 			if (!cmd) return;
+			restoreSelection();
 			editor.focus();
 			if (cmd === "bold") document.execCommand("bold");
 			else if (cmd === "italic") document.execCommand("italic");
