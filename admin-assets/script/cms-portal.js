@@ -332,7 +332,9 @@
 			if (lang === "py" || lang === "python") {
 				try {
 					const formatted = await formatPythonCode(codeEl.textContent || "");
-					if (formatted) codeEl.textContent = formatted.trimEnd();
+					if (typeof formatted === "string") {
+						codeEl.textContent = formatted.replace(/\s+$/, "");
+					}
 				} catch (err) {
 					console.error(err);
 				}
@@ -341,11 +343,17 @@
 			const parser = getParserForLang(lang);
 			if (!parser || !prettier || !plugins.length) continue;
 			try {
-				const formatted = prettier.format(codeEl.textContent || "", {
+				const maybeFormatted = prettier.format(codeEl.textContent || "", {
 					parser,
 					plugins,
 				});
-				codeEl.textContent = formatted.trimEnd();
+				const formatted =
+					maybeFormatted && typeof maybeFormatted.then === "function"
+						? await maybeFormatted
+						: maybeFormatted;
+				if (typeof formatted === "string") {
+					codeEl.textContent = formatted.replace(/\s+$/, "");
+				}
 			} catch (err) {
 				console.error(err);
 			}
@@ -533,20 +541,17 @@
 				return `<div>${inner}</div>`;
 			}
 
-		if (
-			tag === "p" ||
-			tag === "strong" ||
-			tag === "em" ||
-			tag === "u" ||
-			tag === "code"
-		) {
-			const inner = serializeChildren(node);
-			if (tag === "code") {
-				const lang = getLangFromCodeEl(node);
-				if (lang) {
-					return `<code class="language-${escapeAttr(lang)}">${inner}</code>`;
-				}
+		if (tag === "code") {
+			const lang = getLangFromCodeEl(node);
+			const text = escapeHtml(node.textContent || "");
+			if (lang) {
+				return `<code class="language-${escapeAttr(lang)}">${text}</code>`;
 			}
+			return `<code>${text}</code>`;
+		}
+
+		if (tag === "p" || tag === "strong" || tag === "em" || tag === "u") {
+			const inner = serializeChildren(node);
 			return `<${tag}>${inner}</${tag}>`;
 		}
 
@@ -595,8 +600,12 @@
 		}
 
 		if (tag === "pre") {
-			const inner = serializeChildren(node);
-			return `<pre>${inner}</pre>`;
+			const codeChild = node.querySelector("code");
+			if (codeChild) {
+				return `<pre>${sanitizeNode(codeChild)}</pre>`;
+			}
+			const text = escapeHtml(node.textContent || "");
+			return `<pre><code>${text}</code></pre>`;
 		}
 
 		if (tag === "ul" || tag === "ol") {
@@ -3499,6 +3508,9 @@ function serializeSquareGridRow(block, ctx) {
 			if (TOOLBAR_TEXT_RE.test(codeEl.textContent)) {
 				codeEl.textContent = codeEl.textContent.replace(TOOLBAR_TEXT_RE, "");
 			}
+			pre.querySelectorAll(".cms-code-toolbar, select, button").forEach((el) => {
+				if (pre.contains(el)) el.remove();
+			});
 			pre.classList.add("cms-code-block");
 			const tool = el("div", {
 				class: "cms-code-toolbar",
@@ -3525,7 +3537,12 @@ function serializeSquareGridRow(block, ctx) {
 			langSelectInline.addEventListener("change", () => {
 				updateCodeLanguage(codeEl, langSelectInline.value);
 				formatCodeBlocksInEditor(pre).then(() => {
-					if (window.hljs) window.hljs.highlightElement(codeEl);
+					if (window.hljs) {
+						codeEl.textContent = codeEl.textContent;
+						codeEl.removeAttribute("data-highlighted");
+						codeEl.classList.remove("hljs");
+						window.hljs.highlightElement(codeEl);
+					}
 				});
 			});
 			formatBtn.addEventListener("click", () => {
@@ -3537,7 +3554,12 @@ function serializeSquareGridRow(block, ctx) {
 					}
 				}
 				formatCodeBlocksInEditor(pre).then(() => {
-					if (window.hljs) window.hljs.highlightElement(codeEl);
+					if (window.hljs) {
+						codeEl.textContent = codeEl.textContent;
+						codeEl.removeAttribute("data-highlighted");
+						codeEl.classList.remove("hljs");
+						window.hljs.highlightElement(codeEl);
+					}
 				});
 			});
 			tool.appendChild(langSelectInline);
