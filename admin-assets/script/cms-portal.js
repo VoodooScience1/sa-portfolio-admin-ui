@@ -2770,16 +2770,28 @@ function serializeSquareGridRow(block, ctx) {
 	function openInsertBlockModal(index, anchorInfo) {
 		const list = el("div", { class: "cms-modal__list" }, []);
 		BLOCK_LIBRARY.forEach((item) => {
-			const row = el("div", { class: "cms-modal__row" }, [
+			const row = el(
+				"div",
+				{
+					class: "cms-modal__row cms-modal__row--pick",
+					role: "button",
+					tabindex: "0",
+					"aria-label": `Insert ${item.label}`,
+				},
+				[
 				el("span", { class: "cms-modal__label" }, [item.label]),
 				el(
 					"button",
-					{ class: "cms-btn cms-modal__action", type: "button" },
+					{
+						class: "cms-btn cms-modal__action cms-modal__action--disabled",
+						type: "button",
+						disabled: true,
+					},
 					["Insert"],
 				),
-			]);
-			const btn = row.querySelector("button");
-			btn.addEventListener("click", async () => {
+			],
+			);
+			const handlePick = async () => {
 				closeModal();
 				try {
 					await insertBlockFromPartial(index, anchorInfo, item.partial);
@@ -2787,6 +2799,13 @@ function serializeSquareGridRow(block, ctx) {
 					console.error(err);
 					setUiState("error", "DISCONNECTED / ERROR");
 					renderPageSurface();
+				}
+			};
+			row.addEventListener("click", handlePick);
+			row.addEventListener("keydown", (event) => {
+				if (event.key === "Enter" || event.key === " ") {
+					event.preventDefault();
+					handlePick();
 				}
 			});
 			list.appendChild(row);
