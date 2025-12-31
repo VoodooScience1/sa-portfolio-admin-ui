@@ -3386,6 +3386,10 @@ function serializeSquareGridRow(block, ctx) {
 				el("option", { value: "yaml" }, ["YAML"]),
 			],
 		);
+		const codeLangOptions = Array.from(langSelect.options).map((opt) => ({
+			value: opt.value,
+			label: opt.textContent || opt.value,
+		}));
 		const toolbar = el("div", { class: "cms-rte__toolbar" }, [
 			el("button", { type: "button", "data-cmd": "bold" }, ["B"]),
 			el("button", { type: "button", "data-cmd": "italic" }, ["I"]),
@@ -3409,6 +3413,75 @@ function serializeSquareGridRow(block, ctx) {
 			"data-rte": "true",
 		});
 		editor.innerHTML = initialHtml || "";
+
+		const updateCodeLanguage = (codeEl, lang) => {
+			if (!codeEl) return;
+			const clean = String(lang || "").trim().toLowerCase();
+			codeEl.className = "";
+			codeEl.removeAttribute("data-lang");
+			if (clean && clean !== "auto") {
+				codeEl.className = `language-${clean}`;
+				codeEl.setAttribute("data-lang", clean);
+			}
+		};
+
+		const ensureCodeToolbar = (pre) => {
+			if (!pre || pre.querySelector(".cms-code-toolbar")) return;
+			const codeEl = pre.querySelector("code");
+			if (!codeEl) return;
+			pre.classList.add("cms-code-block");
+			const tool = el("div", {
+				class: "cms-code-toolbar",
+				contenteditable: "false",
+			});
+			const langSelectInline = el(
+				"select",
+				{ class: "cms-code-toolbar__select", contenteditable: "false" },
+				codeLangOptions.map((opt) =>
+					el("option", { value: opt.value }, [opt.label]),
+				),
+			);
+			langSelectInline.value = getLangFromCodeEl(codeEl) || "auto";
+			const formatBtn = el(
+				"button",
+				{
+					type: "button",
+					class: "cms-code-toolbar__btn",
+					contenteditable: "false",
+					title: "Format code",
+				},
+				["Format"],
+			);
+			langSelectInline.addEventListener("change", () => {
+				updateCodeLanguage(codeEl, langSelectInline.value);
+				formatCodeBlocksInEditor(pre).then(() => {
+					if (window.hljs) window.hljs.highlightElement(codeEl);
+				});
+			});
+			formatBtn.addEventListener("click", () => {
+				formatCodeBlocksInEditor(pre).then(() => {
+					if (window.hljs) window.hljs.highlightElement(codeEl);
+				});
+			});
+			tool.appendChild(langSelectInline);
+			tool.appendChild(formatBtn);
+			pre.appendChild(tool);
+		};
+
+		editor.querySelectorAll("pre").forEach((pre) => ensureCodeToolbar(pre));
+
+		const codeObserver = new MutationObserver((mutations) => {
+			mutations.forEach((mutation) => {
+				mutation.addedNodes.forEach((node) => {
+					if (!(node instanceof HTMLElement)) return;
+					if (node.matches("pre")) ensureCodeToolbar(node);
+					node.querySelectorAll?.("pre").forEach((pre) =>
+						ensureCodeToolbar(pre),
+					);
+				});
+			});
+		});
+		codeObserver.observe(editor, { childList: true, subtree: true });
 
 		let activeImageTarget = null;
 
@@ -3691,10 +3764,7 @@ function serializeSquareGridRow(block, ctx) {
 				const pre = document.createElement("pre");
 				const code = document.createElement("code");
 				const lang = String(langSelect.value || "").trim();
-				if (lang && lang !== "auto") {
-					code.className = `language-${lang}`;
-					code.setAttribute("data-lang", lang);
-				}
+				updateCodeLanguage(code, lang);
 				code.textContent = range.toString();
 				pre.appendChild(code);
 				const rawText = code.textContent;
@@ -3703,10 +3773,12 @@ function serializeSquareGridRow(block, ctx) {
 					formatCodeBlocksInEditor(pre).then(() => {
 						range.deleteContents();
 						range.insertNode(pre);
+						ensureCodeToolbar(pre);
 					});
 				} else {
 					range.deleteContents();
 					range.insertNode(pre);
+					ensureCodeToolbar(pre);
 				}
 				selection.removeAllRanges();
 				const newRange = document.createRange();
@@ -3722,11 +3794,30 @@ function serializeSquareGridRow(block, ctx) {
 			if (!selection || !selection.anchorNode) return;
 			let node = selection.anchorNode;
 			if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+			const codeBlock = node?.closest ? node.closest("pre, code") : null;
+			if (codeBlock) {
+				event.preventDefault();
+				document.execCommand("insertText", false, "\t");
+				return;
+			}
 			const li = node?.closest ? node.closest("li") : null;
 			if (!li) return;
 			event.preventDefault();
 			if (event.shiftKey) document.execCommand("outdent");
 			else document.execCommand("indent");
+		});
+		editor.addEventListener("paste", (event) => {
+			const selection = window.getSelection();
+			if (!selection || selection.rangeCount === 0) return;
+			const range = selection.getRangeAt(0);
+			let node = range.commonAncestorContainer;
+			if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+			const codeBlock = node?.closest ? node.closest("pre, code") : null;
+			if (!codeBlock) return;
+			const text = event.clipboardData?.getData("text/plain");
+			if (!text) return;
+			event.preventDefault();
+			document.execCommand("insertText", false, text);
 		});
 		editor.addEventListener("click", (event) => {
 			const stub = event.target.closest(".img-stub");
