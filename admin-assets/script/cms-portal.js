@@ -5082,6 +5082,9 @@ function serializeSquareGridRow(block, ctx) {
 		// Parity behaviours
 		window.runSections?.();
 		window.initLightbox?.();
+		if (window.hljs?.highlightAll) {
+			window.hljs.highlightAll();
+		}
 		renderDebugOverlay();
 	}
 
