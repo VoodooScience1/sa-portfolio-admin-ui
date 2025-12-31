@@ -365,10 +365,16 @@
 				return `<div>${inner}</div>`;
 			}
 
-			if (tag === "p" || tag === "strong" || tag === "em" || tag === "code") {
-				const inner = serializeChildren(node);
-				return `<${tag}>${inner}</${tag}>`;
-			}
+		if (
+			tag === "p" ||
+			tag === "strong" ||
+			tag === "em" ||
+			tag === "u" ||
+			tag === "code"
+		) {
+			const inner = serializeChildren(node);
+			return `<${tag}>${inner}</${tag}>`;
+		}
 
 			if (tag === "h2" || tag === "h3") {
 				const inner = serializeChildren(node);
@@ -471,6 +477,17 @@
 				};
 			}
 			if (type === "imgText" || type === "split50") {
+				const headingEl = node.querySelector("h1,h2,h3");
+				const headingTag = headingEl
+					? headingEl.tagName.toLowerCase()
+					: "h2";
+				let body = node.innerHTML || "";
+				if (headingEl) {
+					const clone = node.cloneNode(true);
+					const removeHeading = clone.querySelector("h1,h2,h3");
+					if (removeHeading) removeHeading.remove();
+					body = clone.innerHTML || "";
+				}
 				return {
 					type,
 					cmsId,
@@ -480,7 +497,9 @@
 					lightbox: node.getAttribute("data-lightbox") || "false",
 					overlayTitle: node.getAttribute("data-overlay-title") || "",
 					overlayText: node.getAttribute("data-overlay-text") || "",
-					body: node.innerHTML || "",
+					heading: headingEl?.textContent?.trim() || "",
+					headingTag,
+					body,
 				};
 			}
 			return { type: "legacy", cmsId, raw: node.outerHTML };
@@ -579,9 +598,17 @@
 			"data-overlay-title",
 			"data-overlay-text",
 		];
+		const headingText = (block.heading || "").trim();
+		const headingTag = (block.headingTag || "h2").toLowerCase();
+		const headingHtml = headingText
+			? `<${headingTag}>${escapeHtml(headingText)}</${headingTag}>`
+			: "";
 		const body = sanitizeRteHtml(block.body || "", ctx);
+		const content = headingHtml
+			? [headingHtml, body].filter(Boolean).join("\n")
+			: body;
 		const lines = [`<div${serializeAttrsOrdered(attrs, order)}>`];
-		if (body) lines.push(indentLines(body, 1));
+		if (content) lines.push(indentLines(content, 1));
 		lines.push(`</div>`);
 		return lines.join("\n");
 	}
@@ -2827,6 +2854,14 @@ function serializeSquareGridRow(block, ctx) {
 	}
 
 	function buildRteEditor({ label, initialHtml }) {
+		const toolbar = el("div", { class: "cms-rte__toolbar" }, [
+			el("button", { type: "button", "data-cmd": "bold" }, ["B"]),
+			el("button", { type: "button", "data-cmd": "italic" }, ["I"]),
+			el("button", { type: "button", "data-cmd": "underline" }, ["U"]),
+			el("button", { type: "button", "data-cmd": "ul" }, ["•"]),
+			el("button", { type: "button", "data-cmd": "ol" }, ["1."]),
+			el("button", { type: "button", "data-cmd": "code" }, ["</>"]),
+		]);
 		const editor = el("div", {
 			class: "cms-rte",
 			contenteditable: "true",
@@ -2835,8 +2870,33 @@ function serializeSquareGridRow(block, ctx) {
 		editor.innerHTML = initialHtml || "";
 		const wrap = el("div", { class: "cms-rte__field" }, [
 			el("div", { class: "cms-rte__label" }, [label]),
+			toolbar,
 			editor,
 		]);
+		toolbar.addEventListener("click", (event) => {
+			const btn = event.target.closest("button");
+			if (!btn) return;
+			const cmd = btn.getAttribute("data-cmd");
+			if (!cmd) return;
+			editor.focus();
+			if (cmd === "bold") document.execCommand("bold");
+			else if (cmd === "italic") document.execCommand("italic");
+			else if (cmd === "underline") document.execCommand("underline");
+			else if (cmd === "ul") document.execCommand("insertUnorderedList");
+			else if (cmd === "ol") document.execCommand("insertOrderedList");
+			else if (cmd === "code") {
+				const selection = window.getSelection();
+				if (!selection || selection.rangeCount === 0) return;
+				const range = selection.getRangeAt(0);
+				const text = range.toString();
+				if (!text) return;
+				const code = document.createElement("code");
+				code.textContent = text;
+				range.deleteContents();
+				range.insertNode(code);
+				selection.removeAllRanges();
+			}
+		});
 		return { wrap, editor };
 	}
 
@@ -2853,6 +2913,15 @@ function serializeSquareGridRow(block, ctx) {
 				return false;
 			return true;
 		});
+	}
+
+	function buildField({ label, input, note }) {
+		const nodes = [
+			el("div", { class: "cms-field__label" }, [label]),
+			input,
+		];
+		if (note) nodes.push(el("div", { class: "cms-field__note" }, [note]));
+		return el("div", { class: "cms-field" }, nodes);
 	}
 
 	function openBlockEditor({ blockHtml, origin, localId, anchorBase, currentLocal }) {
@@ -2917,6 +2986,7 @@ function serializeSquareGridRow(block, ctx) {
 		}
 
 		let editors = [];
+		let settings = {};
 		if (parsed.type === "twoCol") {
 			const left = buildRteEditor({
 				label: "Left column",
@@ -2954,14 +3024,122 @@ function serializeSquareGridRow(block, ctx) {
 				],
 			});
 		} else {
+			let headingInput = null;
+			let imgInput = null;
+			let captionInput = null;
+			let overlayTitleInput = null;
+			let overlayTextInput = null;
+			let lightboxInput = null;
+			let posSelect = null;
+
+			if (parsed.type === "imgText" || parsed.type === "split50") {
+				headingInput = el("input", {
+					type: "text",
+					class: "cms-field__input",
+					value: parsed.heading || "",
+					placeholder: "Heading",
+				});
+				imgInput = el("input", {
+					type: "text",
+					class: "cms-field__input",
+					value: parsed.img || "",
+					placeholder: "/assets/img/...",
+				});
+				captionInput = el("input", {
+					type: "text",
+					class: "cms-field__input",
+					value: parsed.caption || "",
+					placeholder: "Optional caption",
+				});
+				overlayTitleInput = el("input", {
+					type: "text",
+					class: "cms-field__input",
+					value: parsed.overlayTitle || "",
+					placeholder: "Overlay title (optional)",
+				});
+				overlayTextInput = el("input", {
+					type: "text",
+					class: "cms-field__input",
+					value: parsed.overlayText || "",
+					placeholder: "Overlay text (optional)",
+				});
+				lightboxInput = el("input", {
+					type: "checkbox",
+					class: "cms-field__checkbox",
+				});
+				lightboxInput.checked = normalizeBool(parsed.lightbox, "false") === "true";
+				posSelect = el(
+					"select",
+					{ class: "cms-field__select" },
+					[
+						el("option", { value: "left" }, ["Image left"]),
+						el("option", { value: "right" }, ["Image right"]),
+					],
+				);
+				posSelect.value = parsed.imgPos === "right" ? "right" : "left";
+			}
+
 			const body = buildRteEditor({
 				label: "Content",
 				initialHtml: parsed.body || "",
 			});
 			editors = [{ key: "body", editor: body.editor }];
+
+			const settingsNodes = [];
+			if (headingInput) {
+				settingsNodes.push(
+					buildField({
+						label: "Heading",
+						input: headingInput,
+						note: "Controls the block title styling.",
+					}),
+				);
+			}
+			if (imgInput) {
+				settingsNodes.push(
+					buildField({
+						label: "Image source",
+						input: imgInput,
+						note: "Required for image blocks.",
+					}),
+				);
+				settingsNodes.push(
+					buildField({ label: "Caption", input: captionInput }),
+				);
+				settingsNodes.push(
+					buildField({
+						label: "Image position",
+						input: posSelect,
+					}),
+				);
+				settingsNodes.push(
+					buildField({
+						label: "Lightbox",
+						input: el("label", { class: "cms-field__toggle" }, [
+							lightboxInput,
+							el("span", { class: "cms-field__toggle-text" }, ["Enable"]),
+						]),
+					}),
+				);
+				settingsNodes.push(
+					buildField({ label: "Overlay title", input: overlayTitleInput }),
+				);
+				settingsNodes.push(
+					buildField({ label: "Overlay text", input: overlayTextInput }),
+				);
+			}
+
+			const settingsWrap =
+				settingsNodes.length > 0
+					? el("div", { class: "cms-modal__group cms-modal__group--settings" }, [
+							el("div", { class: "cms-modal__group-title" }, ["Block settings"]),
+							...settingsNodes,
+						])
+					: null;
+
 			openModal({
 				title: "Edit block",
-				bodyNodes: [body.wrap],
+				bodyNodes: settingsWrap ? [settingsWrap, body.wrap] : [body.wrap],
 				footerNodes: [
 					el(
 						"button",
@@ -2982,6 +3160,16 @@ function serializeSquareGridRow(block, ctx) {
 					),
 				],
 			});
+
+			settings = {
+				headingInput,
+				imgInput,
+				captionInput,
+				overlayTitleInput,
+				overlayTextInput,
+				lightboxInput,
+				posSelect,
+			};
 		}
 
 		const modal = document.querySelector(".cms-modal");
@@ -2992,6 +3180,18 @@ function serializeSquareGridRow(block, ctx) {
 
 		saveBtn.addEventListener("click", () => {
 			const updated = { ...parsed };
+			if (settings.headingInput) {
+				updated.heading = settings.headingInput.value.trim();
+				updated.headingTag = parsed.headingTag || "h2";
+			}
+			if (settings.imgInput) {
+				updated.img = settings.imgInput.value.trim();
+				updated.caption = settings.captionInput?.value.trim() || "";
+				updated.overlayTitle = settings.overlayTitleInput?.value.trim() || "";
+				updated.overlayText = settings.overlayTextInput?.value.trim() || "";
+				updated.lightbox = settings.lightboxInput?.checked ? "true" : "false";
+				updated.imgPos = settings.posSelect?.value || "left";
+			}
 			editors.forEach(({ key, editor }) => {
 				const raw = editor.innerHTML;
 				if (key === "left") updated.left = sanitizeRteHtml(raw, ctx);
