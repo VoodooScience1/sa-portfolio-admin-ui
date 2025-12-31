@@ -24,7 +24,7 @@
 	const PR_STORAGE_KEY = "cms-pr-state";
 	const SESSION_STORAGE_KEY = "cms-session-state";
 	const DEBUG_ENABLED_DEFAULT = true;
-	const UPDATE_VERSION = 25;
+	const UPDATE_VERSION = 26;
 	const BUILD_TOKEN = Date.now().toString(36);
 
 	function getPagePathFromLocation() {
@@ -68,6 +68,18 @@
 	function setDebugEnabled(val) {
 		localStorage.setItem("cms-debug", val ? "1" : "0");
 		state.debug = Boolean(val);
+		if (state.debug) {
+			window.__CMS_DEBUG__ = {
+				buildBaseBlocksWithOcc: (html) => buildBaseBlocksWithOcc(html),
+				buildMergedRenderBlocks: (html, locals, options) =>
+					buildMergedRenderBlocks(html, locals, options),
+				parseBlocks: (html) => parseBlocks(html),
+				assignAnchorsFromHtml: (baseHtml, mergedHtml, locals) =>
+					assignAnchorsFromHtml(baseHtml, mergedHtml, locals),
+			};
+		} else {
+			delete window.__CMS_DEBUG__;
+		}
 		renderDebugOverlay();
 		renderDebugPill();
 	}
@@ -2862,8 +2874,6 @@ function serializeSquareGridRow(block, ctx) {
 			assignAnchorsFromHtml: (baseHtml, mergedHtml, locals) =>
 				assignAnchorsFromHtml(baseHtml, mergedHtml, locals),
 		};
-	} else {
-		delete window.__CMS_DEBUG__;
 	}
 
 	function stopPrPolling() {
@@ -4112,10 +4122,12 @@ function serializeSquareGridRow(block, ctx) {
 		// Debug signal: whitespace normalisation can make this false even when correct.
 		const rebuiltMain = serializeMainFromBlocks(state.blocks);
 		const originalMain = (state.mainInner || "").trim();
-		console.log(
-			"[cms-portal] roundtrip main equal?",
-			rebuiltMain === originalMain,
-		);
+			if (state.debug) {
+				console.log(
+					"[cms-portal] roundtrip main equal?",
+					rebuiltMain === originalMain,
+				);
+			}
 
 		const missing = [];
 		if (!hero.found) missing.push("hero markers");
