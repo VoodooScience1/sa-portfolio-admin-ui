@@ -14,7 +14,9 @@
  */
 
 (() => {
-	console.log("[cms-portal] loaded");
+	const PORTAL_VERSION = "2025-12-31-3";
+	window.__CMS_PORTAL_VERSION__ = PORTAL_VERSION;
+	console.log(`[cms-portal] loaded v${PORTAL_VERSION}`);
 
 	// -------------------------
 	// CONFIG
@@ -24,7 +26,7 @@
 	const PR_STORAGE_KEY = "cms-pr-state";
 	const SESSION_STORAGE_KEY = "cms-session-state";
 	const DEBUG_ENABLED_DEFAULT = true;
-	const UPDATE_VERSION = 28;
+	const UPDATE_VERSION = 29;
 
 	const BLOCK_LIBRARY = [
 		{
