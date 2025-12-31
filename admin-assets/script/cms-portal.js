@@ -14,7 +14,7 @@
  */
 
 (() => {
-	const PORTAL_VERSION = "2025-12-31-14";
+	const PORTAL_VERSION = "2025-12-31-15";
 	window.__CMS_PORTAL_VERSION__ = PORTAL_VERSION;
 	console.log(`[cms-portal] loaded v${PORTAL_VERSION}`);
 
@@ -319,16 +319,12 @@
 	}
 
 	function normalizeCodeForFormat(text, lang = "") {
-		const lower = String(lang || "").toLowerCase();
 		const trimmed = String(text || "").replace(/\r\n/g, "\n");
-		if (lower === "py" || lower === "python") {
-			return normalizeCodeIndent(trimmed, lower);
-		}
 		return trimmed.replace(/^[\t ]+/gm, "");
 	}
 
 	function normalizeCodeForSave(text, lang = "") {
-		return normalizeCodeForFormat(text, lang);
+		return String(text || "").replace(/\r\n/g, "\n");
 	}
 
 	function formatHtmlFragment(prettier, plugins, code) {
