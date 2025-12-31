@@ -14,7 +14,7 @@
  */
 
 (() => {
-	const PORTAL_VERSION = "2025-12-31-13";
+	const PORTAL_VERSION = "2025-12-31-14";
 	window.__CMS_PORTAL_VERSION__ = PORTAL_VERSION;
 	console.log(`[cms-portal] loaded v${PORTAL_VERSION}`);
 
@@ -3657,7 +3657,7 @@ function serializeSquareGridRow(block, ctx) {
 				codeEl.setAttribute("data-lang", clean);
 			}
 			codeEl.classList.add("nohighlight");
-			codeEl.setAttribute("contenteditable", "true");
+			codeEl.setAttribute("contenteditable", "false");
 			codeEl.setAttribute("spellcheck", "false");
 		};
 
@@ -3665,16 +3665,7 @@ function serializeSquareGridRow(block, ctx) {
 			if (!pre) return;
 			const codeEl = pre.querySelector("code");
 			if (!codeEl) return;
-			let wrapper = pre.parentElement?.classList.contains("cms-code-block-wrap")
-				? pre.parentElement
-				: null;
-			if (!wrapper) {
-				wrapper = el("div", { class: "cms-code-block-wrap" });
-				pre.parentNode?.insertBefore(wrapper, pre);
-				wrapper.appendChild(pre);
-			}
-			const existing = wrapper.querySelector(".cms-code-toolbar");
-			if (existing) return;
+			pre.setAttribute("contenteditable", "false");
 			const textLang = getLangFromCodeEl(codeEl);
 			const detected = textLang || guessLanguageFromText(codeEl.textContent);
 			if (!textLang && detected && detected !== "auto") {
@@ -3683,29 +3674,8 @@ function serializeSquareGridRow(block, ctx) {
 			if (TOOLBAR_TEXT_RE.test(codeEl.textContent)) {
 				codeEl.textContent = codeEl.textContent.replace(TOOLBAR_TEXT_RE, "");
 			}
-			pre.querySelectorAll(".cms-code-toolbar, select, button").forEach((el) => {
-				if (pre.contains(el)) el.remove();
-			});
 			pre.classList.add("cms-code-block");
 			updateCodeLanguage(codeEl, getLangFromCodeEl(codeEl) || detected || "auto");
-			const tool = el("div", {
-				class: "cms-code-toolbar",
-				contenteditable: "false",
-			});
-			const langSelectInline = el(
-				"select",
-				{ class: "cms-code-toolbar__select", contenteditable: "false" },
-				codeLangOptions.map((opt) =>
-					el("option", { value: opt.value }, [opt.label]),
-				),
-			);
-			langSelectInline.value = detected || "auto";
-			langSelectInline.addEventListener("change", () => {
-				updateCodeLanguage(codeEl, langSelectInline.value);
-				formatCodeBlocksInEditor(pre);
-			});
-			tool.appendChild(langSelectInline);
-			wrapper.appendChild(tool);
 		};
 
 		editor.querySelectorAll("pre").forEach((pre) => ensureCodeToolbar(pre));
@@ -3829,6 +3799,93 @@ function serializeSquareGridRow(block, ctx) {
 			editor,
 			imagePanel,
 		]);
+
+		const openCodeBlockModal = ({ pre = null, initialText = "", initialLang = "" }) => {
+			const textArea = el("textarea", {
+				class: "cms-modal__textarea",
+				rows: 12,
+				spellcheck: "false",
+			});
+			textArea.value = initialText;
+			const langSelect = el(
+				"select",
+				{ class: "cms-field__select" },
+				codeLangOptions.map((opt) =>
+					el("option", { value: opt.value }, [opt.label]),
+				),
+			);
+			const detected =
+				initialLang || guessLanguageFromText(initialText) || "auto";
+			langSelect.value = detected;
+			openModal({
+				title: pre ? "Edit code" : "Insert code",
+				bodyNodes: [
+					buildField({ label: "Language", input: langSelect }),
+					buildField({ label: "Code", input: textArea }),
+				],
+				footerNodes: [
+					el(
+						"button",
+						{
+							class: "cms-btn cms-modal__action cms-btn--danger",
+							type: "button",
+							"data-close": "true",
+						},
+						["Close"],
+					),
+					el(
+						"button",
+						{
+							class: "cms-btn cms-modal__action cms-btn--success",
+							type: "button",
+							"data-action": "save-code-block",
+						},
+						["Save"],
+					),
+				],
+			});
+			const modal = document.querySelector(".cms-modal");
+			const saveBtn = modal?.querySelector(
+				".cms-btn.cms-modal__action.cms-btn--success[data-action=\"save-code-block\"]",
+			);
+			if (!saveBtn) return;
+			saveBtn.addEventListener("click", async () => {
+				let lang = langSelect.value || "auto";
+				if (lang === "auto") {
+					lang = guessLanguageFromText(textArea.value) || "auto";
+				}
+				const temp = document.createElement("div");
+				const tempPre = document.createElement("pre");
+				const tempCode = document.createElement("code");
+				updateCodeLanguage(tempCode, lang);
+				tempCode.textContent = textArea.value;
+				tempPre.appendChild(tempCode);
+				temp.appendChild(tempPre);
+				await formatCodeBlocksInEditor(temp);
+				const formatted = temp.querySelector("code")?.textContent || textArea.value;
+				if (pre) {
+					const code = pre.querySelector("code") || document.createElement("code");
+					updateCodeLanguage(code, lang);
+					code.textContent = formatted;
+					if (!code.parentElement) {
+						pre.innerHTML = "";
+						pre.appendChild(code);
+					}
+					ensureCodeToolbar(pre);
+				} else {
+					const newPre = document.createElement("pre");
+					const newCode = document.createElement("code");
+					updateCodeLanguage(newCode, lang);
+					newCode.textContent = formatted;
+					newPre.appendChild(newCode);
+					insertHtmlAtCursor(editor, newPre.outerHTML);
+					editor.querySelectorAll("pre").forEach((node) =>
+						ensureCodeToolbar(node),
+					);
+				}
+				closeModal();
+			});
+		};
 
 		const openImagePanel = ({ targetStub = null } = {}) => {
 			activeImageTarget = targetStub;
@@ -3991,39 +4048,16 @@ function serializeSquareGridRow(block, ctx) {
 				if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
 				const existingPre = node?.closest ? node.closest("pre") : null;
 				if (existingPre) {
-					const textNode = document.createTextNode(existingPre.textContent || "");
-					existingPre.replaceWith(textNode);
-					selection.removeAllRanges();
-					const newRange = document.createRange();
-					newRange.selectNodeContents(textNode);
-					selection.addRange(newRange);
+					const code = existingPre.querySelector("code");
+					openCodeBlockModal({
+						pre: existingPre,
+						initialText: code?.textContent || "",
+						initialLang: getLangFromCodeEl(code),
+					});
 					return;
 				}
-				if (range.collapsed) return;
-				if (range.collapsed) return;
-				const pre = document.createElement("pre");
-				const code = document.createElement("code");
-				const lang = guessLanguageFromText(range.toString());
-				updateCodeLanguage(code, lang);
-				code.textContent = range.toString();
-				pre.appendChild(code);
-				const rawText = code.textContent;
-				const parser = getParserForLang(lang);
-				if (parser) {
-					formatCodeBlocksInEditor(pre).then(() => {
-						range.deleteContents();
-						range.insertNode(pre);
-						ensureCodeToolbar(pre);
-					});
-				} else {
-					range.deleteContents();
-					range.insertNode(pre);
-					ensureCodeToolbar(pre);
-				}
-				selection.removeAllRanges();
-				const newRange = document.createRange();
-				newRange.selectNodeContents(pre);
-				selection.addRange(newRange);
+				const initialText = range.collapsed ? "" : range.toString();
+				openCodeBlockModal({ initialText });
 			} else if (cmd === "img") {
 				openImagePanel();
 			}
@@ -4105,6 +4139,17 @@ function serializeSquareGridRow(block, ctx) {
 			},
 			true,
 		);
+		editor.addEventListener("click", (event) => {
+			const target = event.target instanceof Element ? event.target : null;
+			const pre = target?.closest("pre");
+			if (!pre) return;
+			const code = pre.querySelector("code");
+			openCodeBlockModal({
+				pre,
+				initialText: code?.textContent || "",
+				initialLang: getLangFromCodeEl(code),
+			});
+		});
 		editor.addEventListener("click", (event) => {
 			const stub = event.target.closest(".img-stub");
 			if (stub && editor.contains(stub)) {
@@ -4933,7 +4978,8 @@ function serializeSquareGridRow(block, ctx) {
 		).filter((code) => {
 			if (code.classList.contains("nohighlight")) return false;
 			if (code.isContentEditable) return false;
-			if (code.closest(".cms-rte__editor")) return false;
+			if (code.closest(".cms-modal")) return false;
+			if (code.closest(".cms-rte")) return false;
 			return true;
 		});
 		blocks.forEach((code) => {
