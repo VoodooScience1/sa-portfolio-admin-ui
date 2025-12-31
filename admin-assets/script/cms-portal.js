@@ -14,7 +14,7 @@
  */
 
 (() => {
-	const PORTAL_VERSION = "2025-12-31-8";
+	const PORTAL_VERSION = "2025-12-31-9";
 	window.__CMS_PORTAL_VERSION__ = PORTAL_VERSION;
 	console.log(`[cms-portal] loaded v${PORTAL_VERSION}`);
 
@@ -307,6 +307,8 @@
 		const maybeFormatted = prettier.format(wrapped, {
 			parser: "html",
 			plugins,
+			useTabs: true,
+			tabWidth: 4,
 		});
 		return Promise.resolve(maybeFormatted).then((formatted) => {
 			const doc = new DOMParser().parseFromString(formatted, "text/html");
@@ -398,6 +400,8 @@
 						const maybeFormatted = prettier.format(codeEl.textContent || "", {
 							parser,
 							plugins,
+							useTabs: true,
+							tabWidth: 4,
 						});
 						formatted =
 							maybeFormatted && typeof maybeFormatted.then === "function"
@@ -4891,6 +4895,12 @@ function serializeSquareGridRow(block, ctx) {
 
 	let highlightRetryCount = 0;
 	function highlightStaticCodeBlocks() {
+		if (
+			window.__CMS_DISABLE_HIGHLIGHT__ ||
+			document.documentElement.classList.contains("cms-admin")
+		) {
+			return true;
+		}
 		if (!window.hljs?.highlightElement) return false;
 		const blocks = Array.from(
 			document.querySelectorAll("#cms-portal pre code"),
