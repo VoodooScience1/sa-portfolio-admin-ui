@@ -14,7 +14,7 @@
  */
 
 (() => {
-	const PORTAL_VERSION = "2025-12-31-7";
+	const PORTAL_VERSION = "2025-12-31-8";
 	window.__CMS_PORTAL_VERSION__ = PORTAL_VERSION;
 	console.log(`[cms-portal] loaded v${PORTAL_VERSION}`);
 
@@ -318,7 +318,27 @@
 	async function formatCodeBlocksInEditor(editor) {
 		try {
 			if (!editor) return;
-			const blocks = Array.from(editor.querySelectorAll("pre > code"));
+			const normalizeCodeBlock = (pre) => {
+				if (!pre) return null;
+				const existing = pre.querySelector("code");
+				const lang = getLangFromCodeEl(existing);
+				const text = pre.textContent || "";
+				pre.innerHTML = "";
+				const code = document.createElement("code");
+				if (lang) {
+					code.className = `language-${lang}`;
+					code.setAttribute("data-lang", lang);
+				}
+				code.textContent = text.replace(/\n+$/g, "");
+				code.classList.add("nohighlight");
+				code.setAttribute("contenteditable", "true");
+				code.setAttribute("spellcheck", "false");
+				pre.appendChild(code);
+				return code;
+			};
+			const blocks = Array.from(editor.querySelectorAll("pre"))
+				.map((pre) => normalizeCodeBlock(pre))
+				.filter(Boolean);
 			if (!blocks.length) return;
 			const needsPython = blocks.some((codeEl) => {
 				const lang =
@@ -460,6 +480,10 @@
 		);
 		const wrap = doc.querySelector("#__wrap__");
 		if (!wrap) return "";
+		wrap.querySelectorAll(".cms-code-toolbar").forEach((node) => node.remove());
+		wrap
+			.querySelectorAll("select.cms-code-toolbar__select, .cms-code-toolbar__btn")
+			.forEach((node) => node.remove());
 
 		const mergeAdjacentPres = (parent) => {
 			const children = Array.from(parent.childNodes);
@@ -638,6 +662,12 @@
 				return `<div>${inner}</div>`;
 			}
 
+		if (cls.includes("cms-code-toolbar")) return "";
+
+		if (tag === "select" || tag === "option" || tag === "button") {
+			return "";
+		}
+
 		if (tag === "code") {
 			const lang = getLangFromCodeEl(node);
 			const text = escapeHtml(node.textContent || "");
@@ -698,10 +728,11 @@
 
 		if (tag === "pre") {
 			const codeChild = node.querySelector("code");
-			if (codeChild) {
-				return `<pre>${sanitizeNode(codeChild)}</pre>`;
-			}
+			const lang = getLangFromCodeEl(codeChild);
 			const text = escapeHtml(node.textContent || "");
+			if (lang) {
+				return `<pre><code class="language-${escapeAttr(lang)}">${text}</code></pre>`;
+			}
 			return `<pre><code>${text}</code></pre>`;
 		}
 
@@ -3582,7 +3613,7 @@ function serializeSquareGridRow(block, ctx) {
 				codeEl.setAttribute("data-lang", clean);
 			}
 			codeEl.classList.add("nohighlight");
-			codeEl.setAttribute("contenteditable", "plaintext-only");
+			codeEl.setAttribute("contenteditable", "true");
 			codeEl.setAttribute("spellcheck", "false");
 		};
 
@@ -3992,17 +4023,35 @@ function serializeSquareGridRow(block, ctx) {
 			if (event.shiftKey) document.execCommand("outdent");
 			else document.execCommand("indent");
 		});
+		const getSelectionCodeBlock = () => {
+			const selection = window.getSelection();
+			if (!selection || selection.rangeCount === 0) return null;
+			let node = selection.getRangeAt(0).commonAncestorContainer;
+			if (node?.nodeType === Node.TEXT_NODE) node = node.parentElement;
+			return node?.closest ? node.closest("pre, code") : null;
+		};
+
 		const insertPlainTextIntoCode = (target, text) => {
-			const code = target?.closest("code") || target?.querySelector?.("code");
+			const code =
+				target?.closest?.("code") ||
+				target?.querySelector?.("code") ||
+				null;
 			if (!code) return false;
 			const selection = window.getSelection();
-			if (!selection) return false;
-			const range = document.createRange();
-			range.selectNodeContents(code);
-			range.collapse(false);
+			if (!selection || selection.rangeCount === 0) return false;
+			const range = selection.getRangeAt(0);
+			if (!code.contains(range.commonAncestorContainer)) {
+				range.selectNodeContents(code);
+				range.collapse(false);
+			}
+			range.deleteContents();
+			const textNode = document.createTextNode(text);
+			range.insertNode(textNode);
+			range.setStartAfter(textNode);
+			range.collapse(true);
 			selection.removeAllRanges();
 			selection.addRange(range);
-			document.execCommand("insertText", false, text);
+			code.textContent = code.textContent || "";
 			return true;
 		};
 
@@ -4010,7 +4059,7 @@ function serializeSquareGridRow(block, ctx) {
 			"paste",
 			(event) => {
 				const target = event.target instanceof Element ? event.target : null;
-				const codeBlock = target?.closest("pre, code");
+				const codeBlock = getSelectionCodeBlock() || target?.closest("pre, code");
 				if (!codeBlock) return;
 				const text = event.clipboardData?.getData("text/plain");
 				if (!text) return;
@@ -4024,7 +4073,7 @@ function serializeSquareGridRow(block, ctx) {
 			(event) => {
 				if (event.inputType !== "insertFromPaste") return;
 				const target = event.target instanceof Element ? event.target : null;
-				const codeBlock = target?.closest("pre, code");
+				const codeBlock = getSelectionCodeBlock() || target?.closest("pre, code");
 				if (!codeBlock) return;
 				const text = event.data || "";
 				if (!text) return;
@@ -4840,6 +4889,32 @@ function serializeSquareGridRow(block, ctx) {
 		state.mainInner = main2.found ? main2.inner : state.mainInner;
 	}
 
+	let highlightRetryCount = 0;
+	function highlightStaticCodeBlocks() {
+		if (!window.hljs?.highlightElement) return false;
+		const blocks = Array.from(
+			document.querySelectorAll("#cms-portal pre code"),
+		).filter((code) => {
+			if (code.classList.contains("nohighlight")) return false;
+			if (code.isContentEditable) return false;
+			if (code.closest(".cms-rte__editor")) return false;
+			return true;
+		});
+		blocks.forEach((code) => {
+			code.removeAttribute("data-highlighted");
+			window.hljs.highlightElement(code);
+		});
+		return true;
+	}
+
+	function scheduleHighlightStaticCodeBlocks() {
+		const ok = highlightStaticCodeBlocks();
+		if (ok) return;
+		if (highlightRetryCount > 10) return;
+		highlightRetryCount += 1;
+		setTimeout(scheduleHighlightStaticCodeBlocks, 200);
+	}
+
 	function renderPageSurface() {
 		const entry = state.dirtyPages[state.path];
 		if (entry?.html) {
@@ -5229,6 +5304,7 @@ function serializeSquareGridRow(block, ctx) {
 		});
 
 		root.appendChild(mainWrap);
+		scheduleHighlightStaticCodeBlocks();
 
 		queueMicrotask(() => {
 			mainWrap.querySelectorAll(".cms-divider-btn").forEach((btn) => {
