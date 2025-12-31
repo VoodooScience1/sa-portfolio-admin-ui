@@ -14,7 +14,7 @@
  */
 
 (() => {
-	const PORTAL_VERSION = "2025-12-31-19";
+	const PORTAL_VERSION = "2025-12-31-20";
 	window.__CMS_PORTAL_VERSION__ = PORTAL_VERSION;
 	console.log(`[cms-portal] loaded v${PORTAL_VERSION}`);
 
@@ -3476,6 +3476,9 @@ function serializeSquareGridRow(block, ctx) {
 			}
 			pre.classList.add("cms-code-block");
 			updateCodeLanguage(codeEl, getLangFromCodeEl(codeEl) || detected || "auto");
+			codeEl.removeAttribute("data-highlighted");
+			codeEl.classList.remove("hljs");
+			codeEl.textContent = codeEl.textContent || "";
 		};
 
 		editor.querySelectorAll("pre").forEach((pre) => ensureCodeToolbar(pre));
