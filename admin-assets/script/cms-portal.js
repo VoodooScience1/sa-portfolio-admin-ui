@@ -276,6 +276,21 @@
 		return null;
 	}
 
+	function guessLanguageFromText(text) {
+		const raw = String(text || "").trim();
+		if (!raw) return "auto";
+		if (raw.startsWith("<") || /<\/[a-z]/i.test(raw)) return "html";
+		if (/^\s*[{[]/.test(raw) && /":\s*/.test(raw)) return "json";
+		if (/(^|\n)\s*#/.test(raw) || /```/.test(raw)) return "markdown";
+		if (/(^|\n)\s*[A-Za-z0-9_-]+\s*:\s*[^{}]/.test(raw)) return "yaml";
+		if (/(^|\n)\s*(def|class|import|from)\s+/.test(raw)) return "python";
+		if (/(^|\n)\s*(const|let|var|function)\s+/.test(raw) || /=>/.test(raw))
+			return "javascript";
+		if (/[.#][A-Za-z0-9_-]+\s*\{/.test(raw) || /:\s*[^;]+;/.test(raw))
+			return "css";
+		return "auto";
+	}
+
 	function getLangFromCodeEl(codeEl) {
 		if (!codeEl) return "";
 		const cls = codeEl.getAttribute("class") || "";
@@ -288,11 +303,11 @@
 		const blocks = Array.from(editor.querySelectorAll("pre > code"));
 		if (!blocks.length) return;
 		const needsPython = blocks.some((codeEl) => {
-			const lang = getLangFromCodeEl(codeEl);
+			const lang = getLangFromCodeEl(codeEl) || guessLanguageFromText(codeEl.textContent);
 			return lang === "py" || lang === "python";
 		});
 		const needsPrettier = blocks.some((codeEl) => {
-			const lang = getLangFromCodeEl(codeEl);
+			const lang = getLangFromCodeEl(codeEl) || guessLanguageFromText(codeEl.textContent);
 			return Boolean(getParserForLang(lang));
 		});
 		if (needsPrettier) {
@@ -306,7 +321,14 @@
 			? Object.values(window.prettierPlugins)
 			: [];
 		for (const codeEl of blocks) {
-			const lang = getLangFromCodeEl(codeEl);
+			let lang = getLangFromCodeEl(codeEl);
+			if (!lang || lang === "auto") {
+				lang = guessLanguageFromText(codeEl.textContent);
+				if (lang && lang !== "auto") {
+					codeEl.className = `language-${lang}`;
+					codeEl.setAttribute("data-lang", lang);
+				}
+			}
 			if (lang === "py" || lang === "python") {
 				try {
 					const formatted = await formatPythonCode(codeEl.textContent || "");
@@ -3372,24 +3394,16 @@ function serializeSquareGridRow(block, ctx) {
 	}
 
 	function buildRteEditor({ label, initialHtml }) {
-		const langSelect = el(
-			"select",
-			{ class: "cms-rte__lang" },
-			[
-				el("option", { value: "auto" }, ["Auto"]),
-				el("option", { value: "javascript" }, ["JS"]),
-				el("option", { value: "json" }, ["JSON"]),
-				el("option", { value: "html" }, ["HTML"]),
-				el("option", { value: "css" }, ["CSS"]),
-				el("option", { value: "python" }, ["Python"]),
-				el("option", { value: "markdown" }, ["Markdown"]),
-				el("option", { value: "yaml" }, ["YAML"]),
-			],
-		);
-		const codeLangOptions = Array.from(langSelect.options).map((opt) => ({
-			value: opt.value,
-			label: opt.textContent || opt.value,
-		}));
+		const codeLangOptions = [
+			{ value: "auto", label: "Auto" },
+			{ value: "javascript", label: "JS" },
+			{ value: "json", label: "JSON" },
+			{ value: "html", label: "HTML" },
+			{ value: "css", label: "CSS" },
+			{ value: "python", label: "Python" },
+			{ value: "markdown", label: "Markdown" },
+			{ value: "yaml", label: "YAML" },
+		];
 		const toolbar = el("div", { class: "cms-rte__toolbar" }, [
 			el("button", { type: "button", "data-cmd": "bold" }, ["B"]),
 			el("button", { type: "button", "data-cmd": "italic" }, ["I"]),
@@ -3405,7 +3419,6 @@ function serializeSquareGridRow(block, ctx) {
 			el("button", { type: "button", "data-cmd": "code" }, ["Code"]),
 			el("button", { type: "button", "data-cmd": "code-block" }, ["Block code"]),
 			el("button", { type: "button", "data-cmd": "img" }, ["Image"]),
-			langSelect,
 		]);
 		const editor = el("div", {
 			class: "cms-rte",
@@ -3426,9 +3439,25 @@ function serializeSquareGridRow(block, ctx) {
 		};
 
 		const ensureCodeToolbar = (pre) => {
-			if (!pre || pre.querySelector(".cms-code-toolbar")) return;
+			if (!pre) return;
 			const codeEl = pre.querySelector("code");
 			if (!codeEl) return;
+			if (pre.parentElement?.classList.contains("cms-code-block-wrap")) {
+				const existing = pre.parentElement.querySelector(".cms-code-toolbar");
+				if (existing) return;
+			}
+			const wrapper = el("div", { class: "cms-code-block-wrap" });
+			pre.parentNode?.insertBefore(wrapper, pre);
+			wrapper.appendChild(pre);
+			const textLang = getLangFromCodeEl(codeEl);
+			const detected = textLang || guessLanguageFromText(codeEl.textContent);
+			if (!textLang && detected && detected !== "auto") {
+				updateCodeLanguage(codeEl, detected);
+			}
+			const toolbarText = "AutoJSJSONHTMLCSSPythonMarkdownYAMLFormat";
+			if (codeEl.textContent.includes(toolbarText)) {
+				codeEl.textContent = codeEl.textContent.replace(toolbarText, "");
+			}
 			pre.classList.add("cms-code-block");
 			const tool = el("div", {
 				class: "cms-code-toolbar",
@@ -3441,7 +3470,7 @@ function serializeSquareGridRow(block, ctx) {
 					el("option", { value: opt.value }, [opt.label]),
 				),
 			);
-			langSelectInline.value = getLangFromCodeEl(codeEl) || "auto";
+			langSelectInline.value = detected || "auto";
 			const formatBtn = el(
 				"button",
 				{
@@ -3459,13 +3488,20 @@ function serializeSquareGridRow(block, ctx) {
 				});
 			});
 			formatBtn.addEventListener("click", () => {
+				if (langSelectInline.value === "auto") {
+					const guessed = guessLanguageFromText(codeEl.textContent);
+					if (guessed && guessed !== "auto") {
+						langSelectInline.value = guessed;
+						updateCodeLanguage(codeEl, guessed);
+					}
+				}
 				formatCodeBlocksInEditor(pre).then(() => {
 					if (window.hljs) window.hljs.highlightElement(codeEl);
 				});
 			});
 			tool.appendChild(langSelectInline);
 			tool.appendChild(formatBtn);
-			pre.appendChild(tool);
+			wrapper.appendChild(tool);
 		};
 
 		editor.querySelectorAll("pre").forEach((pre) => ensureCodeToolbar(pre));
@@ -3763,7 +3799,7 @@ function serializeSquareGridRow(block, ctx) {
 				if (range.collapsed) return;
 				const pre = document.createElement("pre");
 				const code = document.createElement("code");
-				const lang = String(langSelect.value || "").trim();
+				const lang = guessLanguageFromText(range.toString());
 				updateCodeLanguage(code, lang);
 				code.textContent = range.toString();
 				pre.appendChild(code);
