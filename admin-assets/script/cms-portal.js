@@ -384,6 +384,16 @@
 			return `<${tag}>${inner}</${tag}>`;
 		}
 
+		if (tag === "b") {
+			const inner = serializeChildren(node);
+			return `<strong>${inner}</strong>`;
+		}
+
+		if (tag === "i") {
+			const inner = serializeChildren(node);
+			return `<em>${inner}</em>`;
+		}
+
 		if (tag === "h1") {
 			return serializeChildren(node);
 		}
@@ -3314,6 +3324,10 @@ function serializeSquareGridRow(block, ctx) {
 			class: "cms-field__input",
 			placeholder: "Overlay text (optional)",
 		});
+		const overlayOptionsWrap = el("div", { class: "cms-rte__panel-subgroup" }, [
+			buildField({ label: "Overlay title", input: overlayTitleInput }),
+			buildField({ label: "Overlay text", input: overlayTextInput }),
+		]);
 		const sizeSelect = el(
 			"select",
 			{ class: "cms-field__select" },
@@ -3362,8 +3376,7 @@ function serializeSquareGridRow(block, ctx) {
 						el("span", { class: "cms-field__toggle-text" }, ["Enable"]),
 					]),
 				}),
-				buildField({ label: "Overlay title", input: overlayTitleInput }),
-				buildField({ label: "Overlay text", input: overlayTextInput }),
+				overlayOptionsWrap,
 				buildField({ label: "Size", input: sizeSelect }),
 				el("div", { class: "cms-rte__panel-actions" }, [
 					imageDeleteBtn,
@@ -3378,6 +3391,7 @@ function serializeSquareGridRow(block, ctx) {
 			const enabled = overlayEnabledInput.checked;
 			overlayTitleInput.disabled = !enabled;
 			overlayTextInput.disabled = !enabled;
+			overlayOptionsWrap.hidden = !enabled;
 		};
 		syncOverlayState();
 		overlayEnabledInput.addEventListener("change", syncOverlayState);
@@ -3391,10 +3405,13 @@ function serializeSquareGridRow(block, ctx) {
 		]);
 
 		const openCodePanel = ({ targetPre = null, text = "" }) => {
+			imagePanel.hidden = true;
 			activeCodeTarget = targetPre;
 			codeTextarea.value = text || "";
 			codePanel.hidden = false;
 			codeDeleteBtn.disabled = !targetPre;
+			codePanel.scrollIntoView({ block: "center", behavior: "smooth" });
+			codeTextarea.focus();
 		};
 
 		const closeCodePanel = () => {
@@ -3404,6 +3421,7 @@ function serializeSquareGridRow(block, ctx) {
 		};
 
 		const openImagePanel = ({ targetStub = null } = {}) => {
+			codePanel.hidden = true;
 			activeImageTarget = targetStub;
 			const attrs = targetStub
 				? {
@@ -3443,6 +3461,7 @@ function serializeSquareGridRow(block, ctx) {
 			loadImageLibraryIntoSelect(imageFields.librarySelect).catch((err) =>
 				console.error(err),
 			);
+			imagePanel.scrollIntoView({ block: "center", behavior: "smooth" });
 		};
 
 		const closeImagePanel = () => {
@@ -3808,13 +3827,6 @@ function serializeSquareGridRow(block, ctx) {
 					class: "cms-field__checkbox",
 				});
 				overlayEnabledInput.checked = parsed.overlayEnabled !== false;
-				const syncOverlayState = () => {
-					const enabled = overlayEnabledInput.checked;
-					overlayTitleInput.disabled = !enabled;
-					overlayTextInput.disabled = !enabled;
-				};
-				syncOverlayState();
-				overlayEnabledInput.addEventListener("change", syncOverlayState);
 				lightboxInput = el("input", {
 					type: "checkbox",
 					class: "cms-field__checkbox",
@@ -3853,6 +3865,17 @@ function serializeSquareGridRow(block, ctx) {
 					imageModeSelect,
 					imagePickBtn,
 				]);
+				const displayRow = el("div", { class: "cms-field__row" }, [
+					posSelect,
+					el("label", { class: "cms-field__toggle" }, [
+						lightboxInput,
+						el("span", { class: "cms-field__toggle-text" }, ["Lightbox"]),
+					]),
+					el("label", { class: "cms-field__toggle" }, [
+						overlayEnabledInput,
+						el("span", { class: "cms-field__toggle-text" }, ["Overlay"]),
+					]),
+				]);
 				settingsNodes.push(
 					buildField({
 						label: "Image source",
@@ -3862,37 +3885,30 @@ function serializeSquareGridRow(block, ctx) {
 				);
 				settingsNodes.push(
 					buildField({
-						label: "Image position",
-						input: posSelect,
-					}),
-				);
-				settingsNodes.push(
-					buildField({
-						label: "Lightbox",
-						input: el("label", { class: "cms-field__toggle" }, [
-							lightboxInput,
-							el("span", { class: "cms-field__toggle-text" }, ["Enable"]),
-						]),
-					}),
-				);
-				settingsNodes.push(
-					buildField({
-						label: "Overlay",
-						input: el("label", { class: "cms-field__toggle" }, [
-							overlayEnabledInput,
-							el("span", { class: "cms-field__toggle-text" }, ["Enable"]),
-						]),
+						label: "Display",
+						input: displayRow,
 					}),
 				);
 				settingsNodes.push(
 					buildField({ label: "Caption", input: captionInput }),
 				);
-				settingsNodes.push(
-					buildField({ label: "Overlay title", input: overlayTitleInput }),
+				const overlayOptionsWrap = el(
+					"div",
+					{ class: "cms-modal__subgroup" },
+					[
+						buildField({ label: "Overlay title", input: overlayTitleInput }),
+						buildField({ label: "Overlay text", input: overlayTextInput }),
+					],
 				);
-				settingsNodes.push(
-					buildField({ label: "Overlay text", input: overlayTextInput }),
-				);
+				settingsNodes.push(overlayOptionsWrap);
+				const syncOverlayState = () => {
+					const enabled = overlayEnabledInput.checked;
+					overlayTitleInput.disabled = !enabled;
+					overlayTextInput.disabled = !enabled;
+					overlayOptionsWrap.hidden = !enabled;
+				};
+				syncOverlayState();
+				overlayEnabledInput.addEventListener("change", syncOverlayState);
 			}
 
 			const settingsWrap =
