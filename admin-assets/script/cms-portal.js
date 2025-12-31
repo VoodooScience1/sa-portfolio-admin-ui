@@ -14,7 +14,7 @@
  */
 
 (() => {
-	const PORTAL_VERSION = "2025-12-31-9";
+	const PORTAL_VERSION = "2025-12-31-10";
 	window.__CMS_PORTAL_VERSION__ = PORTAL_VERSION;
 	console.log(`[cms-portal] loaded v${PORTAL_VERSION}`);
 
@@ -300,6 +300,20 @@
 		return match ? match[1] : codeEl.getAttribute("data-lang") || "";
 	}
 
+	function normalizeCodeIndent(text) {
+		const raw = String(text || "").replace(/\r\n/g, "\n");
+		const lines = raw.split("\n");
+		while (lines.length && lines[0].trim() === "") lines.shift();
+		while (lines.length && lines[lines.length - 1].trim() === "") lines.pop();
+		if (!lines.length) return "";
+		const indents = lines
+			.filter((line) => line.trim() !== "")
+			.map((line) => (line.match(/^[\t ]+/)?.[0] || "").length);
+		const min = indents.length ? Math.min(...indents) : 0;
+		if (!min) return lines.join("\n");
+		return lines.map((line) => line.slice(min)).join("\n");
+	}
+
 	function formatHtmlFragment(prettier, plugins, code) {
 		const text = String(code || "");
 		if (/^\s*<\/[a-z]/i.test(text)) return null;
@@ -365,6 +379,7 @@
 				? Object.values(window.prettierPlugins)
 				: [];
 			for (const codeEl of blocks) {
+				codeEl.textContent = normalizeCodeIndent(codeEl.textContent || "");
 				let lang = getLangFromCodeEl(codeEl);
 				if (!lang || lang === "auto") {
 					lang = guessLanguageFromText(codeEl.textContent);
@@ -409,7 +424,9 @@
 								: maybeFormatted;
 					}
 					if (typeof formatted === "string") {
-						codeEl.textContent = formatted.replace(/\s+$/, "");
+						codeEl.textContent = normalizeCodeIndent(
+							formatted.replace(/\s+$/, ""),
+						);
 					}
 				} catch {
 					// ignore formatter errors (invalid HTML fragments, etc)
@@ -733,7 +750,7 @@
 		if (tag === "pre") {
 			const codeChild = node.querySelector("code");
 			const lang = getLangFromCodeEl(codeChild);
-			const text = escapeHtml(node.textContent || "");
+			const text = escapeHtml(normalizeCodeIndent(node.textContent || ""));
 			if (lang) {
 				return `<pre><code class="language-${escapeAttr(lang)}">${text}</code></pre>`;
 			}
@@ -4895,12 +4912,6 @@ function serializeSquareGridRow(block, ctx) {
 
 	let highlightRetryCount = 0;
 	function highlightStaticCodeBlocks() {
-		if (
-			window.__CMS_DISABLE_HIGHLIGHT__ ||
-			document.documentElement.classList.contains("cms-admin")
-		) {
-			return true;
-		}
 		if (!window.hljs?.highlightElement) return false;
 		const blocks = Array.from(
 			document.querySelectorAll("#cms-portal pre code"),
