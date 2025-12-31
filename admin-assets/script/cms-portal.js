@@ -487,7 +487,18 @@
 		};
 
 		const sanitizeNode = (node) => {
-			if (node.nodeType === Node.TEXT_NODE) return escapeHtml(node.textContent);
+			if (node.nodeType === Node.TEXT_NODE) {
+				const text = node.textContent || "";
+				if (text.includes("AutoJSJSONHTMLCSSPythonMarkdownYAMLFormat")) {
+					const cleaned = text.replace(
+						"AutoJSJSONHTMLCSSPythonMarkdownYAMLFormat",
+						"",
+					);
+					if (!cleaned.trim()) return "";
+					return escapeHtml(cleaned);
+				}
+				return escapeHtml(text);
+			}
 			if (node.nodeType !== Node.ELEMENT_NODE) return "";
 
 			const tag = node.tagName.toLowerCase();
@@ -3427,6 +3438,29 @@ function serializeSquareGridRow(block, ctx) {
 		});
 		editor.innerHTML = initialHtml || "";
 
+		const TOOLBAR_TEXT = "AutoJSJSONHTMLCSSPythonMarkdownYAMLFormat";
+
+		const stripToolbarText = (root) => {
+			const walker = document.createTreeWalker(
+				root,
+				NodeFilter.SHOW_TEXT,
+				null,
+			);
+			const toRemove = [];
+			while (walker.nextNode()) {
+				const node = walker.currentNode;
+				if (!node?.textContent) continue;
+				if (node.textContent.includes(TOOLBAR_TEXT)) {
+					const cleaned = node.textContent.replace(TOOLBAR_TEXT, "");
+					if (cleaned.trim() === "") toRemove.push(node);
+					else node.textContent = cleaned;
+				}
+			}
+			toRemove.forEach((node) => node.remove());
+		};
+
+		stripToolbarText(editor);
+
 		const updateCodeLanguage = (codeEl, lang) => {
 			if (!codeEl) return;
 			const clean = String(lang || "").trim().toLowerCase();
@@ -3454,9 +3488,8 @@ function serializeSquareGridRow(block, ctx) {
 			if (!textLang && detected && detected !== "auto") {
 				updateCodeLanguage(codeEl, detected);
 			}
-			const toolbarText = "AutoJSJSONHTMLCSSPythonMarkdownYAMLFormat";
-			if (codeEl.textContent.includes(toolbarText)) {
-				codeEl.textContent = codeEl.textContent.replace(toolbarText, "");
+			if (codeEl.textContent.includes(TOOLBAR_TEXT)) {
+				codeEl.textContent = codeEl.textContent.replace(TOOLBAR_TEXT, "");
 			}
 			pre.classList.add("cms-code-block");
 			const tool = el("div", {
@@ -4225,7 +4258,7 @@ function serializeSquareGridRow(block, ctx) {
 		);
 		if (!saveBtn) return;
 
-		saveBtn.addEventListener("click", () => {
+		saveBtn.addEventListener("click", async () => {
 			const updated = { ...parsed };
 			if (settings.headingInput) {
 				updated.heading = settings.headingInput.value.trim();
@@ -4245,13 +4278,15 @@ function serializeSquareGridRow(block, ctx) {
 				updated.lightbox = settings.lightboxInput?.checked ? "true" : "false";
 				updated.imgPos = settings.posSelect?.value || "left";
 			}
-			editors.forEach(({ key, editor, formatCodeBlocks }) => {
-				formatCodeBlocks?.();
-				const raw = editor.innerHTML;
-				if (key === "left") updated.left = sanitizeRteHtml(raw, ctx);
-				else if (key === "right") updated.right = sanitizeRteHtml(raw, ctx);
-				else updated.body = sanitizeRteHtml(raw, ctx);
-			});
+			await Promise.all(
+				editors.map(async ({ key, editor, formatCodeBlocks }) => {
+					await formatCodeBlocks?.();
+					const raw = editor.innerHTML;
+					if (key === "left") updated.left = sanitizeRteHtml(raw, ctx);
+					else if (key === "right") updated.right = sanitizeRteHtml(raw, ctx);
+					else updated.body = sanitizeRteHtml(raw, ctx);
+				}),
+			);
 			const updatedHtml = serializeMainBlocks([updated], {
 				path: state.path,
 			}).trim();
