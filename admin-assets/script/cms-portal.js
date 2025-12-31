@@ -2783,9 +2783,8 @@ function serializeSquareGridRow(block, ctx) {
 				el(
 					"button",
 					{
-						class: "cms-btn cms-modal__action cms-modal__action--disabled",
+						class: "cms-btn cms-modal__action cms-modal__action--pick",
 						type: "button",
-						disabled: true,
 					},
 					["Insert"],
 				),
