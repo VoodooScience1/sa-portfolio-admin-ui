@@ -24,7 +24,7 @@
 	const PR_STORAGE_KEY = "cms-pr-state";
 	const SESSION_STORAGE_KEY = "cms-session-state";
 	const DEBUG_ENABLED_DEFAULT = true;
-	const UPDATE_VERSION = 27;
+	const UPDATE_VERSION = 28;
 
 	const BLOCK_LIBRARY = [
 		{
@@ -2774,7 +2774,7 @@ function serializeSquareGridRow(block, ctx) {
 				el("span", { class: "cms-modal__label" }, [item.label]),
 				el(
 					"button",
-					{ class: "cms-btn", type: "button" },
+					{ class: "cms-btn cms-modal__action", type: "button" },
 					["Insert"],
 				),
 			]);
