@@ -2826,6 +2826,232 @@ function serializeSquareGridRow(block, ctx) {
 		});
 	}
 
+	function buildRteEditor({ label, initialHtml }) {
+		const editor = el("div", {
+			class: "cms-rte",
+			contenteditable: "true",
+			"data-rte": "true",
+		});
+		editor.innerHTML = initialHtml || "";
+		const wrap = el("div", { class: "cms-rte__field" }, [
+			el("div", { class: "cms-rte__label" }, [label]),
+			editor,
+		]);
+		return { wrap, editor };
+	}
+
+	function stripEditEntriesForBase(localBlocks, anchor) {
+		const key = anchorKey(anchor);
+		return normalizeLocalBlocks(localBlocks).filter((item) => {
+			if (item.action === "mark" && anchorKey(item.anchor) === key) return false;
+			if (item.action === "remove" && anchorKey(item.anchor) === key) return false;
+			if (
+				item.action === "insert" &&
+				item.kind === "edited" &&
+				(item.baseId === anchor.id || anchorKey(item.anchor) === key)
+			)
+				return false;
+			return true;
+		});
+	}
+
+	function openBlockEditor({ blockHtml, origin, localId, anchorBase, currentLocal }) {
+		const doc = new DOMParser().parseFromString(
+			`<div id="__wrap__">${String(blockHtml || "")}</div>`,
+			"text/html",
+		);
+		const node = doc.querySelector("#__wrap__")?.firstElementChild;
+		if (!node) return;
+		const parsed = parseMainBlockNode(node);
+		const blockId = parsed.cmsId || anchorBase?.id || parsed.baseId || "";
+		const ctx = {
+			path: state.path,
+			blockId,
+			blockIdShort: hashText(String(blockId || "block")).slice(0, 4),
+		};
+
+		if (parsed.type === "hoverCardRow" || parsed.type === "squareGridRow") {
+			openModal({
+				title: "Edit block",
+				bodyNodes: [
+					el("p", { class: "cms-modal__text" }, [
+						"Editor for this block type is coming next.",
+					]),
+				],
+				footerNodes: [
+					el(
+						"button",
+						{
+							class: "cms-btn cms-modal__action cms-btn--danger",
+							type: "button",
+							"data-close": "true",
+						},
+						["Close"],
+					),
+				],
+			});
+			return;
+		}
+
+		if (parsed.type === "legacy") {
+			openModal({
+				title: "Edit block",
+				bodyNodes: [
+					el("p", { class: "cms-modal__text" }, [
+						"This block isn't editable yet (legacy markup).",
+					]),
+				],
+				footerNodes: [
+					el(
+						"button",
+						{
+							class: "cms-btn cms-modal__action cms-btn--danger",
+							type: "button",
+							"data-close": "true",
+						},
+						["Close"],
+					),
+				],
+			});
+			return;
+		}
+
+		let editors = [];
+		if (parsed.type === "twoCol") {
+			const left = buildRteEditor({
+				label: "Left column",
+				initialHtml: parsed.left || "",
+			});
+			const right = buildRteEditor({
+				label: "Right column",
+				initialHtml: parsed.right || "",
+			});
+			editors = [
+				{ key: "left", editor: left.editor },
+				{ key: "right", editor: right.editor },
+			];
+			openModal({
+				title: "Edit block",
+				bodyNodes: [left.wrap, right.wrap],
+				footerNodes: [
+					el(
+						"button",
+						{
+							class: "cms-btn cms-modal__action cms-btn--danger",
+							type: "button",
+							"data-close": "true",
+						},
+						["Close"],
+					),
+					el(
+						"button",
+						{
+							class: "cms-btn cms-modal__action cms-btn--success",
+							type: "button",
+						},
+						["Save"],
+					),
+				],
+			});
+		} else {
+			const body = buildRteEditor({
+				label: "Content",
+				initialHtml: parsed.body || "",
+			});
+			editors = [{ key: "body", editor: body.editor }];
+			openModal({
+				title: "Edit block",
+				bodyNodes: [body.wrap],
+				footerNodes: [
+					el(
+						"button",
+						{
+							class: "cms-btn cms-modal__action cms-btn--danger",
+							type: "button",
+							"data-close": "true",
+						},
+						["Close"],
+					),
+					el(
+						"button",
+						{
+							class: "cms-btn cms-modal__action cms-btn--success",
+							type: "button",
+						},
+						["Save"],
+					),
+				],
+			});
+		}
+
+		const modal = document.querySelector(".cms-modal");
+		const saveBtn = modal?.querySelector(
+			".cms-btn.cms-modal__action.cms-btn--success",
+		);
+		if (!saveBtn) return;
+
+		saveBtn.addEventListener("click", () => {
+			const updated = { ...parsed };
+			editors.forEach(({ key, editor }) => {
+				const raw = editor.innerHTML;
+				if (key === "left") updated.left = sanitizeRteHtml(raw, ctx);
+				else if (key === "right") updated.right = sanitizeRteHtml(raw, ctx);
+				else updated.body = sanitizeRteHtml(raw, ctx);
+			});
+			const updatedHtml = serializeMainBlocks([updated], {
+				path: state.path,
+			}).trim();
+			if (!updatedHtml) return;
+
+			if (origin === "local" && localId) {
+				const nextLocal = normalizeLocalBlocks(currentLocal).map((item) =>
+					item.id === localId
+						? { ...item, html: updatedHtml, kind: "edited" }
+						: item,
+				);
+				updateLocalBlocksAndRender(state.path, nextLocal);
+				closeModal();
+				return;
+			}
+
+			if (origin === "base" && anchorBase?.id) {
+				const anchor = {
+					id: anchorBase.id,
+					sig: anchorBase.sig,
+					occ: anchorBase.occ,
+				};
+				const cleaned = stripEditEntriesForBase(currentLocal, anchor);
+				const editedInsert = {
+					id: makeLocalId(),
+					html: updatedHtml,
+					anchor,
+					placement: "after",
+					status: "staged",
+					kind: "edited",
+					action: "insert",
+					baseId: anchor.id,
+					sourceKey: `id:${anchor.id}`,
+				};
+				const removeBase = {
+					id: makeLocalId(),
+					html: "",
+					anchor,
+					placement: "after",
+					status: "staged",
+					kind: "edited",
+					action: "remove",
+					baseId: anchor.id,
+				};
+				updateLocalBlocksAndRender(state.path, [
+					...cleaned,
+					removeBase,
+					editedInsert,
+				]);
+				closeModal();
+			}
+		});
+	}
+
 	function stashCurrentPageIfDirty() {
 		const existing = state.dirtyPages[state.path] || {};
 		const existingLocal = normalizeLocalBlocks(existing.localBlocks || []);
@@ -3607,27 +3833,39 @@ function serializeSquareGridRow(block, ctx) {
 					const index = blockEl ? blockNodes.indexOf(blockEl) : -1;
 					const isRemoved = btn.getAttribute("data-removed") === "true";
 					if (action === "edit") {
-						openModal({
-							title: "Edit block (stub)",
-							bodyNodes: [
-								el("p", { class: "cms-modal__text" }, [
-									"RTE is wired next. This stub will become the editor.",
-								]),
-								el("div", { class: "cms-modal__note" }, [
-									"Editing is disabled in this stub.",
-								]),
-							],
-							footerNodes: [
-								el(
-									"button",
-									{
-										class: "cms-btn cms-modal__action",
-										type: "button",
-										"data-close": "true",
-									},
-									["Close"],
-								),
-							],
+						const baseHtml = state.originalHtml || "";
+						const currentLocal = getHydratedLocalBlocks(
+							baseHtml,
+							state.dirtyPages[state.path]?.localBlocks || [],
+						);
+						const merged = buildMergedRenderBlocks(baseHtml, currentLocal, {
+							respectRemovals: true,
+						});
+						const localIndex =
+							origin === "local"
+								? merged.findIndex((item) => item?._local?.id === id)
+								: -1;
+						const currentIndex =
+							origin === "local"
+								? localIndex >= 0
+									? localIndex
+									: index
+								: index;
+						if (currentIndex < 0) return;
+						const targetBlock = merged[currentIndex];
+						if (!targetBlock?.html) return;
+						openBlockEditor({
+							blockHtml: targetBlock.html,
+							origin,
+							localId: id,
+							anchorBase: targetBlock._base
+								? {
+										id: targetBlock.id,
+										sig: targetBlock.sig,
+										occ: targetBlock.occ,
+									}
+								: null,
+							currentLocal,
 						});
 						return;
 					}
