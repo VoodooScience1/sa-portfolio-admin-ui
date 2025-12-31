@@ -14,7 +14,7 @@
  */
 
 (() => {
-	const PORTAL_VERSION = "2025-12-31-18";
+	const PORTAL_VERSION = "2025-12-31-19";
 	window.__CMS_PORTAL_VERSION__ = PORTAL_VERSION;
 	console.log(`[cms-portal] loaded v${PORTAL_VERSION}`);
 
@@ -3410,6 +3410,13 @@ function serializeSquareGridRow(block, ctx) {
 			selection.addRange(lastRange);
 			return true;
 		};
+		const selectionToHtml = (range) => {
+			if (!range) return "";
+			const fragment = range.cloneContents();
+			const wrap = document.createElement("div");
+			wrap.appendChild(fragment);
+			return wrap.innerHTML;
+		};
 
 		const TOOLBAR_TEXT_RE =
 			/Auto\s*JS\s*JSON\s*HTML\s*CSS\s*Python\s*Markdown\s*YAML\s*Format/g;
@@ -3756,7 +3763,7 @@ function serializeSquareGridRow(block, ctx) {
 				if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
 				const existingPre = node?.closest ? node.closest("pre") : null;
 				if (existingPre) return;
-				const initialText = range.collapsed ? "" : range.toString();
+				const initialText = range.collapsed ? "" : selectionToHtml(range);
 				const pre = document.createElement("pre");
 				const code = document.createElement("code");
 				const detected = guessLanguageFromText(initialText) || "auto";
@@ -3781,7 +3788,7 @@ function serializeSquareGridRow(block, ctx) {
 				if (node?.closest && node.closest("pre, code")) return;
 				const pre = document.createElement("pre");
 				const code = document.createElement("code");
-				const raw = range.toString();
+				const raw = selectionToHtml(range);
 				updateCodeLanguage(code, "auto");
 				code.textContent = raw;
 				pre.appendChild(code);
