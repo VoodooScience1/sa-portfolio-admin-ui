@@ -3265,43 +3265,7 @@ function serializeSquareGridRow(block, ctx) {
 		});
 		editor.innerHTML = initialHtml || "";
 
-		let activeCodeTarget = null;
 		let activeImageTarget = null;
-
-		const codeTextarea = el("textarea", {
-			class: "cms-field__input cms-field__textarea cms-rte__code-input",
-			placeholder: "Paste code here...",
-		});
-		const codeSaveBtn = el(
-			"button",
-			{ class: "cms-btn cms-btn--success", type: "button" },
-			["Save"],
-		);
-		const codeCopyBtn = el(
-			"button",
-			{ class: "cms-btn cms-btn--primary", type: "button" },
-			["Copy"],
-		);
-		const codeDeleteBtn = el(
-			"button",
-			{ class: "cms-btn cms-btn--danger", type: "button" },
-			["Delete"],
-		);
-		const codeCancelBtn = el(
-			"button",
-			{ class: "cms-btn", type: "button" },
-			["Close"],
-		);
-		const codePanel = el("div", { class: "cms-rte__panel cms-rte__panel--code" }, [
-			buildField({ label: "Code", input: codeTextarea }),
-			el("div", { class: "cms-rte__panel-actions" }, [
-				codeDeleteBtn,
-				codeCopyBtn,
-				codeCancelBtn,
-				codeSaveBtn,
-			]),
-		]);
-		codePanel.hidden = true;
 
 		const imageFields = buildImageSourceFields();
 		const captionInput = el("input", {
@@ -3325,8 +3289,13 @@ function serializeSquareGridRow(block, ctx) {
 			placeholder: "Overlay text (optional)",
 		});
 		const overlayOptionsWrap = el("div", { class: "cms-rte__panel-subgroup" }, [
-			buildField({ label: "Overlay title", input: overlayTitleInput }),
-			buildField({ label: "Overlay text", input: overlayTextInput }),
+			buildField({
+				label: "Overlay text",
+				input: el("div", { class: "cms-field__row" }, [
+					overlayTitleInput,
+					overlayTextInput,
+				]),
+			}),
 		]);
 		const sizeSelect = el(
 			"select",
@@ -3400,28 +3369,10 @@ function serializeSquareGridRow(block, ctx) {
 			el("div", { class: "cms-rte__label" }, [label]),
 			toolbar,
 			editor,
-			codePanel,
 			imagePanel,
 		]);
 
-		const openCodePanel = ({ targetPre = null, text = "" }) => {
-			imagePanel.hidden = true;
-			activeCodeTarget = targetPre;
-			codeTextarea.value = text || "";
-			codePanel.hidden = false;
-			codeDeleteBtn.disabled = !targetPre;
-			codePanel.scrollIntoView({ block: "center", behavior: "smooth" });
-			codeTextarea.focus();
-		};
-
-		const closeCodePanel = () => {
-			activeCodeTarget = null;
-			codePanel.hidden = true;
-			codeTextarea.value = "";
-		};
-
 		const openImagePanel = ({ targetStub = null } = {}) => {
-			codePanel.hidden = true;
 			activeImageTarget = targetStub;
 			const attrs = targetStub
 				? {
@@ -3468,38 +3419,6 @@ function serializeSquareGridRow(block, ctx) {
 			activeImageTarget = null;
 			imagePanel.hidden = true;
 		};
-
-		codeSaveBtn.addEventListener("click", () => {
-			const raw = codeTextarea.value || "";
-			if (!raw.trim() && !activeCodeTarget) return;
-			if (activeCodeTarget) {
-				const code = activeCodeTarget.querySelector("code");
-				if (code) code.textContent = raw;
-				else activeCodeTarget.textContent = raw;
-			} else {
-				const html = `<pre><code>${escapeHtml(raw)}</code></pre>`;
-				insertHtmlAtCursor(editor, html);
-			}
-			closeCodePanel();
-		});
-
-		codeDeleteBtn.addEventListener("click", () => {
-			if (!activeCodeTarget) return;
-			activeCodeTarget.remove();
-			closeCodePanel();
-		});
-
-		codeCancelBtn.addEventListener("click", () => closeCodePanel());
-
-		codeCopyBtn.addEventListener("click", async () => {
-			const raw = codeTextarea.value || "";
-			if (!raw.trim()) return;
-			try {
-				await navigator.clipboard.writeText(raw);
-			} catch (err) {
-				console.error(err);
-			}
-		});
 
 		imageSaveBtn.addEventListener("click", () => {
 			const src = imageFields.getSource();
@@ -3582,7 +3501,30 @@ function serializeSquareGridRow(block, ctx) {
 			} else if (cmd === "table-col") {
 				addTableColumnAfterCell();
 			} else if (cmd === "code") {
-				openCodePanel({ targetPre: null, text: "" });
+				const selection = window.getSelection();
+				if (!selection || selection.rangeCount === 0) return;
+				const range = selection.getRangeAt(0);
+				if (range.collapsed) return;
+				let node = range.commonAncestorContainer;
+				if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+				const existingCode = node?.closest ? node.closest("code") : null;
+				if (existingCode) {
+					const textNode = document.createTextNode(existingCode.textContent || "");
+					existingCode.replaceWith(textNode);
+					selection.removeAllRanges();
+					const newRange = document.createRange();
+					newRange.selectNodeContents(textNode);
+					selection.addRange(newRange);
+					return;
+				}
+				const code = document.createElement("code");
+				code.textContent = range.toString();
+				range.deleteContents();
+				range.insertNode(code);
+				selection.removeAllRanges();
+				const newRange = document.createRange();
+				newRange.selectNodeContents(code);
+				selection.addRange(newRange);
 			} else if (cmd === "img") {
 				openImagePanel();
 			}
@@ -3600,11 +3542,6 @@ function serializeSquareGridRow(block, ctx) {
 			else document.execCommand("indent");
 		});
 		editor.addEventListener("click", (event) => {
-			const pre = event.target.closest("pre");
-			if (pre && editor.contains(pre)) {
-				openCodePanel({ targetPre: pre, text: pre.innerText || "" });
-				return;
-			}
 			const stub = event.target.closest(".img-stub");
 			if (stub && editor.contains(stub)) {
 				openImagePanel({ targetStub: stub });
@@ -3896,8 +3833,13 @@ function serializeSquareGridRow(block, ctx) {
 					"div",
 					{ class: "cms-modal__subgroup" },
 					[
-						buildField({ label: "Overlay title", input: overlayTitleInput }),
-						buildField({ label: "Overlay text", input: overlayTextInput }),
+						buildField({
+							label: "Overlay text",
+							input: el("div", { class: "cms-field__row" }, [
+								overlayTitleInput,
+								overlayTextInput,
+							]),
+						}),
 					],
 				);
 				settingsNodes.push(overlayOptionsWrap);
