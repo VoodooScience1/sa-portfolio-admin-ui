@@ -14,7 +14,7 @@
  */
 
 (() => {
-	const PORTAL_VERSION = "2025-12-31-4";
+	const PORTAL_VERSION = "2025-12-31-5";
 	window.__CMS_PORTAL_VERSION__ = PORTAL_VERSION;
 	console.log(`[cms-portal] loaded v${PORTAL_VERSION}`);
 
@@ -3530,6 +3530,7 @@ function serializeSquareGridRow(block, ctx) {
 				codeEl.className = `language-${clean}`;
 				codeEl.setAttribute("data-lang", clean);
 			}
+			codeEl.classList.add("nohighlight");
 		};
 
 		const ensureCodeToolbar = (pre) => {
@@ -3582,14 +3583,7 @@ function serializeSquareGridRow(block, ctx) {
 			);
 			langSelectInline.addEventListener("change", () => {
 				updateCodeLanguage(codeEl, langSelectInline.value);
-				formatCodeBlocksInEditor(pre).then(() => {
-					if (window.hljs) {
-						codeEl.textContent = codeEl.textContent;
-						codeEl.removeAttribute("data-highlighted");
-						codeEl.classList.remove("hljs");
-						window.hljs.highlightElement(codeEl);
-					}
-				});
+				formatCodeBlocksInEditor(pre);
 			});
 			formatBtn.addEventListener("click", () => {
 				if (langSelectInline.value === "auto") {
@@ -3599,14 +3593,7 @@ function serializeSquareGridRow(block, ctx) {
 						updateCodeLanguage(codeEl, guessed);
 					}
 				}
-				formatCodeBlocksInEditor(pre).then(() => {
-					if (window.hljs) {
-						codeEl.textContent = codeEl.textContent;
-						codeEl.removeAttribute("data-highlighted");
-						codeEl.classList.remove("hljs");
-						window.hljs.highlightElement(codeEl);
-					}
-				});
+				formatCodeBlocksInEditor(pre);
 			});
 			tool.appendChild(langSelectInline);
 			tool.appendChild(formatBtn);
@@ -3951,7 +3938,25 @@ function serializeSquareGridRow(block, ctx) {
 			if (event.shiftKey) document.execCommand("outdent");
 			else document.execCommand("indent");
 		});
-		editor.addEventListener("paste", (event) => {
+		editor.addEventListener(
+			"paste",
+			(event) => {
+				const selection = window.getSelection();
+				if (!selection || selection.rangeCount === 0) return;
+				const range = selection.getRangeAt(0);
+				let node = range.commonAncestorContainer;
+				if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+				const codeBlock = node?.closest ? node.closest("pre, code") : null;
+				if (!codeBlock) return;
+				const text = event.clipboardData?.getData("text/plain");
+				if (!text) return;
+				event.preventDefault();
+				document.execCommand("insertText", false, text);
+			},
+			true,
+		);
+		editor.addEventListener("beforeinput", (event) => {
+			if (event.inputType !== "insertFromPaste") return;
 			const selection = window.getSelection();
 			if (!selection || selection.rangeCount === 0) return;
 			const range = selection.getRangeAt(0);
@@ -3959,7 +3964,7 @@ function serializeSquareGridRow(block, ctx) {
 			if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
 			const codeBlock = node?.closest ? node.closest("pre, code") : null;
 			if (!codeBlock) return;
-			const text = event.clipboardData?.getData("text/plain");
+			const text = event.data || "";
 			if (!text) return;
 			event.preventDefault();
 			document.execCommand("insertText", false, text);
