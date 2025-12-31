@@ -2815,7 +2815,11 @@ function serializeSquareGridRow(block, ctx) {
 			footerNodes: [
 				el(
 					"button",
-					{ class: "cms-btn cms-modal__action", type: "button", "data-close": "true" },
+					{
+						class: "cms-btn cms-modal__action cms-btn--danger",
+						type: "button",
+						"data-close": "true",
+					},
 					["Close"],
 				),
 			],
