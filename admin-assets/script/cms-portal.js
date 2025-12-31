@@ -3256,6 +3256,7 @@ function serializeSquareGridRow(block, ctx) {
 			el("button", { type: "button", "data-cmd": "table-row" }, ["Row +"]),
 			el("button", { type: "button", "data-cmd": "table-col" }, ["Col +"]),
 			el("button", { type: "button", "data-cmd": "code" }, ["Code"]),
+			el("button", { type: "button", "data-cmd": "code-block" }, ["Block code"]),
 			el("button", { type: "button", "data-cmd": "img" }, ["Image"]),
 		]);
 		const editor = el("div", {
@@ -3524,6 +3525,33 @@ function serializeSquareGridRow(block, ctx) {
 				selection.removeAllRanges();
 				const newRange = document.createRange();
 				newRange.selectNodeContents(code);
+				selection.addRange(newRange);
+			} else if (cmd === "code-block") {
+				const selection = window.getSelection();
+				if (!selection || selection.rangeCount === 0) return;
+				const range = selection.getRangeAt(0);
+				let node = range.commonAncestorContainer;
+				if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+				const existingPre = node?.closest ? node.closest("pre") : null;
+				if (existingPre) {
+					const textNode = document.createTextNode(existingPre.textContent || "");
+					existingPre.replaceWith(textNode);
+					selection.removeAllRanges();
+					const newRange = document.createRange();
+					newRange.selectNodeContents(textNode);
+					selection.addRange(newRange);
+					return;
+				}
+				if (range.collapsed) return;
+				const pre = document.createElement("pre");
+				const code = document.createElement("code");
+				code.textContent = range.toString();
+				pre.appendChild(code);
+				range.deleteContents();
+				range.insertNode(pre);
+				selection.removeAllRanges();
+				const newRange = document.createRange();
+				newRange.selectNodeContents(pre);
 				selection.addRange(newRange);
 			} else if (cmd === "img") {
 				openImagePanel();
