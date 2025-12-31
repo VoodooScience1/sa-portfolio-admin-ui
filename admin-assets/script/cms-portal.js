@@ -14,7 +14,7 @@
  */
 
 (() => {
-	const PORTAL_VERSION = "2025-12-31-12";
+	const PORTAL_VERSION = "2025-12-31-13";
 	window.__CMS_PORTAL_VERSION__ = PORTAL_VERSION;
 	console.log(`[cms-portal] loaded v${PORTAL_VERSION}`);
 
@@ -318,6 +318,19 @@
 		return out;
 	}
 
+	function normalizeCodeForFormat(text, lang = "") {
+		const lower = String(lang || "").toLowerCase();
+		const trimmed = String(text || "").replace(/\r\n/g, "\n");
+		if (lower === "py" || lower === "python") {
+			return normalizeCodeIndent(trimmed, lower);
+		}
+		return trimmed.replace(/^[\t ]+/gm, "");
+	}
+
+	function normalizeCodeForSave(text, lang = "") {
+		return normalizeCodeForFormat(text, lang);
+	}
+
 	function formatHtmlFragment(prettier, plugins, code) {
 		const text = String(code || "");
 		if (/^\s*<\/[a-z]/i.test(text)) return null;
@@ -383,8 +396,11 @@
 				? Object.values(window.prettierPlugins)
 				: [];
 			for (const codeEl of blocks) {
-				codeEl.textContent = normalizeCodeIndent(codeEl.textContent || "");
 				let lang = getLangFromCodeEl(codeEl);
+				codeEl.textContent = normalizeCodeForFormat(
+					codeEl.textContent || "",
+					lang,
+				);
 				if (!lang || lang === "auto") {
 					lang = guessLanguageFromText(codeEl.textContent);
 					if (lang && lang !== "auto") {
@@ -428,8 +444,9 @@
 								: maybeFormatted;
 					}
 					if (typeof formatted === "string") {
-						codeEl.textContent = normalizeCodeIndent(
+						codeEl.textContent = normalizeCodeForSave(
 							formatted.replace(/\s+$/, ""),
+							lang,
 						);
 					}
 				} catch {
@@ -754,7 +771,9 @@
 		if (tag === "pre") {
 			const codeChild = node.querySelector("code");
 			const lang = getLangFromCodeEl(codeChild);
-			const text = escapeHtml(normalizeCodeIndent(node.textContent || ""));
+			const text = escapeHtml(
+				normalizeCodeForSave(node.textContent || "", lang),
+			);
 			if (lang) {
 				return `<pre><code class="language-${escapeAttr(lang)}">${text}</code></pre>`;
 			}
@@ -3681,32 +3700,11 @@ function serializeSquareGridRow(block, ctx) {
 				),
 			);
 			langSelectInline.value = detected || "auto";
-			const formatBtn = el(
-				"button",
-				{
-					type: "button",
-					class: "cms-code-toolbar__btn",
-					contenteditable: "false",
-					title: "Format code",
-				},
-				["Format"],
-			);
 			langSelectInline.addEventListener("change", () => {
 				updateCodeLanguage(codeEl, langSelectInline.value);
 				formatCodeBlocksInEditor(pre);
 			});
-			formatBtn.addEventListener("click", () => {
-				if (langSelectInline.value === "auto") {
-					const guessed = guessLanguageFromText(codeEl.textContent);
-					if (guessed && guessed !== "auto") {
-						langSelectInline.value = guessed;
-						updateCodeLanguage(codeEl, guessed);
-					}
-				}
-				formatCodeBlocksInEditor(pre);
-			});
 			tool.appendChild(langSelectInline);
-			tool.appendChild(formatBtn);
 			wrapper.appendChild(tool);
 		};
 
@@ -4915,6 +4913,19 @@ function serializeSquareGridRow(block, ctx) {
 	}
 
 	let highlightRetryCount = 0;
+	function getHljsLang(lang) {
+		const lower = String(lang || "").toLowerCase();
+		if (!lower) return "";
+		if (lower === "js" || lower === "javascript") return "javascript";
+		if (lower === "json") return "json";
+		if (lower === "html") return "xml";
+		if (lower === "css") return "css";
+		if (lower === "md" || lower === "markdown") return "markdown";
+		if (lower === "yml" || lower === "yaml") return "yaml";
+		if (lower === "py" || lower === "python") return "python";
+		return lower;
+	}
+
 	function highlightStaticCodeBlocks() {
 		if (!window.hljs?.highlightElement) return false;
 		const blocks = Array.from(
@@ -4927,15 +4938,26 @@ function serializeSquareGridRow(block, ctx) {
 		});
 		blocks.forEach((code) => {
 			const lang = getLangFromCodeEl(code);
-			const text = normalizeCodeIndent(code.textContent || "", lang);
+			const text = normalizeCodeForSave(code.textContent || "", lang);
 			code.className = "";
 			if (lang) {
 				code.className = `language-${lang}`;
 				code.setAttribute("data-lang", lang);
 			}
-			code.textContent = text;
 			code.removeAttribute("data-highlighted");
-			window.hljs.highlightElement(code);
+			code.textContent = text;
+			const hljsLang = getHljsLang(lang);
+			if (hljsLang && window.hljs?.highlight) {
+				const result = window.hljs.highlight(text, {
+					language: hljsLang,
+					ignoreIllegals: true,
+				});
+				code.innerHTML = result.value;
+				code.classList.add("hljs");
+				code.setAttribute("data-highlighted", "yes");
+			} else {
+				window.hljs.highlightElement(code);
+			}
 		});
 		return true;
 	}
