@@ -14,7 +14,7 @@
  */
 
 (() => {
-	const PORTAL_VERSION = "2025-12-31-6";
+	const PORTAL_VERSION = "2025-12-31-7";
 	window.__CMS_PORTAL_VERSION__ = PORTAL_VERSION;
 	console.log(`[cms-portal] loaded v${PORTAL_VERSION}`);
 
@@ -461,16 +461,56 @@
 		const wrap = doc.querySelector("#__wrap__");
 		if (!wrap) return "";
 
-		wrap.querySelectorAll("pre").forEach((pre) => {
-			const code = pre.querySelector("code") || pre;
-			const text = code.innerText || code.textContent || "";
-			const lang = getLangFromCodeEl(code);
-			const clean = doc.createElement("code");
-			if (lang) clean.className = `language-${lang}`;
-			clean.textContent = text;
-			pre.innerHTML = "";
-			pre.appendChild(clean);
-		});
+		const mergeAdjacentPres = (parent) => {
+			const children = Array.from(parent.childNodes);
+			for (let i = 0; i < children.length; i += 1) {
+				const node = children[i];
+				if (!(node instanceof Element)) continue;
+				if (node.tagName.toLowerCase() !== "pre") {
+					if (node.childNodes?.length) mergeAdjacentPres(node);
+					continue;
+				}
+				const lines = [node.innerText || node.textContent || ""].map((t) =>
+					String(t || "").replace(/\n+$/g, ""),
+				);
+				let j = i + 1;
+				while (j < children.length) {
+					const next = children[j];
+					if (
+						next instanceof Element &&
+						next.tagName.toLowerCase() === "pre"
+					) {
+						lines.push(
+							String(next.innerText || next.textContent || "").replace(
+								/\n+$/g,
+								"",
+							),
+						);
+						next.remove();
+						j += 1;
+						continue;
+					}
+					if (
+						next?.nodeType === Node.TEXT_NODE &&
+						String(next.textContent || "").trim() === ""
+					) {
+						next.remove();
+						j += 1;
+						continue;
+					}
+					break;
+				}
+				const merged = lines.join("\n");
+				const lang = getLangFromCodeEl(node.querySelector("code")) || "";
+				const clean = doc.createElement("code");
+				if (lang) clean.className = `language-${lang}`;
+				clean.textContent = merged;
+				node.innerHTML = "";
+				node.appendChild(clean);
+			}
+		};
+
+		mergeAdjacentPres(wrap);
 
 		const accState = ctx._accordionState || { index: 0 }; // 0-based item index per ADR-015
 		const pageHash = ctx.pageHash || hashText(ctx.path || "");
