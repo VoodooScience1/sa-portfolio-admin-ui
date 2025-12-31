@@ -3591,6 +3591,7 @@ function serializeSquareGridRow(block, ctx) {
 						{
 							class: "cms-btn cms-modal__action cms-btn--success",
 							type: "button",
+							"data-action": "save-block",
 						},
 						["Save"],
 					),
@@ -3624,7 +3625,7 @@ function serializeSquareGridRow(block, ctx) {
 				imagePickBtn = el(
 					"button",
 					{
-						class: "cms-btn cms-modal__action cms-btn--success",
+						class: "cms-btn cms-btn--success cms-btn--inline",
 						type: "button",
 					},
 					["Choose image"],
@@ -3772,6 +3773,7 @@ function serializeSquareGridRow(block, ctx) {
 						{
 							class: "cms-btn cms-modal__action cms-btn--success",
 							type: "button",
+							"data-action": "save-block",
 						},
 						["Save"],
 					),
@@ -3793,7 +3795,7 @@ function serializeSquareGridRow(block, ctx) {
 
 		const modal = document.querySelector(".cms-modal");
 		const saveBtn = modal?.querySelector(
-			".cms-btn.cms-modal__action.cms-btn--success",
+			".cms-btn.cms-modal__action.cms-btn--success[data-action=\"save-block\"]",
 		);
 		if (!saveBtn) return;
 
