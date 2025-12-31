@@ -489,9 +489,13 @@
 		const sanitizeNode = (node) => {
 			if (node.nodeType === Node.TEXT_NODE) {
 				const text = node.textContent || "";
-				if (text.includes("AutoJSJSONHTMLCSSPythonMarkdownYAMLFormat")) {
+				if (
+					/Auto\s*JS\s*JSON\s*HTML\s*CSS\s*Python\s*Markdown\s*YAML\s*Format/.test(
+						text,
+					)
+				) {
 					const cleaned = text.replace(
-						"AutoJSJSONHTMLCSSPythonMarkdownYAMLFormat",
+						/Auto\s*JS\s*JSON\s*HTML\s*CSS\s*Python\s*Markdown\s*YAML\s*Format/g,
 						"",
 					);
 					if (!cleaned.trim()) return "";
@@ -3438,7 +3442,8 @@ function serializeSquareGridRow(block, ctx) {
 		});
 		editor.innerHTML = initialHtml || "";
 
-		const TOOLBAR_TEXT = "AutoJSJSONHTMLCSSPythonMarkdownYAMLFormat";
+		const TOOLBAR_TEXT_RE =
+			/Auto\s*JS\s*JSON\s*HTML\s*CSS\s*Python\s*Markdown\s*YAML\s*Format/g;
 
 		const stripToolbarText = (root) => {
 			const walker = document.createTreeWalker(
@@ -3450,8 +3455,8 @@ function serializeSquareGridRow(block, ctx) {
 			while (walker.nextNode()) {
 				const node = walker.currentNode;
 				if (!node?.textContent) continue;
-				if (node.textContent.includes(TOOLBAR_TEXT)) {
-					const cleaned = node.textContent.replace(TOOLBAR_TEXT, "");
+				if (TOOLBAR_TEXT_RE.test(node.textContent)) {
+					const cleaned = node.textContent.replace(TOOLBAR_TEXT_RE, "");
 					if (cleaned.trim() === "") toRemove.push(node);
 					else node.textContent = cleaned;
 				}
@@ -3476,20 +3481,23 @@ function serializeSquareGridRow(block, ctx) {
 			if (!pre) return;
 			const codeEl = pre.querySelector("code");
 			if (!codeEl) return;
-			if (pre.parentElement?.classList.contains("cms-code-block-wrap")) {
-				const existing = pre.parentElement.querySelector(".cms-code-toolbar");
-				if (existing) return;
+			let wrapper = pre.parentElement?.classList.contains("cms-code-block-wrap")
+				? pre.parentElement
+				: null;
+			if (!wrapper) {
+				wrapper = el("div", { class: "cms-code-block-wrap" });
+				pre.parentNode?.insertBefore(wrapper, pre);
+				wrapper.appendChild(pre);
 			}
-			const wrapper = el("div", { class: "cms-code-block-wrap" });
-			pre.parentNode?.insertBefore(wrapper, pre);
-			wrapper.appendChild(pre);
+			const existing = wrapper.querySelector(".cms-code-toolbar");
+			if (existing) return;
 			const textLang = getLangFromCodeEl(codeEl);
 			const detected = textLang || guessLanguageFromText(codeEl.textContent);
 			if (!textLang && detected && detected !== "auto") {
 				updateCodeLanguage(codeEl, detected);
 			}
-			if (codeEl.textContent.includes(TOOLBAR_TEXT)) {
-				codeEl.textContent = codeEl.textContent.replace(TOOLBAR_TEXT, "");
+			if (TOOLBAR_TEXT_RE.test(codeEl.textContent)) {
+				codeEl.textContent = codeEl.textContent.replace(TOOLBAR_TEXT_RE, "");
 			}
 			pre.classList.add("cms-code-block");
 			const tool = el("div", {
