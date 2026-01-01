@@ -972,7 +972,7 @@ function serializeSquareGridRow(block, ctx) {
 					occ,
 					blockId: stableId,
 					blockIdShort: hashText(
-						`${block.baseId || block.id || "block"}::${idx}`,
+						`${stableId || "block"}::${idx}`,
 					).slice(0, 4),
 				};
 				if (block.type === "twoCol") return serializeTwoCol(block, blockCtx);
@@ -1270,6 +1270,59 @@ function serializeSquareGridRow(block, ctx) {
 		}
 		usedIds.add(id);
 		return id;
+	}
+
+	function parseFirstElementFromHtml(html) {
+		try {
+			const doc = new DOMParser().parseFromString(
+				`<div id="__wrap__">${String(html || "")}</div>`,
+				"text/html",
+			);
+			return doc.querySelector("#__wrap__")?.firstElementChild || null;
+		} catch {
+			return null;
+		}
+	}
+
+	function buildCmsIdContext(baseHtml, localBlocks) {
+		const usedIds = new Set();
+		const sigCounts = new Map();
+		const bumpSig = (sig) => {
+			if (!sig) return;
+			sigCounts.set(sig, (sigCounts.get(sig) || 0) + 1);
+		};
+		const baseBlocks = buildBaseBlocksWithOcc(baseHtml || "");
+		baseBlocks.forEach((block) => {
+			if (block.id) usedIds.add(block.id);
+			if (block.sig) bumpSig(block.sig);
+		});
+		normalizeLocalBlocks(localBlocks || []).forEach((item) => {
+			const node = parseFirstElementFromHtml(item.html || "");
+			if (!node) return;
+			const id = node.getAttribute("data-cms-id") || "";
+			if (id) usedIds.add(id);
+			const sig = signatureForHtml(node.outerHTML || "");
+			bumpSig(sig);
+		});
+		return { usedIds, sigCounts };
+	}
+
+	function ensureBlockHtmlHasCmsId(html, ctx) {
+		const node = parseFirstElementFromHtml(html);
+		if (!node) return { html: String(html || ""), cmsId: "" };
+		const sig = signatureForHtml(node.outerHTML || "");
+		const occ = sig ? ctx.sigCounts.get(sig) || 0 : 0;
+		const existingId = node.getAttribute("data-cms-id") || "";
+		const cmsId = ensureUniqueCmsId({
+			existingId,
+			sig,
+			occ,
+			fallback: node.outerHTML || String(html || ""),
+			usedIds: ctx.usedIds,
+		});
+		if (sig) ctx.sigCounts.set(sig, occ + 1);
+		if (cmsId && existingId !== cmsId) node.setAttribute("data-cms-id", cmsId);
+		return { html: node.outerHTML, cmsId };
 	}
 
 	function buildBaseBlocksWithOcc(baseHtml) {
@@ -3100,11 +3153,22 @@ function serializeSquareGridRow(block, ctx) {
 			anchor = anchorInfo.anchor;
 			placement = anchorInfo.placement;
 		}
+		const idCtx = buildCmsIdContext(state.originalHtml || "", localBlocks);
+		const normalizedLocal = localBlocks.map((item) => {
+			if (!item?.html) return item;
+			const node = parseFirstElementFromHtml(item.html);
+			const existingId = node?.getAttribute("data-cms-id") || "";
+			if (existingId) return item;
+			const ensured = ensureBlockHtmlHasCmsId(item.html, idCtx);
+			if (!ensured.html || ensured.html === item.html) return item;
+			return { ...item, html: ensured.html };
+		});
+		const ensuredNew = ensureBlockHtmlHasCmsId(html, idCtx);
 		const updatedLocal = [
-			...localBlocks,
+			...normalizedLocal,
 			{
 				id: makeLocalId(),
-				html,
+				html: ensuredNew.html,
 				anchor,
 				placement,
 				status: "staged",
@@ -3116,7 +3180,7 @@ function serializeSquareGridRow(block, ctx) {
 			idx: index,
 			type: "std-container",
 			summary: "Standard container",
-			html,
+			html: ensuredNew.html,
 		});
 
 		normalizeBlocks();
@@ -5850,17 +5914,44 @@ function serializeSquareGridRow(block, ctx) {
 			close.style.padding = "2px 6px";
 		}
 
-		const baseBlocks = buildBaseBlocksWithOcc(state.originalHtml || "");
-		const baselineOrder = baseBlocks.map((b) => b.id);
-		const localBlocks = normalizeLocalBlocks(
-			state.dirtyPages[state.path]?.localBlocks || [],
-		);
-		const currentOrder = buildBaseOrderFromReorders(baseBlocks, localBlocks);
-		const short = (id) => (id ? String(id).slice(0, 10) : "null");
-		const lines = [];
-		lines.push(`path: ${state.path}`);
-		lines.push(`baseline: ${baselineOrder.map(short).join(", ")}`);
-		lines.push(`current : ${currentOrder.map(short).join(", ")}`);
+			const baseBlocks = buildBaseBlocksWithOcc(state.originalHtml || "");
+			const baselineOrder = baseBlocks.map((b) => b.id);
+			const localBlocks = normalizeLocalBlocks(
+				state.dirtyPages[state.path]?.localBlocks || [],
+			);
+			const cmsIdCounts = new Map();
+			const missingCmsIds = [];
+			const recordCmsId = (id) => {
+				if (!id) return;
+				cmsIdCounts.set(id, (cmsIdCounts.get(id) || 0) + 1);
+			};
+			const mainSnapshot = state.mainInner || "";
+			const mainDoc = new DOMParser().parseFromString(
+				`<div id="__wrap__">${mainSnapshot}</div>`,
+				"text/html",
+			);
+			Array.from(mainDoc.querySelectorAll("#__wrap__ > *")).forEach(
+				(node) => {
+					const id = node.getAttribute("data-cms-id") || "";
+					if (!id) missingCmsIds.push(node.tagName.toLowerCase());
+					else recordCmsId(id);
+				},
+			);
+			const duplicates = Array.from(cmsIdCounts.entries())
+				.filter(([, count]) => count > 1)
+				.map(([id, count]) => `${id}(${count})`);
+			const currentOrder = buildBaseOrderFromReorders(baseBlocks, localBlocks);
+			const short = (id) => (id ? String(id).slice(0, 10) : "null");
+			const lines = [];
+			lines.push(`path: ${state.path}`);
+			lines.push(
+				`cms-id duplicates: ${duplicates.length ? duplicates.join(", ") : "none"}`,
+			);
+			lines.push(
+				`cms-id missing: ${missingCmsIds.length ? missingCmsIds.length : "0"}`,
+			);
+			lines.push(`baseline: ${baselineOrder.map(short).join(", ")}`);
+			lines.push(`current : ${currentOrder.map(short).join(", ")}`);
 		lines.push(
 			`locals  : ${localBlocks
 				.map(
