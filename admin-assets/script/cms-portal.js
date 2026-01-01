@@ -4077,6 +4077,7 @@ function serializeSquareGridRow(block, ctx) {
 		codeObserver.observe(editor, { childList: true, subtree: true });
 
 		let activeImageTarget = null;
+		let modalCloseInterceptor = null;
 
 		let currentInlineSize = "sml";
 		let currentUploadFile = null;
@@ -4357,7 +4358,7 @@ function serializeSquareGridRow(block, ctx) {
 				"cms-image-preview__img--lg",
 				"cms-image-preview__img--full",
 			);
-			const value = (scaleSelect.value || "auto").trim().toLowerCase();
+			const value = (scaleSelect.value || "").trim().toLowerCase();
 			if (value && value !== "auto") {
 				img.classList.add(`cms-image-preview__img--${value}`);
 			}
@@ -4446,11 +4447,6 @@ function serializeSquareGridRow(block, ctx) {
 			{ class: "cms-btn cms-btn--danger", type: "button" },
 			["Delete"],
 		);
-		const imageCancelBtn = el(
-			"button",
-			{ class: "cms-btn", type: "button" },
-			["Close"],
-		);
 		const imagePanel = el(
 			"div",
 			{ class: "cms-rte__panel cms-rte__panel--image" },
@@ -4464,7 +4460,6 @@ function serializeSquareGridRow(block, ctx) {
 				buildField({ label: "Image settings", input: settingsRow }),
 				el("div", { class: "cms-rte__panel-actions" }, [
 					imageDeleteBtn,
-					imageCancelBtn,
 					imageSaveBtn,
 				]),
 			],
@@ -4489,7 +4484,31 @@ function serializeSquareGridRow(block, ctx) {
 			imagePanel,
 		]);
 
+		const attachModalCloseInterceptor = () => {
+			const root = qs("#cms-modal");
+			if (!root || modalCloseInterceptor) return;
+			modalCloseInterceptor = (event) => {
+				if (imagePanel.hidden) return;
+				event.preventDefault();
+				event.stopImmediatePropagation();
+				closeImagePanel();
+			};
+			root.querySelectorAll("[data-close='true']").forEach((btn) => {
+				btn.addEventListener("click", modalCloseInterceptor, true);
+			});
+		};
+
+		const detachModalCloseInterceptor = () => {
+			const root = qs("#cms-modal");
+			if (!root || !modalCloseInterceptor) return;
+			root.querySelectorAll("[data-close='true']").forEach((btn) => {
+				btn.removeEventListener("click", modalCloseInterceptor, true);
+			});
+			modalCloseInterceptor = null;
+		};
+
 		const openInlineDeleteConfirm = ({ onConfirm }) => {
+			detachModalCloseInterceptor();
 			const root = qs("#cms-modal");
 			const hadModal = Boolean(root && root.classList.contains("is-open"));
 			const prevTitle = hadModal ? qs("#cms-modal-title")?.textContent || "" : "";
@@ -4504,6 +4523,7 @@ function serializeSquareGridRow(block, ctx) {
 			const restoreParentModal = () => {
 				if (!hadModal || !root || !prevBody || !prevFooter) {
 					closeModal();
+					if (!imagePanel.hidden) attachModalCloseInterceptor();
 					return;
 				}
 				qs("#cms-modal-title").textContent = prevTitle || "Modal";
@@ -4515,6 +4535,7 @@ function serializeSquareGridRow(block, ctx) {
 				root.classList.add("is-open");
 				document.documentElement.classList.add("cms-lock");
 				document.body.classList.add("cms-lock");
+				if (!imagePanel.hidden) attachModalCloseInterceptor();
 			};
 
 			const closeConfirm = () => {
@@ -4525,7 +4546,7 @@ function serializeSquareGridRow(block, ctx) {
 			const cancel = el(
 				"button",
 				{
-					class: "cms-btn cms-modal__action",
+					class: "cms-btn cms-btn--move cms-modal__action",
 					type: "button",
 					"data-close": "true",
 				},
@@ -4548,7 +4569,7 @@ function serializeSquareGridRow(block, ctx) {
 				title: "Delete image",
 				bodyNodes: [
 					el("p", { class: "cms-modal__text" }, [
-						"Delete this inline image?",
+						"Delete this inline image? Unsaved changes will be lost if you continue.",
 					]),
 				],
 				footerNodes: [cancel, confirm],
@@ -4737,6 +4758,7 @@ function serializeSquareGridRow(block, ctx) {
 			imageSaveBtn.textContent = targetStub ? "Update image" : "Insert image";
 			imageDeleteBtn.disabled = !targetStub;
 			imagePanel.hidden = false;
+			attachModalCloseInterceptor();
 			loadImageLibraryIntoSelect(imageLibrarySelect).catch((err) =>
 				console.error(err),
 			);
@@ -4746,6 +4768,7 @@ function serializeSquareGridRow(block, ctx) {
 		const closeImagePanel = () => {
 			activeImageTarget = null;
 			imagePanel.hidden = true;
+			detachModalCloseInterceptor();
 		};
 
 		imageSaveBtn.addEventListener("click", () => {
@@ -4763,7 +4786,7 @@ function serializeSquareGridRow(block, ctx) {
 					? overlayTextInput.value.trim()
 					: "",
 				size: currentInlineSize || "sml",
-				scale: scaleSelect.value || "auto",
+				scale: scaleSelect.value === "auto" ? "" : scaleSelect.value,
 			};
 			if (activeImageTarget) {
 				activeImageTarget.setAttribute("data-img", attrs.img);
@@ -4787,7 +4810,7 @@ function serializeSquareGridRow(block, ctx) {
 				} else {
 					activeImageTarget.removeAttribute("data-size");
 				}
-				if (attrs.scale && attrs.scale !== "auto") {
+				if (attrs.scale) {
 					activeImageTarget.setAttribute("data-scale", attrs.scale);
 				} else {
 					activeImageTarget.removeAttribute("data-scale");
@@ -4806,11 +4829,13 @@ function serializeSquareGridRow(block, ctx) {
 
 		imageDeleteBtn.addEventListener("click", () => {
 			if (!activeImageTarget) return;
-			activeImageTarget.remove();
-			closeImagePanel();
+			openInlineDeleteConfirm({
+				onConfirm: () => {
+					if (activeImageTarget) activeImageTarget.remove();
+					closeImagePanel();
+				},
+			});
 		});
-
-		imageCancelBtn.addEventListener("click", () => closeImagePanel());
 
 		toolbar.addEventListener("click", (event) => {
 			const btn = event.target.closest("button");
