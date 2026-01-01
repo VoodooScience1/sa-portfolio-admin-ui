@@ -14,7 +14,7 @@
  */
 
 (() => {
-const PORTAL_VERSION = "2025-12-31-22";
+	const PORTAL_VERSION = "2025-12-31-23";
 	window.__CMS_PORTAL_VERSION__ = PORTAL_VERSION;
 	console.log(`[cms-portal] loaded v${PORTAL_VERSION}`);
 
@@ -191,20 +191,41 @@ const PORTAL_VERSION = "2025-12-31-22";
 		return escapeHtml(text).replace(/"/g, "&quot;");
 	}
 
+	function normalizeCodeText(text) {
+		const raw = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+		const lines = raw.split("\n");
+		const nonEmpty = lines.filter((line) => line.trim() !== "");
+		if (nonEmpty.length < 2) return raw;
+		let common = nonEmpty[0].match(/^[\t ]*/)?.[0] || "";
+		for (const line of nonEmpty.slice(1)) {
+			const indent = line.match(/^[\t ]*/)?.[0] || "";
+			let i = 0;
+			while (i < common.length && i < indent.length && common[i] === indent[i]) {
+				i += 1;
+			}
+			common = common.slice(0, i);
+			if (!common) break;
+		}
+		if (!common || !/^[\t ]+$/.test(common)) return raw;
+		return lines
+			.map((line) => (line.startsWith(common) ? line.slice(common.length) : line))
+			.join("\n");
+	}
+
 	function indentLines(text, level) {
 		const pad = "\t".repeat(level);
-		const lines = String(text || "").split("\n");
-		let inPre = false;
-		return lines
-			.map((line) => {
-				const startsPre = /<pre\b/i.test(line);
-				const endsPre = /<\/pre>/i.test(line);
-				if (startsPre) inPre = true;
-				const out = !inPre && line ? `${pad}${line}` : line;
-				if (endsPre) inPre = false;
-				return out;
-			})
+		const raw = String(text || "");
+		const pres = [];
+		const placeholder = raw.replace(/<pre[\s\S]*?<\/pre>/gi, (match) => {
+			const token = `__CMS_PRE_${pres.length}__`;
+			pres.push(match);
+			return token;
+		});
+		const lines = placeholder.split("\n");
+		const indented = lines
+			.map((line) => (line ? `${pad}${line}` : line))
 			.join("\n");
+		return indented.replace(/__CMS_PRE_(\d+)__/g, (_, idx) => pres[Number(idx)]);
 	}
 
 	function normalizeBool(val, fallback = "false") {
@@ -554,7 +575,7 @@ const PORTAL_VERSION = "2025-12-31-22";
 			const codeChild = node.querySelector("code");
 			const lang = getLangFromCodeEl(codeChild);
 			const rawText = codeChild ? codeChild.textContent : node.textContent;
-			const text = escapeHtml(rawText || "");
+			const text = escapeHtml(normalizeCodeText(rawText || ""));
 			if (lang) {
 				return `<pre><code class="language-${escapeAttr(lang)}">${text}</code></pre>`;
 			}
@@ -3777,7 +3798,7 @@ function serializeSquareGridRow(block, ctx) {
 				if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
 				const existingPre = node?.closest ? node.closest("pre") : null;
 				if (existingPre) return;
-				const initialText = range.collapsed ? "" : selectionToHtml(range);
+				const initialText = range.collapsed ? "" : selection.toString();
 				const pre = document.createElement("pre");
 				const code = document.createElement("code");
 				const detected = guessLanguageFromText(initialText) || "auto";
@@ -3802,7 +3823,7 @@ function serializeSquareGridRow(block, ctx) {
 				if (node?.closest && node.closest("pre, code")) return;
 				const pre = document.createElement("pre");
 				const code = document.createElement("code");
-				const raw = selectionToHtml(range);
+				const raw = selection.toString();
 				updateCodeLanguage(code, "auto");
 				code.textContent = raw;
 				pre.appendChild(code);
@@ -3824,24 +3845,20 @@ function serializeSquareGridRow(block, ctx) {
 			if (!selection || !selection.anchorNode) return;
 			let node = selection.anchorNode;
 			if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
-			const codeBlock = node?.closest ? node.closest("pre, code") : null;
-			if (codeBlock) {
-				event.preventDefault();
-				document.execCommand("insertText", false, "\t");
-				return;
-			}
+			const preBlock = node?.closest ? node.closest("pre") : null;
+			if (preBlock) return;
 			const li = node?.closest ? node.closest("li") : null;
 			if (!li) return;
 			event.preventDefault();
 			if (event.shiftKey) document.execCommand("outdent");
 			else document.execCommand("indent");
 		});
-		const getSelectionCodeBlock = () => {
+		const getSelectionPreBlock = () => {
 			const selection = window.getSelection();
 			if (!selection || selection.rangeCount === 0) return null;
 			let node = selection.getRangeAt(0).commonAncestorContainer;
 			if (node?.nodeType === Node.TEXT_NODE) node = node.parentElement;
-			return node?.closest ? node.closest("pre, code") : null;
+			return node?.closest ? node.closest("pre") : null;
 		};
 
 		const insertPlainTextIntoCode = (target, text) => {
@@ -3872,7 +3889,7 @@ function serializeSquareGridRow(block, ctx) {
 			"paste",
 			(event) => {
 				const target = event.target instanceof Element ? event.target : null;
-				const codeBlock = getSelectionCodeBlock() || target?.closest("pre, code");
+				const codeBlock = getSelectionPreBlock() || target?.closest("pre");
 				if (!codeBlock) return;
 				const text = event.clipboardData?.getData("text/plain");
 				if (!text) return;
@@ -3886,7 +3903,7 @@ function serializeSquareGridRow(block, ctx) {
 			(event) => {
 				if (event.inputType !== "insertFromPaste") return;
 				const target = event.target instanceof Element ? event.target : null;
-				const codeBlock = getSelectionCodeBlock() || target?.closest("pre, code");
+				const codeBlock = getSelectionPreBlock() || target?.closest("pre");
 				if (!codeBlock) return;
 				const text = event.data || "";
 				if (!text) return;
