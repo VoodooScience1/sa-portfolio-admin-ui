@@ -1578,6 +1578,22 @@ function serializeSquareGridRow(block, ctx) {
 					};
 				}
 				if (item && typeof item === "object") {
+					const action =
+						item.action === "remove"
+							? "remove"
+							: item.action === "mark"
+								? "mark"
+								: item.action === "reorder"
+									? "reorder"
+									: "insert";
+					const kind = item.kind === "edited" ? "edited" : "new";
+					const sourceKey = item.sourceKey || null;
+					const allowBaseId =
+						action !== "insert" ||
+						(kind === "edited" &&
+							action === "insert" &&
+							typeof sourceKey === "string" &&
+							sourceKey.startsWith("id:"));
 					return {
 						id: item.id || makeLocalId(),
 						html: String(item.html || ""),
@@ -1586,18 +1602,11 @@ function serializeSquareGridRow(block, ctx) {
 						placement: item.placement === "before" ? "before" : "after",
 						status: item.status === "pending" ? "pending" : "staged",
 						prNumber: item.prNumber || null,
-						kind: item.kind === "edited" ? "edited" : "new",
-						baseId: item.baseId || null,
-						sourceKey: item.sourceKey || null,
+						kind,
+						baseId: allowBaseId ? item.baseId || null : null,
+						sourceKey,
 						order: Array.isArray(item.order) ? item.order.slice() : null,
-						action:
-							item.action === "remove"
-								? "remove"
-								: item.action === "mark"
-									? "mark"
-									: item.action === "reorder"
-										? "reorder"
-										: "insert",
+						action,
 					};
 				}
 				return null;
@@ -1615,13 +1624,20 @@ function serializeSquareGridRow(block, ctx) {
 			idBySigOcc.set(`${block.sig}::${block.occ ?? 0}`, block.id);
 		});
 		return items.map((item) => {
+			const isInsert = item.action === "insert";
+			const isEditedInsert =
+				isInsert &&
+				item.kind === "edited" &&
+				typeof item.sourceKey === "string" &&
+				item.sourceKey.startsWith("id:");
 			let anchor = item.anchor;
 			if (anchor?.sig && !anchor.id) {
 				const id = idBySigOcc.get(`${anchor.sig}::${anchor.occ ?? 0}`);
 				if (id) anchor = { ...anchor, id };
 			}
 			let baseId = item.baseId;
-			if (!baseId && anchor?.id) baseId = anchor.id;
+			if (!baseId && anchor?.id && (isEditedInsert || !isInsert))
+				baseId = anchor.id;
 			return { ...item, anchor, baseId };
 		});
 	}
