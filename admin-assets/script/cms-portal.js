@@ -2182,11 +2182,24 @@ function serializeSquareGridRow(block, ctx) {
 		if (!main.found) return items;
 
 		const baseBlocks = parseBlocks(main.inner);
+		const baseById = new Map(baseBlocks.map((b) => [b.id, b]));
 		const baseByPos = baseBlocks.map((b) => (b.html || "").trim());
 		const localsWithPos = items
 			.filter((item) => Number.isInteger(item.pos))
 			.map((item) => item.pos)
 			.sort((a, b) => a - b);
+		const dropBaseIds = new Set();
+		items.forEach((item) => {
+			if (!item?.baseId) return;
+			if (item.action !== "insert" || item.kind !== "edited") return;
+			const base = baseById.get(item.baseId);
+			if (!base?.html) return;
+			const baseSig = signatureForHtml(base.html || "");
+			const itemSig = signatureForHtml(item.html || "");
+			if (baseSig && itemSig && baseSig === itemSig) {
+				dropBaseIds.add(item.baseId);
+			}
+		});
 
 		return items.filter((item) => {
 			if (
@@ -2194,7 +2207,8 @@ function serializeSquareGridRow(block, ctx) {
 				item.action === "remove" ||
 				item.action === "reorder"
 			)
-				return true;
+				return !dropBaseIds.has(item.baseId);
+			if (dropBaseIds.has(item.baseId)) return false;
 			const html = (item.html || "").trim();
 			if (!html) return false;
 			if (Number.isInteger(item.pos)) {
@@ -6066,6 +6080,23 @@ function serializeSquareGridRow(block, ctx) {
 		state.originalHtml = data.text || state.originalHtml;
 		bumpUpdatePill();
 		const dirtyEntry = state.dirtyPages[path] || {};
+		if (dirtyEntry.localBlocks?.length) {
+			const cleanedLocal = filterLocalBlocksAgainstBase(
+				state.originalHtml,
+				dirtyEntry.localBlocks,
+			);
+			const normalizedLocal = normalizeLocalBlocks(dirtyEntry.localBlocks);
+			if (cleanedLocal.length !== normalizedLocal.length) {
+				if (!cleanedLocal.length) clearDirtyPage(path);
+				else
+					setDirtyPage(
+						path,
+						dirtyEntry.html || state.originalHtml,
+						state.originalHtml,
+						cleanedLocal,
+					);
+			}
+		}
 		const workingHtml = dirtyEntry.html || state.originalHtml;
 		const hero = extractRegion(workingHtml, "hero");
 		const main = extractRegion(workingHtml, "main");
