@@ -330,6 +330,7 @@
 			"data-overlay-title": attrs.overlayTitle || "",
 			"data-overlay-text": overlayText,
 			"data-size": attrs.size || "",
+			"data-scale": attrs.scale && attrs.scale !== "auto" ? attrs.scale : "",
 		};
 		const order = [
 			"class",
@@ -340,8 +341,45 @@
 			"data-overlay-title",
 			"data-overlay-text",
 			"data-size",
+			"data-scale",
 		];
 		return `<div${serializeAttrsOrdered(ordered, order)}></div>`;
+	}
+
+	function sanitizeImagePath(rawPath, fallbackName = "") {
+		const base = "assets/img/";
+		const raw = String(rawPath || fallbackName || "").trim();
+		if (!raw) return "";
+		let path = raw.replace(/^\/+/, "");
+		if (path.startsWith(base)) {
+			path = path.slice(base.length);
+		} else if (path.startsWith("assets/")) {
+			path = path.slice("assets/".length);
+			if (path.startsWith("img/")) path = path.slice("img/".length);
+		} else if (path.startsWith("img/")) {
+			path = path.slice("img/".length);
+		}
+		const parts = path
+			.split("/")
+			.map((part) => part.replace(/[^A-Za-z0-9._-]/g, "-"))
+			.filter((part) => part && part !== "." && part !== "..");
+		if (!parts.length) return "";
+		return `${base}${parts.join("/")}`;
+	}
+
+	function normalizeImageSource(value) {
+		const raw = String(value || "").trim();
+		if (!raw) return "";
+		if (/^https?:\/\//i.test(raw)) return raw;
+		const local = sanitizeImagePath(raw, "");
+		return local ? `/${local}` : "";
+	}
+
+	function getLocalAssetPath(value) {
+		const raw = String(value || "").trim();
+		if (!raw) return "";
+		if (/^https?:\/\//i.test(raw)) return "";
+		return sanitizeImagePath(raw, "");
 	}
 
 	function sanitizeHref(href) {
@@ -542,6 +580,7 @@
 						overlayTitle: node.getAttribute("data-overlay-title") || "",
 						overlayText: node.getAttribute("data-overlay-text") || "",
 						size: node.getAttribute("data-size") || "",
+						scale: node.getAttribute("data-scale") || "",
 					});
 				}
 				if (cls.includes("tab")) return serializeAccordion(node);
@@ -1188,7 +1227,7 @@ function serializeSquareGridRow(block, ctx) {
 		return root;
 	}
 
-	function openModal({ title, bodyNodes, footerNodes }) {
+	function openModal({ title, bodyNodes, footerNodes, pruneAssets = false }) {
 		const root = ensureModalRoot();
 		qs("#cms-modal-title").textContent = title || "Modal";
 		const body = qs("#cms-modal-body");
@@ -1197,6 +1236,7 @@ function serializeSquareGridRow(block, ctx) {
 		footer.innerHTML = "";
 		(bodyNodes || []).forEach((n) => body.appendChild(n));
 		(footerNodes || []).forEach((n) => footer.appendChild(n));
+		root.dataset.pruneAssets = pruneAssets ? "true" : "false";
 		root.classList.add("is-open");
 		document.documentElement.classList.add("cms-lock");
 		document.body.classList.add("cms-lock");
@@ -1215,9 +1255,12 @@ function serializeSquareGridRow(block, ctx) {
 	function closeModal() {
 		const root = qs("#cms-modal");
 		if (!root) return;
+		const pruneAssets = root.dataset.pruneAssets === "true";
+		root.dataset.pruneAssets = "false";
 		root.classList.remove("is-open");
 		document.documentElement.classList.remove("cms-lock");
 		document.body.classList.remove("cms-lock");
+		if (pruneAssets) pruneUnusedAssetUploads();
 	}
 
 	function openLoadingModal(title = "Loading…") {
@@ -2177,12 +2220,14 @@ function serializeSquareGridRow(block, ctx) {
 			localBlocks: normalizedLocal,
 		};
 		saveDirtyPagesToStorage();
+		pruneUnusedAssetUploads();
 	}
 
 	function clearDirtyPage(path) {
 		if (!path) return;
 		delete state.dirtyPages[path];
 		saveDirtyPagesToStorage();
+		pruneUnusedAssetUploads();
 	}
 
 	function getDirtyHtml(path) {
@@ -3023,7 +3068,8 @@ function serializeSquareGridRow(block, ctx) {
 
 	function addAssetUpload({ name, content, path }) {
 		if (!name || !content) return;
-		const clean = String(path || "").trim() || `assets/img/${name}`;
+		const clean = sanitizeImagePath(path || "", name);
+		if (!clean) return;
 		state.assetUploads = (state.assetUploads || []).filter(
 			(item) => item.path !== clean,
 		);
@@ -3032,6 +3078,30 @@ function serializeSquareGridRow(block, ctx) {
 			content,
 			encoding: "base64",
 		});
+	}
+
+	function pruneUnusedAssetUploads() {
+		if (!state.assetUploads || !state.assetUploads.length) return;
+		const referenced = new Set();
+		Object.values(state.dirtyPages || {}).forEach((entry) => {
+			const html = entry?.html || "";
+			if (!html) return;
+			const doc = new DOMParser().parseFromString(html, "text/html");
+			doc.querySelectorAll("[data-img]").forEach((node) => {
+				const local = getLocalAssetPath(node.getAttribute("data-img") || "");
+				if (local) referenced.add(local);
+			});
+			doc.querySelectorAll("img").forEach((img) => {
+				const local = getLocalAssetPath(img.getAttribute("src") || "");
+				if (local) referenced.add(local);
+			});
+		});
+		const next = state.assetUploads.filter((item) =>
+			referenced.has(item.path),
+		);
+		if (next.length !== state.assetUploads.length) {
+			state.assetUploads = next;
+		}
 	}
 
 	function mergePrFiles(pageFiles, assetFiles) {
@@ -3395,23 +3465,35 @@ function serializeSquareGridRow(block, ctx) {
 		});
 	}
 
-	async function fetchImageLibrary() {
-		const res = await fetch("/api/repo/tree?path=assets/img", {
+	async function fetchImageLibrary(path = "assets/img", collected = []) {
+		const res = await fetch(`/api/repo/tree?path=${encodeURIComponent(path)}`, {
 			headers: { Accept: "application/json" },
 		});
 		const data = await res.json().catch(() => ({}));
 		if (!res.ok) throw new Error(data?.error || "Failed to load image list");
 		const items = Array.isArray(data.items) ? data.items : [];
-		return items.filter((item) => item.type === "file");
+		for (const item of items) {
+			if (item.type === "dir") {
+				await fetchImageLibrary(item.path, collected);
+			} else if (item.type === "file") {
+				collected.push(item);
+			}
+		}
+		return collected;
 	}
 
 	async function loadImageLibraryIntoSelect(select) {
 		const images = await fetchImageLibrary();
 		select.innerHTML = "";
 		select.appendChild(el("option", { value: "" }, ["Select an existing image"]));
-		images.forEach((item) => {
-			select.appendChild(el("option", { value: item.path }, [item.name]));
-		});
+		images
+			.sort((a, b) => String(a.path).localeCompare(String(b.path)))
+			.forEach((item) => {
+				const label = String(item.path || "").replace(/^assets\/img\//, "");
+				select.appendChild(
+					el("option", { value: item.path }, [label || item.name]),
+				);
+			});
 		return images;
 	}
 
@@ -3442,7 +3524,7 @@ function serializeSquareGridRow(block, ctx) {
 		const nameInput = el("input", {
 			type: "text",
 			class: "cms-field__input",
-			placeholder: "Filename (e.g. hero.jpg)",
+			placeholder: "Filename (e.g. hero.jpg or sub/hero.jpg)",
 		});
 		const previewImg = el("img", {
 			class: "cms-image-preview__img",
@@ -3454,10 +3536,12 @@ function serializeSquareGridRow(block, ctx) {
 		let uploadPreviewSrc = "";
 
 		const updatePreview = () => {
-			const src =
+			const raw =
 				modeSelect.value === "upload" && uploadPreviewSrc
 					? uploadPreviewSrc
 					: sourceInput.value.trim();
+			const src =
+				raw && !raw.startsWith("data:") ? normalizeImageSource(raw) : raw;
 			if (!src) {
 				previewWrap.hidden = true;
 				previewImg.removeAttribute("src");
@@ -3469,16 +3553,20 @@ function serializeSquareGridRow(block, ctx) {
 
 		const stageUpload = (file, filename) => {
 			if (!file || !filename) return;
+			const safePath = sanitizeImagePath(filename, file.name || "");
+			if (!safePath) return;
+			const safeName = safePath.replace(/^assets\/img\//, "");
+			nameInput.value = safeName;
 			const reader = new FileReader();
 			reader.onload = () => {
 				const dataUrl = String(reader.result || "");
 				const base64 = dataUrl.split(",")[1] || "";
 				addAssetUpload({
-					name: filename,
+					name: safeName,
 					content: base64,
-					path: `assets/img/${filename}`,
+					path: safePath,
 				});
-				sourceInput.value = `/assets/img/${filename}`;
+				sourceInput.value = `/${safePath}`;
 				uploadPreviewSrc = dataUrl;
 				updatePreview();
 			};
@@ -3488,7 +3576,9 @@ function serializeSquareGridRow(block, ctx) {
 		librarySelect.addEventListener("change", () => {
 			const path = librarySelect.value;
 			if (!path) return;
-			sourceInput.value = `/${path}`.replace(/^\/+/, "/");
+			const safePath = sanitizeImagePath(path, "");
+			if (!safePath) return;
+			sourceInput.value = `/${safePath}`;
 			updatePreview();
 		});
 
@@ -3509,6 +3599,11 @@ function serializeSquareGridRow(block, ctx) {
 		});
 
 		sourceInput.addEventListener("input", updatePreview);
+		sourceInput.addEventListener("blur", () => {
+			const normalized = normalizeImageSource(sourceInput.value);
+			if (normalized) sourceInput.value = normalized;
+			updatePreview();
+		});
 		updatePreview();
 
 		const existingWrap = el("div", { class: "cms-image-source__existing" }, [
@@ -3544,9 +3639,11 @@ function serializeSquareGridRow(block, ctx) {
 			librarySelect,
 			fileInput,
 			nameInput,
+			previewWrap,
+			previewImg,
 			updatePreview,
 			setMode,
-			getSource: () => sourceInput.value.trim(),
+			getSource: () => normalizeImageSource(sourceInput.value.trim()),
 		};
 	}
 
@@ -3846,6 +3943,32 @@ function serializeSquareGridRow(block, ctx) {
 				el("option", { value: "lrg" }, ["Large"]),
 			],
 		);
+		const scaleSelect = el(
+			"select",
+			{ class: "cms-field__select" },
+			[
+				el("option", { value: "auto" }, ["Auto"]),
+				el("option", { value: "sm" }, ["Small"]),
+				el("option", { value: "md" }, ["Medium"]),
+				el("option", { value: "lg" }, ["Large"]),
+				el("option", { value: "full" }, ["Full"]),
+			],
+		);
+		const applyScalePreview = () => {
+			const img = imageFields.previewImg;
+			if (!img) return;
+			img.classList.remove(
+				"cms-image-preview__img--sm",
+				"cms-image-preview__img--md",
+				"cms-image-preview__img--lg",
+				"cms-image-preview__img--full",
+			);
+			const value = (scaleSelect.value || "auto").trim().toLowerCase();
+			if (value && value !== "auto") {
+				img.classList.add(`cms-image-preview__img--${value}`);
+			}
+		};
+		scaleSelect.addEventListener("change", applyScalePreview);
 		const lightboxInput = el("input", {
 			type: "checkbox",
 			class: "cms-field__checkbox",
@@ -3888,6 +4011,7 @@ function serializeSquareGridRow(block, ctx) {
 				}),
 				overlayOptionsWrap,
 				buildField({ label: "Size", input: sizeSelect }),
+				buildField({ label: "Scale", input: scaleSelect }),
 				el("div", { class: "cms-rte__panel-actions" }, [
 					imageDeleteBtn,
 					imageCancelBtn,
@@ -3924,6 +4048,7 @@ function serializeSquareGridRow(block, ctx) {
 						overlayTitle: targetStub.getAttribute("data-overlay-title") || "",
 						overlayText: targetStub.getAttribute("data-overlay-text") || "",
 						size: targetStub.getAttribute("data-size") || "sml",
+						scale: targetStub.getAttribute("data-scale") || "auto",
 					}
 				: null;
 			if (attrs) {
@@ -3935,6 +4060,7 @@ function serializeSquareGridRow(block, ctx) {
 				overlayTitleInput.value = attrs.overlayTitle;
 				overlayTextInput.value = attrs.overlayText;
 				sizeSelect.value = attrs.size || "sml";
+				scaleSelect.value = attrs.scale || "auto";
 			} else {
 				imageFields.modeSelect.value = "existing";
 				imageFields.sourceInput.value = "";
@@ -3944,9 +4070,11 @@ function serializeSquareGridRow(block, ctx) {
 				overlayTitleInput.value = "";
 				overlayTextInput.value = "";
 				sizeSelect.value = "sml";
+				scaleSelect.value = "auto";
 			}
 			syncOverlayState();
 			imageFields.updatePreview();
+			applyScalePreview();
 			imageSaveBtn.textContent = targetStub ? "Update image" : "Insert image";
 			imageDeleteBtn.disabled = !targetStub;
 			imagePanel.hidden = false;
@@ -3964,19 +4092,20 @@ function serializeSquareGridRow(block, ctx) {
 		imageSaveBtn.addEventListener("click", () => {
 			const src = imageFields.getSource();
 			if (!src) return;
-			const attrs = {
-				img: src,
-				caption: captionInput.value.trim(),
-				lightbox: lightboxInput.checked ? "true" : "false",
-				overlayEnabled: overlayEnabledInput.checked,
-				overlayTitle: overlayEnabledInput.checked
-					? overlayTitleInput.value.trim()
-					: "",
-				overlayText: overlayEnabledInput.checked
-					? overlayTextInput.value.trim()
-					: "",
-				size: sizeSelect.value || "sml",
-			};
+				const attrs = {
+					img: src,
+					caption: captionInput.value.trim(),
+					lightbox: lightboxInput.checked ? "true" : "false",
+					overlayEnabled: overlayEnabledInput.checked,
+					overlayTitle: overlayEnabledInput.checked
+						? overlayTitleInput.value.trim()
+						: "",
+					overlayText: overlayEnabledInput.checked
+						? overlayTextInput.value.trim()
+						: "",
+					size: sizeSelect.value || "sml",
+					scale: scaleSelect.value || "auto",
+				};
 			if (activeImageTarget) {
 				activeImageTarget.setAttribute("data-img", attrs.img);
 				activeImageTarget.setAttribute("data-caption", attrs.caption || "");
@@ -3990,12 +4119,17 @@ function serializeSquareGridRow(block, ctx) {
 					"data-overlay-title",
 					attrs.overlayTitle || "",
 				);
-				activeImageTarget.setAttribute(
-					"data-overlay-text",
-					attrs.overlayText || "",
-				);
-				activeImageTarget.setAttribute("data-size", attrs.size || "sml");
-			} else {
+					activeImageTarget.setAttribute(
+						"data-overlay-text",
+						attrs.overlayText || "",
+					);
+					activeImageTarget.setAttribute("data-size", attrs.size || "sml");
+					if (attrs.scale && attrs.scale !== "auto") {
+						activeImageTarget.setAttribute("data-scale", attrs.scale);
+					} else {
+						activeImageTarget.removeAttribute("data-scale");
+					}
+				} else {
 				const html = serializeImgStub(attrs);
 				restoreSelection();
 				insertHtmlAtCursor(editor, html);
@@ -4348,6 +4482,7 @@ function serializeSquareGridRow(block, ctx) {
 						["Save"],
 					),
 				],
+				pruneAssets: true,
 			});
 			settings = { headingInput };
 		} else {
@@ -4545,6 +4680,7 @@ function serializeSquareGridRow(block, ctx) {
 						["Save"],
 					),
 				],
+				pruneAssets: true,
 			});
 
 			settings = {
