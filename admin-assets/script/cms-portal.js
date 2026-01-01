@@ -3175,7 +3175,7 @@ function serializeSquareGridRow(block, ctx) {
 				paths.forEach((path) => clearDirtyPage(path));
 				purgeCleanDirtyPages();
 			}
-			state.assetUploads = [];
+			pruneUnusedAssetUploads();
 
 			setUiState("pr", buildPrLabel());
 			renderPageSurface();
