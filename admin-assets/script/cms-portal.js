@@ -3531,6 +3531,13 @@ function serializeSquareGridRow(block, ctx) {
 			alt: "Preview",
 		});
 		const previewWrap = el("div", { class: "cms-image-preview" }, [previewImg]);
+		const uploadNote = el(
+			"div",
+			{ class: "cms-field__note" },
+			[
+				"Uploads are staged locally and only become live after the PR merges. Saved under /assets/img.",
+			],
+		);
 
 		let currentFile = null;
 		let uploadPreviewSrc = "";
@@ -3618,6 +3625,7 @@ function serializeSquareGridRow(block, ctx) {
 			const useUpload = mode === "upload";
 			existingWrap.hidden = useUpload;
 			uploadWrap.hidden = !useUpload;
+			uploadNote.hidden = !useUpload;
 			updatePreview();
 		};
 
@@ -3629,6 +3637,7 @@ function serializeSquareGridRow(block, ctx) {
 			buildField({ label: "Image source", input: sourceInput }),
 			existingWrap,
 			uploadWrap,
+			uploadNote,
 			previewWrap,
 		]);
 
