@@ -1230,6 +1230,7 @@ function serializeSquareGridRow(block, ctx) {
 		const main = extractRegion(baseHtml || "", "main");
 		const blocks = main.found ? parseBlocks(main.inner) : [];
 		const occMap = new Map();
+		const usedIds = new Set();
 		return blocks.map((block, idx) => {
 			const sig = signatureForHtml(block.html || "");
 			const occ = sig ? occMap.get(sig) || 0 : 0;
@@ -1244,7 +1245,10 @@ function serializeSquareGridRow(block, ctx) {
 				const node = doc.querySelector("#__wrap__")?.firstElementChild;
 				baseId = node?.getAttribute("data-cms-id") || "";
 				if (!baseId && sig) baseId = makeCmsIdFromSig(sig, occ, block.html);
-				if (node && baseId && !node.getAttribute("data-cms-id")) {
+				if (baseId && usedIds.has(baseId)) {
+					baseId = makeCmsIdFromSig(sig, occ, block.html);
+				}
+				if (node && baseId && node.getAttribute("data-cms-id") !== baseId) {
 					node.setAttribute("data-cms-id", baseId);
 					updatedHtml = node.outerHTML;
 				}
@@ -1256,6 +1260,7 @@ function serializeSquareGridRow(block, ctx) {
 					? makeCmsIdFromSig(sig, occ, block.html)
 					: makeCmsIdFromSig(String(idx), occ, block.html);
 			}
+			if (baseId) usedIds.add(baseId);
 			return { html: updatedHtml, sig, occ, id: baseId, pos: idx };
 		});
 	}
