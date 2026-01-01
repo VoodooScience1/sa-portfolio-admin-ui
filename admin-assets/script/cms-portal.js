@@ -2202,6 +2202,7 @@ function serializeSquareGridRow(block, ctx) {
 		const baseBySigOcc = new Map(
 			baseBlocks.map((b) => [`${b.sig}::${b.occ ?? 0}`, b]),
 		);
+		const baseIds = new Set(baseBlocks.map((b) => b.id).filter(Boolean));
 		const baseByPos = baseBlocks.map((b) => (b.html || "").trim());
 		const baseSigByPos = baseBlocks.map((b) => signatureForHtml(b.html || ""));
 		const localsWithPos = items
@@ -2230,8 +2231,10 @@ function serializeSquareGridRow(block, ctx) {
 				item.action === "mark" ||
 				item.action === "remove" ||
 				item.action === "reorder"
-			)
+			) {
+				if (baseKeyId && !baseIds.has(baseKeyId)) return false;
 				return !dropBaseIds.has(baseKeyId);
+			}
 			if (baseKeyId && dropBaseIds.has(baseKeyId)) return false;
 			const html = (item.html || "").trim();
 			if (!html) return false;
