@@ -3520,7 +3520,14 @@ function serializeSquareGridRow(block, ctx) {
 		return images;
 	}
 
-	function buildImageSourceFields({ initialSrc = "", initialMode = "existing" } = {}) {
+	function buildImageSourceFields({
+		initialSrc = "",
+		initialMode = "existing",
+		showMode = true,
+		showSource = true,
+		showBoth = false,
+		noteClass = "",
+	} = {}) {
 		const sourceInput = el("input", {
 			type: "text",
 			class: "cms-field__input",
@@ -3556,9 +3563,11 @@ function serializeSquareGridRow(block, ctx) {
 		const previewWrap = el("div", { class: "cms-image-preview" }, [previewImg]);
 		const uploadNote = el(
 			"div",
-			{ class: "cms-field__note" },
+			{
+				class: ["cms-field__note", noteClass].filter(Boolean).join(" "),
+			},
 			[
-				"Uploads are staged locally and only become live after the PR merges. Saved under /assets/img.",
+				"\u26a0 Uploads are staged locally and only become live after the PR merges. Saved under /assets/img.",
 			],
 		);
 
@@ -3566,8 +3575,9 @@ function serializeSquareGridRow(block, ctx) {
 		let uploadPreviewSrc = "";
 
 		const updatePreview = () => {
-			const raw =
-				modeSelect.value === "upload" && uploadPreviewSrc
+			const raw = showBoth
+				? uploadPreviewSrc || sourceInput.value.trim()
+				: modeSelect.value === "upload" && uploadPreviewSrc
 					? uploadPreviewSrc
 					: sourceInput.value.trim();
 			const src =
@@ -3645,6 +3655,13 @@ function serializeSquareGridRow(block, ctx) {
 		]);
 
 		const setMode = (mode) => {
+			if (showBoth) {
+				existingWrap.hidden = false;
+				uploadWrap.hidden = false;
+				uploadNote.hidden = false;
+				updatePreview();
+				return;
+			}
 			const useUpload = mode === "upload";
 			existingWrap.hidden = useUpload;
 			uploadWrap.hidden = !useUpload;
@@ -3655,9 +3672,15 @@ function serializeSquareGridRow(block, ctx) {
 		setMode(modeSelect.value);
 		modeSelect.addEventListener("change", () => setMode(modeSelect.value));
 
+		const modeField = buildField({ label: "Source mode", input: modeSelect });
+		const sourceField = buildField({
+			label: "Image source",
+			input: sourceInput,
+		});
+
 		const wrap = el("div", { class: "cms-image-source" }, [
-			buildField({ label: "Source mode", input: modeSelect }),
-			buildField({ label: "Image source", input: sourceInput }),
+			...(showMode ? [modeField] : []),
+			...(showSource ? [sourceField] : []),
 			existingWrap,
 			uploadWrap,
 			uploadNote,
@@ -3688,6 +3711,10 @@ function serializeSquareGridRow(block, ctx) {
 		const fields = buildImageSourceFields({
 			initialSrc,
 			initialMode,
+			showMode: false,
+			showSource: false,
+			showBoth: true,
+			noteClass: "cms-note--warning",
 		});
 
 		const root = qs("#cms-modal");
@@ -3727,8 +3754,8 @@ function serializeSquareGridRow(block, ctx) {
 				el("div", { class: "cms-modal__group" }, [
 					el("div", { class: "cms-modal__group-title" }, ["Image source"]),
 					fields.wrap,
-					el("div", { class: "cms-modal__note" }, [
-						"Uploads are staged and included in the next PR.",
+					el("div", { class: "cms-modal__note cms-note--warning" }, [
+						"\u26a0 Uploads are staged and included in the next PR.",
 					]),
 				]),
 			],
@@ -4559,12 +4586,16 @@ function serializeSquareGridRow(block, ctx) {
 			let imgInput = null;
 			let imagePickBtn = null;
 			let imageModeSelect = null;
+			let imageLibrarySelect = null;
 			let captionInput = null;
 			let overlayEnabledInput = null;
 			let overlayTitleInput = null;
 			let overlayTextInput = null;
 			let lightboxInput = null;
 			let posSelect = null;
+			let imagePreviewWrap = null;
+			let imagePreviewImg = null;
+			let updateBlockPreview = null;
 
 			if (parsed.type === "imgText" || parsed.type === "split50") {
 				headingInput = el("input", {
@@ -4588,6 +4619,9 @@ function serializeSquareGridRow(block, ctx) {
 					],
 				);
 				imageModeSelect.value = "existing";
+				imageLibrarySelect = el("select", { class: "cms-field__select" }, [
+					el("option", { value: "" }, ["Select an existing image"]),
+				]);
 				imagePickBtn = el(
 					"button",
 					{
@@ -4600,12 +4634,69 @@ function serializeSquareGridRow(block, ctx) {
 					openImageSourcePicker({
 						onSelect: (src) => {
 							imgInput.value = src;
+							if (updateBlockPreview) updateBlockPreview();
 						},
 						initialMode: imageModeSelect?.value || "existing",
 						initialSrc: imgInput.value || "",
 						title: "Choose image for block",
 					});
 				});
+				const setImageMode = (mode) => {
+					const useUpload = mode === "upload";
+					if (imageLibrarySelect) imageLibrarySelect.hidden = useUpload;
+					if (imagePickBtn) imagePickBtn.hidden = !useUpload;
+					if (!useUpload && imageLibrarySelect) {
+						loadImageLibraryIntoSelect(imageLibrarySelect)
+							.then(() => {
+								const local = getLocalAssetPath(imgInput.value || "");
+								if (local) imageLibrarySelect.value = local;
+							})
+							.catch((err) => console.error(err));
+					}
+				};
+				imageModeSelect.addEventListener("change", () =>
+					setImageMode(imageModeSelect.value),
+				);
+				setImageMode(imageModeSelect.value);
+				imageLibrarySelect.addEventListener("change", () => {
+					const path = imageLibrarySelect.value;
+					if (!path) return;
+					const safePath = sanitizeImagePath(path, "");
+					if (!safePath) return;
+					imgInput.value = `/${safePath}`;
+					if (updateBlockPreview) updateBlockPreview();
+				});
+				imagePreviewImg = el("img", {
+					class: "cms-image-preview__img cms-image-preview__img--thumb",
+					alt: "Preview",
+				});
+				imagePreviewWrap = el(
+					"div",
+					{ class: "cms-image-preview cms-image-preview--inline" },
+					[imagePreviewImg],
+				);
+				updateBlockPreview = () => {
+					const raw = imgInput.value.trim();
+					const src = raw ? normalizeImageSource(raw) : "";
+					if (!src) {
+						imagePreviewWrap.hidden = true;
+						imagePreviewImg.removeAttribute("src");
+						return;
+					}
+					imagePreviewWrap.hidden = false;
+					imagePreviewImg.src = src;
+					if (imageLibrarySelect && !imageLibrarySelect.hidden) {
+						const local = getLocalAssetPath(raw);
+						if (local) imageLibrarySelect.value = local;
+					}
+				};
+				imgInput.addEventListener("input", updateBlockPreview);
+				imgInput.addEventListener("blur", () => {
+					const normalized = normalizeImageSource(imgInput.value);
+					if (normalized) imgInput.value = normalized;
+					updateBlockPreview();
+				});
+				updateBlockPreview();
 				captionInput = el("input", {
 					type: "text",
 					class: "cms-field__input",
@@ -4665,6 +4756,7 @@ function serializeSquareGridRow(block, ctx) {
 				const imageRow = el("div", { class: "cms-field__row" }, [
 					imgInput,
 					imageModeSelect,
+					imageLibrarySelect,
 					imagePickBtn,
 				]);
 				const displayRow = el("div", { class: "cms-field__row" }, [
@@ -4678,6 +4770,11 @@ function serializeSquareGridRow(block, ctx) {
 						el("span", { class: "cms-field__toggle-text" }, ["Overlay"]),
 					]),
 				]);
+				const displayWrap = el(
+					"div",
+					{ class: "cms-image-display-row" },
+					[imagePreviewWrap, displayRow],
+				);
 				settingsNodes.push(
 					buildField({
 						label: "Image source",
@@ -4688,7 +4785,7 @@ function serializeSquareGridRow(block, ctx) {
 				settingsNodes.push(
 					buildField({
 						label: "Display",
-						input: displayRow,
+						input: displayWrap,
 					}),
 				);
 				settingsNodes.push(
@@ -4699,11 +4796,12 @@ function serializeSquareGridRow(block, ctx) {
 					{ class: "cms-modal__subgroup" },
 					[
 						buildField({
-							label: "Overlay text",
-							input: el("div", { class: "cms-field__row" }, [
-								overlayTitleInput,
-								overlayTextInput,
-							]),
+							label: "Overlay title",
+							input: overlayTitleInput,
+						}),
+						buildField({
+							label: "Overlay sub-text",
+							input: overlayTextInput,
 						}),
 					],
 				);
