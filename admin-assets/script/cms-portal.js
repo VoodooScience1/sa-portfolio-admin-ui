@@ -4741,6 +4741,11 @@ function serializeSquareGridRow(block, ctx) {
 		}
 	}
 
+	function pruneLocalBlocksForPrAll(prNumber) {
+		const paths = Object.keys(state.dirtyPages || {});
+		paths.forEach((path) => pruneLocalBlocksForPr(path, prNumber));
+	}
+
 	async function refreshPrStatus() {
 		const number = state.prNumber || extractPrNumber(state.prUrl);
 		if (!number) return;
@@ -4756,14 +4761,14 @@ function serializeSquareGridRow(block, ctx) {
 			// Keep committed markers for this session after merge.
 			removePrFromState(number);
 			stopPrPolling();
-			pruneLocalBlocksForPr(state.path, number);
+			pruneLocalBlocksForPrAll(number);
 			if (state.prUrl) {
 				setUiState("pr", buildPrLabel());
 				startPrPolling();
 			} else {
 				await purgeDirtyPagesFromRepo(true);
 				await refreshCurrentPageFromRepo();
-				pruneLocalBlocksForPr(state.path, number);
+				pruneLocalBlocksForPrAll(number);
 				purgeCleanDirtyPages();
 				if (dirtyCount()) setUiState("dirty", buildDirtyLabel());
 				else setUiState("clean", "PR MERGED");
@@ -4777,14 +4782,14 @@ function serializeSquareGridRow(block, ctx) {
 			removeSessionCommitted(number);
 			removePrFromState(number);
 			stopPrPolling();
-			pruneLocalBlocksForPr(state.path, number);
+			pruneLocalBlocksForPrAll(number);
 			if (state.prUrl) {
 				setUiState("pr", buildPrLabel());
 				startPrPolling();
 			} else {
 				await purgeDirtyPagesFromRepo(true);
 				await refreshCurrentPageFromRepo();
-				pruneLocalBlocksForPr(state.path, number);
+				pruneLocalBlocksForPrAll(number);
 				purgeCleanDirtyPages();
 				if (dirtyCount()) setUiState("dirty", buildDirtyLabel());
 				else setUiState("clean", "PR CLOSED");
