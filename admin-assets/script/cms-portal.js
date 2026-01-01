@@ -951,7 +951,10 @@ function serializeSquareGridRow(block, ctx) {
 					index: idx,
 					sig,
 					occ,
-					blockId: block.baseId || block.id || `block-${idx}`,
+					blockId:
+						block.baseId ||
+						block.id ||
+						makeCmsIdFromSig(sig, occ, block?.raw || block?.html || String(idx)),
 					blockIdShort: hashText(
 						`${block.baseId || block.id || "block"}::${idx}`,
 					).slice(0, 4),
@@ -4662,6 +4665,35 @@ function serializeSquareGridRow(block, ctx) {
 		return m ? Number(m[1]) : null;
 	}
 
+	function pruneLocalBlocksForPr(path, prNumber) {
+		if (!path) return;
+		const entry = state.dirtyPages[path];
+		if (!entry) return;
+		const remaining = normalizeLocalBlocks(entry.localBlocks || []).filter(
+			(item) => {
+				if (!item) return false;
+				if (prNumber && item.prNumber === prNumber) return false;
+				if (item.status === "pending") {
+					if (!prNumber) return false;
+					if (!item.prNumber || item.prNumber === prNumber) return false;
+				}
+				return true;
+			},
+		);
+		if (!remaining.length) {
+			clearDirtyPage(path);
+			if (path === state.path) state.currentDirty = false;
+			return;
+		}
+		if (path === state.path) {
+			updateLocalBlocksAndRender(path, remaining);
+		} else {
+			entry.localBlocks = remaining;
+			entry.updatedAt = Date.now();
+			saveDirtyPagesToStorage();
+		}
+	}
+
 	async function refreshPrStatus() {
 		const number = state.prNumber || extractPrNumber(state.prUrl);
 		if (!number) return;
@@ -4677,12 +4709,14 @@ function serializeSquareGridRow(block, ctx) {
 			// Keep committed markers for this session after merge.
 			removePrFromState(number);
 			stopPrPolling();
+			pruneLocalBlocksForPr(state.path, number);
 			if (state.prUrl) {
 				setUiState("pr", buildPrLabel());
 				startPrPolling();
 			} else {
 				await purgeDirtyPagesFromRepo(true);
 				await refreshCurrentPageFromRepo();
+				pruneLocalBlocksForPr(state.path, number);
 				purgeCleanDirtyPages();
 				if (dirtyCount()) setUiState("dirty", buildDirtyLabel());
 				else setUiState("clean", "PR MERGED");
@@ -4696,12 +4730,14 @@ function serializeSquareGridRow(block, ctx) {
 			removeSessionCommitted(number);
 			removePrFromState(number);
 			stopPrPolling();
+			pruneLocalBlocksForPr(state.path, number);
 			if (state.prUrl) {
 				setUiState("pr", buildPrLabel());
 				startPrPolling();
 			} else {
 				await purgeDirtyPagesFromRepo(true);
 				await refreshCurrentPageFromRepo();
+				pruneLocalBlocksForPr(state.path, number);
 				purgeCleanDirtyPages();
 				if (dirtyCount()) setUiState("dirty", buildDirtyLabel());
 				else setUiState("clean", "PR CLOSED");
