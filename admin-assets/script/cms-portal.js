@@ -4848,21 +4848,23 @@ function serializeSquareGridRow(block, ctx) {
 				});
 				imagePreviewWrap = el(
 					"div",
-					{ class: "cms-image-preview cms-image-preview--inline" },
+					{
+						class: "cms-image-preview cms-image-preview--inline content content--full",
+					},
 					[imagePreviewImg],
 				);
 				const overlayLayer = el("div", {
-					class: "cms-image-preview__overlay",
+					class: "content-overlay",
 				});
-				const overlayTitlePreview = el("div", {
-					class: "cms-image-preview__title",
+				const overlayTitlePreview = el("h3", {
+					class: "content-title",
 				});
-				const overlayTextPreview = el("div", {
-					class: "cms-image-preview__text",
+				const overlayTextPreview = el("p", {
+					class: "content-text",
 				});
 				const overlayDetails = el(
 					"div",
-					{ class: "cms-image-preview__details" },
+					{ class: "content-details fadeIn-bottom" },
 					[overlayTitlePreview, overlayTextPreview],
 				);
 				imagePreviewWrap.appendChild(overlayLayer);
@@ -4878,7 +4880,7 @@ function serializeSquareGridRow(block, ctx) {
 					if (!src) {
 						imagePreviewWrap.hidden = true;
 						imagePreviewImg.removeAttribute("src");
-						imagePreviewWrap.classList.remove("cms-image-preview--overlay");
+						if (updateOverlayPreview) updateOverlayPreview();
 						return;
 					}
 					imagePreviewWrap.hidden = false;
@@ -4892,15 +4894,20 @@ function serializeSquareGridRow(block, ctx) {
 				updateOverlayPreview = () => {
 					const enabled = overlayEnabledInput?.checked;
 					if (!enabled || imagePreviewWrap.hidden) {
-						imagePreviewWrap.classList.remove("cms-image-preview--overlay");
+						overlayLayer.hidden = true;
+						overlayDetails.hidden = true;
 						overlayTitlePreview.textContent = "";
 						overlayTextPreview.textContent = "";
 						return;
 					}
-					imagePreviewWrap.classList.add("cms-image-preview--overlay");
 					const title = overlayTitleInput?.value.trim() || "";
 					const text = overlayTextInput?.value.trim() || "";
-					const fallback = !title && !text ? "Click to view" : text;
+					const fallback =
+						!title && !text && lightboxInput?.checked
+							? "Click to view"
+							: text;
+					overlayLayer.hidden = false;
+					overlayDetails.hidden = false;
 					overlayTitlePreview.textContent = title;
 					overlayTextPreview.textContent = fallback;
 					overlayTitlePreview.hidden = !title;
@@ -5032,6 +5039,9 @@ function serializeSquareGridRow(block, ctx) {
 				};
 				syncOverlayState();
 				overlayEnabledInput.addEventListener("change", syncOverlayState);
+				lightboxInput.addEventListener("change", () => {
+					if (updateOverlayPreview) updateOverlayPreview();
+				});
 				overlayTitleInput.addEventListener("input", () => {
 					if (updateOverlayPreview) updateOverlayPreview();
 				});
