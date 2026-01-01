@@ -244,7 +244,14 @@
 		if (raw.startsWith("<") || /<\/[a-z]/i.test(raw)) return "html";
 		if (/^\s*[{[]/.test(raw) && /":\s*/.test(raw)) return "json";
 		if (/(^|\n)\s*#/.test(raw) || /```/.test(raw)) return "markdown";
-		if (/(^|\n)\s*(def|class|import|from)\s+/.test(raw)) return "python";
+		if (
+			/(^|\n)\s*(def|class|import|from|elif|except|with|yield|lambda)\b/.test(
+				raw,
+			) ||
+			/(^|\n)\s*print\(/.test(raw) ||
+			/(^|\n)\s*self\./.test(raw)
+		)
+			return "python";
 		if (/(^|\n)\s*(const|let|var|function)\s+/.test(raw) || /=>/.test(raw))
 			return "javascript";
 		if (/[.#][A-Za-z0-9_-]+\s*\{/.test(raw) || /:\s*[^;]+;/.test(raw))
@@ -4473,6 +4480,8 @@ function serializeSquareGridRow(block, ctx) {
 		);
 		const wrap = doc.querySelector("#__wrap__");
 		const nodes = Array.from(wrap.children);
+		const usedIds = new Set();
+		const occMap = new Map();
 
 		return nodes.map((node, idx) => {
 			const clean = node.cloneNode(true);
@@ -4481,6 +4490,15 @@ function serializeSquareGridRow(block, ctx) {
 				code.removeAttribute("data-highlighted");
 				code.textContent = code.textContent || "";
 			});
+			const sig = signatureForHtml(clean.outerHTML || "");
+			const occ = sig ? occMap.get(sig) || 0 : 0;
+			if (sig) occMap.set(sig, occ + 1);
+			const cmsId = clean.getAttribute("data-cms-id") || "";
+			if (cmsId && usedIds.has(cmsId)) {
+				clean.setAttribute("data-cms-id", makeCmsIdFromSig(sig, occ, sig));
+			}
+			const finalId = clean.getAttribute("data-cms-id") || "";
+			if (finalId) usedIds.add(finalId);
 			const info = detectBlock(clean);
 			return {
 				idx,
