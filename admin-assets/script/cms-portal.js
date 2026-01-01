@@ -3876,103 +3876,6 @@ function serializeSquareGridRow(block, ctx) {
 		};
 	}
 
-	function openImageSourcePicker({
-		onSelect,
-		title = "Choose image",
-		initialMode = "existing",
-		initialSrc = "",
-	}) {
-		const fields = buildImageSourceFields({
-			initialSrc,
-			initialMode,
-			showMode: false,
-			showSource: false,
-			showBoth: true,
-			noteClass: "cms-note--warning",
-		});
-
-		const root = qs("#cms-modal");
-		const hadModal = Boolean(root && root.classList.contains("is-open"));
-		const prevTitle = hadModal ? qs("#cms-modal-title")?.textContent || "" : "";
-		const prevBody = hadModal ? qs("#cms-modal-body") : null;
-		const prevFooter = hadModal ? qs("#cms-modal-footer") : null;
-		const prevBodyNodes = hadModal && prevBody ? Array.from(prevBody.childNodes) : [];
-		const prevFooterNodes =
-			hadModal && prevFooter ? Array.from(prevFooter.childNodes) : [];
-		const prevPrune = hadModal && root ? root.dataset.pruneAssets : "false";
-
-		const restoreParentModal = () => {
-			if (!hadModal || !root || !prevBody || !prevFooter) {
-				closeModal();
-				return;
-			}
-			qs("#cms-modal-title").textContent = prevTitle || "Modal";
-			prevBody.innerHTML = "";
-			prevFooter.innerHTML = "";
-			prevBodyNodes.forEach((node) => prevBody.appendChild(node));
-			prevFooterNodes.forEach((node) => prevFooter.appendChild(node));
-			root.dataset.pruneAssets = prevPrune || "false";
-			root.classList.add("is-open");
-			document.documentElement.classList.add("cms-lock");
-			document.body.classList.add("cms-lock");
-		};
-
-		const closePicker = () => {
-			if (hadModal) restoreParentModal();
-			else closeModal();
-		};
-
-		openModal({
-			title,
-			bodyNodes: [
-				el("div", { class: "cms-modal__group" }, [
-					el("div", { class: "cms-modal__group-title" }, ["Image source"]),
-					fields.wrap,
-					el("div", { class: "cms-modal__note cms-note--warning" }, [
-						"\u26a0 Uploads are staged and included in the next PR.",
-					]),
-				]),
-			],
-			footerNodes: [
-				el(
-					"button",
-					{
-						class: "cms-btn cms-modal__action cms-btn--danger",
-						type: "button",
-						"data-close": "true",
-					},
-					["Close"],
-				),
-				el(
-					"button",
-					{
-						class: "cms-btn cms-modal__action cms-btn--success",
-						type: "button",
-						"data-action": "select",
-					},
-					["Use image"],
-				),
-			],
-			onClose: closePicker,
-		});
-
-		loadImageLibraryIntoSelect(fields.librarySelect).catch((err) =>
-			console.error(err),
-		);
-
-		const modal = document.querySelector(".cms-modal");
-		const useBtn = modal?.querySelector(
-			".cms-btn.cms-modal__action.cms-btn--success[data-action=\"select\"]",
-		);
-		if (!useBtn) return;
-		useBtn.addEventListener("click", () => {
-			const src = fields.getSource();
-			if (!src) return;
-			onSelect?.(src);
-			closePicker();
-		});
-	}
-
 	function buildRteEditor({ label, initialHtml }) {
 		const toolbar = el("div", { class: "cms-rte__toolbar" }, [
 			el("button", { type: "button", "data-cmd": "bold" }, ["B"]),
@@ -4764,8 +4667,13 @@ function serializeSquareGridRow(block, ctx) {
 			let captionInput = null;
 			let uploadFileInput = null;
 			let uploadNameInput = null;
+			let uploadNameLabel = null;
 			let uploadNameRow = null;
 			let currentUploadFile = null;
+			let currentUploadBase64 = "";
+			let currentUploadMime = "";
+			let currentUploadPath = "";
+			let uploadWarning = null;
 			let overlayEnabledInput = null;
 			let overlayTitleInput = null;
 			let overlayTextInput = null;
@@ -4821,6 +4729,32 @@ function serializeSquareGridRow(block, ctx) {
 					placeholder: "Filename (e.g. hero.jpg or sub/hero.jpg)",
 				});
 				uploadNameInput.hidden = true;
+				const syncUploadName = (rawName, { normalize = false } = {}) => {
+					if (!rawName) return;
+					const safePath = sanitizeImagePath(
+						rawName,
+						currentUploadFile?.name || "",
+					);
+					if (!safePath) return;
+					const safeName = safePath.replace(/^assets\/img\//, "");
+					if (normalize && uploadNameInput) uploadNameInput.value = safeName;
+					imgInput.value = `/${safePath}`;
+					if (currentUploadBase64) {
+						if (currentUploadPath && currentUploadPath !== safePath) {
+							state.assetUploads = (state.assetUploads || []).filter(
+								(item) => item.path !== currentUploadPath,
+							);
+						}
+						addAssetUpload({
+							name: safeName,
+							content: currentUploadBase64,
+							path: safePath,
+							mime: currentUploadMime || "",
+						});
+						currentUploadPath = safePath;
+					}
+					if (updateBlockPreview) updateBlockPreview();
+				};
 				const stageUpload = (file, filename) => {
 					if (!file) return;
 					const safePath = sanitizeImagePath(filename, file.name || "");
@@ -4831,14 +4765,12 @@ function serializeSquareGridRow(block, ctx) {
 					reader.onload = () => {
 						const dataUrl = String(reader.result || "");
 						const base64 = dataUrl.split(",")[1] || "";
-						addAssetUpload({
-							name: safeName,
-							content: base64,
-							path: safePath,
-							mime: file.type || "",
-						});
-						imgInput.value = `/${safePath}`;
-						if (updateBlockPreview) updateBlockPreview();
+						currentUploadBase64 = base64;
+						currentUploadMime = file.type || "";
+						syncUploadName(
+							uploadNameInput?.value.trim() || safeName,
+							{ normalize: true },
+						);
 					};
 					reader.readAsDataURL(file);
 				};
@@ -4854,8 +4786,15 @@ function serializeSquareGridRow(block, ctx) {
 					}
 					stageUpload(file, uploadNameInput?.value.trim() || "");
 				});
+				uploadNameInput.addEventListener("input", () => {
+					syncUploadName(uploadNameInput.value.trim());
+				});
 				uploadNameInput.addEventListener("blur", () => {
 					if (!currentUploadFile) return;
+					if (currentUploadBase64) {
+						syncUploadName(uploadNameInput.value.trim(), { normalize: true });
+						return;
+					}
 					stageUpload(currentUploadFile, uploadNameInput.value.trim());
 				});
 				const setImageMode = (mode) => {
@@ -4863,7 +4802,13 @@ function serializeSquareGridRow(block, ctx) {
 					if (imageLibrarySelect) imageLibrarySelect.hidden = useUpload;
 					if (imagePickBtn) imagePickBtn.hidden = !useUpload;
 					if (uploadNameInput) uploadNameInput.hidden = !useUpload;
+					if (uploadNameLabel) uploadNameLabel.hidden = !useUpload;
 					if (uploadNameRow) uploadNameRow.hidden = !useUpload;
+					if (imgInput) {
+						imgInput.disabled = useUpload;
+						imgInput.classList.toggle("cms-field__input--muted", useUpload);
+					}
+					if (uploadWarning) uploadWarning.hidden = !useUpload;
 					if (!useUpload && imageLibrarySelect) {
 						loadImageLibraryIntoSelect(imageLibrarySelect)
 							.then(() => {
@@ -4873,10 +4818,9 @@ function serializeSquareGridRow(block, ctx) {
 							.catch((err) => console.error(err));
 					}
 				};
-				imageModeSelect.addEventListener("change", () =>
-					setImageMode(imageModeSelect.value),
-				);
-				setImageMode(imageModeSelect.value);
+				imageModeSelect.addEventListener("change", () => {
+					setImageMode(imageModeSelect.value);
+				});
 				imageLibrarySelect.addEventListener("change", () => {
 					const path = imageLibrarySelect.value;
 					if (!path) return;
@@ -5034,18 +4978,22 @@ function serializeSquareGridRow(block, ctx) {
 					imagePickBtn,
 					uploadFileInput,
 				]);
+				let imageInput = imageRow;
 				if (uploadNameInput) {
+					uploadNameLabel = el("div", { class: "cms-field__label" }, [
+						"Filename",
+					]);
 					uploadNameRow = el("div", { class: "cms-field__row" }, [
 						uploadNameInput,
 					]);
 					uploadNameRow.hidden = uploadNameInput.hidden;
+					uploadNameLabel.hidden = uploadNameInput.hidden;
+					imageInput = el("div", { class: "cms-field__stack" }, [
+						imageRow,
+						uploadNameLabel,
+						uploadNameRow,
+					]);
 				}
-				const imageInput = uploadNameRow
-					? el("div", { class: "cms-field__stack" }, [
-							imageRow,
-							uploadNameRow,
-						])
-					: imageRow;
 				const displayRow = el("div", { class: "cms-field__row" }, [
 					posSelect,
 					el("label", { class: "cms-field__toggle" }, [
@@ -5080,6 +5028,11 @@ function serializeSquareGridRow(block, ctx) {
 						note: "Required for image blocks.",
 					}),
 				);
+				uploadWarning = el("div", { class: "cms-modal__note cms-note--warning" }, [
+					"\u26a0 Please note: Uploaded images are only stored in local memory until comitted and could be lost \u26a0",
+				]);
+				uploadWarning.hidden = true;
+				settingsNodes.push(uploadWarning);
 				settingsNodes.push(
 					buildField({
 						label: "Image settings",
@@ -5104,6 +5057,7 @@ function serializeSquareGridRow(block, ctx) {
 				overlayTextInput.addEventListener("input", () => {
 					if (updateOverlayPreview) updateOverlayPreview();
 				});
+				setImageMode(imageModeSelect.value);
 			}
 
 			const settingsWrap =
