@@ -2181,8 +2181,11 @@ function serializeSquareGridRow(block, ctx) {
 		const main = extractRegion(baseHtml, "main");
 		if (!main.found) return items;
 
-		const baseBlocks = parseBlocks(main.inner);
+		const baseBlocks = buildBaseBlocksWithOcc(baseHtml || "");
 		const baseById = new Map(baseBlocks.map((b) => [b.id, b]));
+		const baseBySigOcc = new Map(
+			baseBlocks.map((b) => [`${b.sig}::${b.occ ?? 0}`, b]),
+		);
 		const baseByPos = baseBlocks.map((b) => (b.html || "").trim());
 		const localsWithPos = items
 			.filter((item) => Number.isInteger(item.pos))
@@ -2190,25 +2193,29 @@ function serializeSquareGridRow(block, ctx) {
 			.sort((a, b) => a - b);
 		const dropBaseIds = new Set();
 		items.forEach((item) => {
-			if (!item?.baseId) return;
 			if (item.action !== "insert" || item.kind !== "edited") return;
-			const base = baseById.get(item.baseId);
-			if (!base?.html) return;
+			let base =
+				(item.baseId && baseById.get(item.baseId)) ||
+				(item.anchor?.id && baseById.get(item.anchor.id)) ||
+				(item.anchor?.sig &&
+					baseBySigOcc.get(`${item.anchor.sig}::${item.anchor.occ ?? 0}`));
+			if (!base?.html || !base.id) return;
 			const baseSig = signatureForHtml(base.html || "");
 			const itemSig = signatureForHtml(item.html || "");
 			if (baseSig && itemSig && baseSig === itemSig) {
-				dropBaseIds.add(item.baseId);
+				dropBaseIds.add(base.id);
 			}
 		});
 
 		return items.filter((item) => {
+			const baseKeyId = item.baseId || item.anchor?.id || "";
 			if (
 				item.action === "mark" ||
 				item.action === "remove" ||
 				item.action === "reorder"
 			)
-				return !dropBaseIds.has(item.baseId);
-			if (dropBaseIds.has(item.baseId)) return false;
+				return !dropBaseIds.has(baseKeyId);
+			if (baseKeyId && dropBaseIds.has(baseKeyId)) return false;
 			const html = (item.html || "").trim();
 			if (!html) return false;
 			if (Number.isInteger(item.pos)) {
