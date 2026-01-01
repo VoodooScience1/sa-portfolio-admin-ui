@@ -346,6 +346,16 @@
 		return `<div${serializeAttrsOrdered(ordered, order)}></div>`;
 	}
 
+	function serializeVideoStub(attrs) {
+		const ordered = {
+			class: "video-stub",
+			"data-video": attrs.video || "",
+			"data-caption": attrs.caption || "",
+		};
+		const order = ["class", "data-video", "data-caption"];
+		return `<div${serializeAttrsOrdered(ordered, order)}></div>`;
+	}
+
 	function sanitizeImagePath(rawPath, fallbackName = "") {
 		const base = "assets/img/";
 		const raw = String(rawPath || fallbackName || "").trim();
@@ -367,6 +377,27 @@
 		return `${base}${parts.join("/")}`;
 	}
 
+	function sanitizeVideoPath(rawPath, fallbackName = "") {
+		const base = "assets/video/";
+		const raw = String(rawPath || fallbackName || "").trim();
+		if (!raw) return "";
+		let path = raw.replace(/^\/+/, "");
+		if (path.startsWith(base)) {
+			path = path.slice(base.length);
+		} else if (path.startsWith("assets/")) {
+			path = path.slice("assets/".length);
+			if (path.startsWith("video/")) path = path.slice("video/".length);
+		} else if (path.startsWith("video/")) {
+			path = path.slice("video/".length);
+		}
+		const parts = path
+			.split("/")
+			.map((part) => part.replace(/[^A-Za-z0-9._-]/g, "-"))
+			.filter((part) => part && part !== "." && part !== "..");
+		if (!parts.length) return "";
+		return `${base}${parts.join("/")}`;
+	}
+
 	function normalizeImageSource(value) {
 		const raw = String(value || "").trim();
 		if (!raw) return "";
@@ -375,11 +406,26 @@
 		return local ? `/${local}` : "";
 	}
 
+	function normalizeVideoSource(value) {
+		const raw = String(value || "").trim();
+		if (!raw) return "";
+		if (/^https?:\/\//i.test(raw)) return raw;
+		const local = sanitizeVideoPath(raw, "");
+		return local ? `/${local}` : "";
+	}
+
 	function getLocalAssetPath(value) {
 		const raw = String(value || "").trim();
 		if (!raw) return "";
 		if (/^https?:\/\//i.test(raw)) return "";
 		return sanitizeImagePath(raw, "");
+	}
+
+	function getLocalVideoPath(value) {
+		const raw = String(value || "").trim();
+		if (!raw) return "";
+		if (/^https?:\/\//i.test(raw)) return "";
+		return sanitizeVideoPath(raw, "");
 	}
 
 	const ASSET_CACHE_DB = "cms-asset-cache";
@@ -688,6 +734,12 @@
 						overlayText: node.getAttribute("data-overlay-text") || "",
 						size: node.getAttribute("data-size") || "",
 						scale: node.getAttribute("data-scale") || "",
+					});
+				}
+				if (cls.includes("video-stub")) {
+					return serializeVideoStub({
+						video: node.getAttribute("data-video") || "",
+						caption: node.getAttribute("data-caption") || "",
 					});
 				}
 				if (cls.includes("tab")) return serializeAccordion(node);
@@ -3688,6 +3740,41 @@ function serializeSquareGridRow(block, ctx) {
 		return images;
 	}
 
+	const VIDEO_EXT_RE = /\.(mp4|webm|mov|m4v)$/i;
+
+	async function fetchVideoLibrary(path = "assets/video", collected = []) {
+		const res = await fetch(`/api/repo/tree?path=${encodeURIComponent(path)}`, {
+			headers: { Accept: "application/json" },
+		});
+		const data = await res.json().catch(() => ({}));
+		if (!res.ok) throw new Error(data?.error || "Failed to load video list");
+		const items = Array.isArray(data.items) ? data.items : [];
+		for (const item of items) {
+			if (item.type === "dir") {
+				await fetchVideoLibrary(item.path, collected);
+			} else if (item.type === "file") {
+				collected.push(item);
+			}
+		}
+		return collected;
+	}
+
+	async function loadVideoLibraryIntoSelect(select) {
+		const videos = await fetchVideoLibrary();
+		select.innerHTML = "";
+		select.appendChild(el("option", { value: "" }, ["Select an existing video"]));
+		videos
+			.filter((item) => VIDEO_EXT_RE.test(String(item.path || "")))
+			.sort((a, b) => String(a.path).localeCompare(String(b.path)))
+			.forEach((item) => {
+				const label = String(item.path || "").replace(/^assets\/video\//, "");
+				select.appendChild(
+					el("option", { value: item.path }, [label || item.name]),
+				);
+			});
+		return videos;
+	}
+
 	function buildImageSourceFields({
 		initialSrc = "",
 		initialMode = "existing",
@@ -3913,6 +4000,7 @@ function serializeSquareGridRow(block, ctx) {
 			toolbarDivider(),
 			buildToolbarGroup("Tools", [
 				el("button", { type: "button", "data-cmd": "img" }, ["Image"]),
+				el("button", { type: "button", "data-cmd": "video" }, ["Video"]),
 			]),
 		]);
 		const editor = el("div", {
@@ -4098,6 +4186,7 @@ function serializeSquareGridRow(block, ctx) {
 		codeObserver.observe(editor, { childList: true, subtree: true });
 
 		let activeImageTarget = null;
+		let activeVideoTarget = null;
 		let modalCloseInterceptor = null;
 
 		let currentInlineSize = "sml";
@@ -4487,6 +4576,73 @@ function serializeSquareGridRow(block, ctx) {
 		);
 		imagePanel.hidden = true;
 
+		const videoInput = el("input", {
+			type: "text",
+			class: "cms-field__input",
+			placeholder: "/assets/video/...",
+		});
+		const videoLibrarySelect = el("select", { class: "cms-field__select" }, [
+			el("option", { value: "" }, ["Select an existing video"]),
+		]);
+		const videoCaptionInput = el("input", {
+			type: "text",
+			class: "cms-field__input",
+			placeholder: "Caption (required)",
+		});
+		const videoWarning = el("div", { class: "cms-modal__note cms-note--warning" }, [
+			"\u26a0 Uploading is disabled for videos. Add files to /assets/video in the repo and select them here. \u26a0",
+		]);
+		const videoSourceRow = el("div", { class: "cms-field__row" }, [
+			videoInput,
+			videoLibrarySelect,
+		]);
+		const videoPlaceholder = el("div", { class: "cms-video-placeholder" }, [
+			"Video preview disabled",
+		]);
+		const videoPreviewCard = el(
+			"div",
+			{ class: "cms-video-preview content content--full" },
+			[videoPlaceholder],
+		);
+		const videoSettingsRow = el("div", { class: "cms-image-settings" }, [
+			el("div", { class: "cms-image-settings__preview" }, [videoPreviewCard]),
+			el("div", { class: "cms-image-settings__controls" }, [
+				buildField({
+					label: "Caption",
+					input: videoCaptionInput,
+					note: "Required for inline videos.",
+				}),
+			]),
+		]);
+		const videoSaveBtn = el(
+			"button",
+			{ class: "cms-btn cms-btn--success", type: "button" },
+			["Insert video"],
+		);
+		const videoDeleteBtn = el(
+			"button",
+			{ class: "cms-btn cms-btn--danger", type: "button" },
+			["Delete"],
+		);
+		const videoPanel = el(
+			"div",
+			{ class: "cms-rte__panel cms-rte__panel--video" },
+			[
+				buildField({
+					label: "Video source",
+					input: videoSourceRow,
+					note: "Videos must live in /assets/video.",
+				}),
+				videoWarning,
+				buildField({ label: "Video settings", input: videoSettingsRow }),
+				el("div", { class: "cms-rte__panel-actions" }, [
+					videoDeleteBtn,
+					videoSaveBtn,
+				]),
+			],
+		);
+		videoPanel.hidden = true;
+
 		const syncOverlayState = () => {
 			const enabled = overlayEnabledInput.checked;
 			overlayTitleInput.disabled = !enabled;
@@ -4498,21 +4654,60 @@ function serializeSquareGridRow(block, ctx) {
 		overlayEnabledInput.addEventListener("change", syncOverlayState);
 		setImageMode(imageModeSelect.value);
 
+		const updateVideoPreview = () => {
+			const raw = videoInput.value.trim();
+			videoPlaceholder.textContent = raw ? "Video preview disabled" : "No video selected";
+		};
+		const syncVideoInput = () => {
+			const raw = videoInput.value.trim();
+			if (!raw) {
+				updateVideoPreview();
+				return;
+			}
+			const local = getLocalVideoPath(raw);
+			if (local) videoLibrarySelect.value = local;
+			updateVideoPreview();
+		};
+		videoInput.addEventListener("input", () => {
+			videoInput.classList.remove("cms-field__input--invalid");
+			videoCaptionInput.classList.remove("cms-field__input--invalid");
+			syncVideoInput();
+		});
+		videoInput.addEventListener("blur", () => {
+			const normalized = normalizeVideoSource(videoInput.value);
+			if (normalized) videoInput.value = normalized;
+			syncVideoInput();
+		});
+		videoLibrarySelect.addEventListener("change", () => {
+			const path = videoLibrarySelect.value;
+			if (!path) return;
+			const safePath = sanitizeVideoPath(path, "");
+			if (!safePath) return;
+			videoInput.value = `/${safePath}`;
+			videoInput.classList.remove("cms-field__input--invalid");
+			updateVideoPreview();
+		});
+		videoCaptionInput.addEventListener("input", () => {
+			videoCaptionInput.classList.remove("cms-field__input--invalid");
+		});
+
 		const wrap = el("div", { class: "cms-rte__field" }, [
 			el("div", { class: "cms-rte__label" }, [label]),
 			toolbar,
 			editor,
 			imagePanel,
+			videoPanel,
 		]);
 
 		const attachModalCloseInterceptor = () => {
 			const root = qs("#cms-modal");
 			if (!root || modalCloseInterceptor) return;
 			modalCloseInterceptor = (event) => {
-				if (imagePanel.hidden) return;
+				if (imagePanel.hidden && videoPanel.hidden) return;
 				event.preventDefault();
 				event.stopImmediatePropagation();
-				closeImagePanel();
+				if (!imagePanel.hidden) closeImagePanel();
+				if (!videoPanel.hidden) closeVideoPanel();
 			};
 			root.querySelectorAll("[data-close='true']").forEach((btn) => {
 				btn.addEventListener("click", modalCloseInterceptor, true);
@@ -4544,7 +4739,8 @@ function serializeSquareGridRow(block, ctx) {
 			const restoreParentModal = () => {
 				if (!hadModal || !root || !prevBody || !prevFooter) {
 					closeModal();
-					if (!imagePanel.hidden) attachModalCloseInterceptor();
+					if (!imagePanel.hidden || !videoPanel.hidden)
+						attachModalCloseInterceptor();
 					return;
 				}
 				qs("#cms-modal-title").textContent = prevTitle || "Modal";
@@ -4556,7 +4752,8 @@ function serializeSquareGridRow(block, ctx) {
 				root.classList.add("is-open");
 				document.documentElement.classList.add("cms-lock");
 				document.body.classList.add("cms-lock");
-				if (!imagePanel.hidden) attachModalCloseInterceptor();
+				if (!imagePanel.hidden || !videoPanel.hidden)
+					attachModalCloseInterceptor();
 			};
 
 			const closeConfirm = () => {
@@ -4587,10 +4784,10 @@ function serializeSquareGridRow(block, ctx) {
 			});
 
 			openModal({
-				title: "Delete image",
+				title: "Delete media",
 				bodyNodes: [
 					el("p", { class: "cms-modal__text" }, [
-						"Delete this inline image? Unsaved changes will be lost if you continue.",
+						"Delete this item? Unsaved changes will be lost if you continue.",
 					]),
 				],
 				footerNodes: [cancel, confirm],
@@ -4718,7 +4915,73 @@ function serializeSquareGridRow(block, ctx) {
 			});
 		};
 
+		const renderInlineVideoStub = (stub) => {
+			if (!(stub instanceof HTMLElement)) return;
+			const rawSrc = stub.getAttribute("data-video") || "";
+			const caption = stub.getAttribute("data-caption") || "";
+			const videoSrc = rawSrc ? normalizeVideoSource(rawSrc) : "";
+
+			stub.classList.remove("img-text-div-img", "lrg-img-text-div-img");
+			stub.classList.add("video-stub", "img-text-div-img");
+			stub.innerHTML = "";
+
+			const content = el("div", { class: "content content--full" }, []);
+			const placeholder = el("div", { class: "cms-video-placeholder" }, [
+				videoSrc ? "Video preview disabled" : "No video selected",
+			]);
+			content.appendChild(placeholder);
+			stub.appendChild(content);
+
+			if (caption) {
+				stub.appendChild(el("p", { class: "cms-inline-caption" }, [caption]));
+			}
+
+			const editBtn = el(
+				"button",
+				{
+					type: "button",
+					class: "cms-block__btn cms-block__btn--edit cms-inline-action",
+				},
+				[buildPenIcon(), "Edit"],
+			);
+			editBtn.addEventListener("click", (event) => {
+				event.preventDefault();
+				event.stopPropagation();
+				openVideoPanel({ targetStub: stub });
+			});
+			const deleteBtn = el(
+				"button",
+				{
+					type: "button",
+					class: "cms-block__btn cms-block__btn--danger cms-inline-action",
+				},
+				[buildTrashIcon(), "Delete"],
+			);
+			deleteBtn.addEventListener("click", (event) => {
+				event.preventDefault();
+				event.stopPropagation();
+				openInlineDeleteConfirm({
+					onConfirm: () => {
+						if (activeVideoTarget === stub) closeVideoPanel();
+						stub.remove();
+					},
+				});
+			});
+			const actions = el("div", { class: "cms-inline-actions" }, [
+				editBtn,
+				deleteBtn,
+			]);
+			stub.appendChild(actions);
+		};
+
+		const renderInlineVideoStubs = () => {
+			editor.querySelectorAll(".video-stub").forEach((stub) => {
+				renderInlineVideoStub(stub);
+			});
+		};
+
 		const openImagePanel = ({ targetStub = null } = {}) => {
+			if (!videoPanel.hidden) closeVideoPanel();
 			activeImageTarget = targetStub;
 			currentUploadFile = null;
 			currentUploadBase64 = "";
@@ -4789,6 +5052,7 @@ function serializeSquareGridRow(block, ctx) {
 		const closeImagePanel = () => {
 			activeImageTarget = null;
 			imagePanel.hidden = true;
+			if (!videoPanel.hidden) return;
 			detachModalCloseInterceptor();
 		};
 
@@ -4854,6 +5118,90 @@ function serializeSquareGridRow(block, ctx) {
 				onConfirm: () => {
 					if (activeImageTarget) activeImageTarget.remove();
 					closeImagePanel();
+				},
+			});
+		});
+
+		const openVideoPanel = ({ targetStub = null } = {}) => {
+			if (!imagePanel.hidden) closeImagePanel();
+			activeVideoTarget = targetStub;
+			const attrs = targetStub
+				? {
+						video: targetStub.getAttribute("data-video") || "",
+						caption: targetStub.getAttribute("data-caption") || "",
+					}
+				: null;
+			const localPath = attrs ? getLocalVideoPath(attrs.video) : "";
+			if (attrs) {
+				videoInput.value = attrs.video;
+				videoCaptionInput.value = attrs.caption;
+			} else {
+				videoInput.value = "";
+				videoCaptionInput.value = "";
+			}
+			videoInput.classList.remove("cms-field__input--invalid");
+			videoCaptionInput.classList.remove("cms-field__input--invalid");
+			videoLibrarySelect.value = "";
+			updateVideoPreview();
+			videoSaveBtn.textContent = targetStub ? "Update video" : "Insert video";
+			videoDeleteBtn.disabled = !targetStub;
+			videoPanel.hidden = false;
+			attachModalCloseInterceptor();
+			loadVideoLibraryIntoSelect(videoLibrarySelect)
+				.then(() => {
+					if (localPath) videoLibrarySelect.value = localPath;
+				})
+				.catch((err) => console.error(err));
+			videoPanel.scrollIntoView({ block: "center", behavior: "smooth" });
+		};
+
+		const closeVideoPanel = () => {
+			activeVideoTarget = null;
+			videoPanel.hidden = true;
+			if (!imagePanel.hidden) return;
+			detachModalCloseInterceptor();
+		};
+
+		videoSaveBtn.addEventListener("click", () => {
+			const raw = videoInput.value.trim();
+			if (/^https?:\/\//i.test(raw)) {
+				videoInput.classList.add("cms-field__input--invalid");
+				videoInput.focus();
+				return;
+			}
+			const src = normalizeVideoSource(raw);
+			const caption = videoCaptionInput.value.trim();
+			if (!src) return;
+			if (!caption) {
+				videoCaptionInput.classList.add("cms-field__input--invalid");
+				videoCaptionInput.focus();
+				return;
+			}
+			const attrs = {
+				video: src,
+				caption,
+			};
+			if (activeVideoTarget) {
+				activeVideoTarget.setAttribute("data-video", attrs.video);
+				activeVideoTarget.setAttribute("data-caption", attrs.caption);
+				renderInlineVideoStub(activeVideoTarget);
+			} else {
+				const html = serializeVideoStub(attrs);
+				restoreSelection();
+				insertHtmlAtCursor(editor, html);
+				queueMicrotask(() => {
+					renderInlineVideoStubs();
+				});
+			}
+			closeVideoPanel();
+		});
+
+		videoDeleteBtn.addEventListener("click", () => {
+			if (!activeVideoTarget) return;
+			openInlineDeleteConfirm({
+				onConfirm: () => {
+					if (activeVideoTarget) activeVideoTarget.remove();
+					closeVideoPanel();
 				},
 			});
 		});
@@ -4962,6 +5310,8 @@ function serializeSquareGridRow(block, ctx) {
 				selection.addRange(nextRange);
 			} else if (cmd === "img") {
 				openImagePanel();
+			} else if (cmd === "video") {
+				openVideoPanel();
 			}
 		});
 		editor.addEventListener("keydown", (event) => {
@@ -5052,7 +5402,14 @@ function serializeSquareGridRow(block, ctx) {
 				openImagePanel({ targetStub: stub });
 			}
 		});
+		editor.addEventListener("click", (event) => {
+			const stub = event.target.closest(".video-stub");
+			if (stub && editor.contains(stub)) {
+				openVideoPanel({ targetStub: stub });
+			}
+		});
 		renderInlineImageStubs();
+		renderInlineVideoStubs();
 		return {
 			wrap,
 			editor,
@@ -5856,6 +6213,13 @@ function serializeSquareGridRow(block, ctx) {
 			return {
 				type: "inline-polaroid",
 				summary: cap || node.getAttribute("data-img"),
+			};
+		}
+		if (cls.contains("video-stub") && node.getAttribute("data-video")) {
+			const cap = node.getAttribute("data-caption") || "";
+			return {
+				type: "inline-video",
+				summary: cap || node.getAttribute("data-video"),
 			};
 		}
 
