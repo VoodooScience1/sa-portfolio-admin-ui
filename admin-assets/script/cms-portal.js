@@ -14,7 +14,7 @@
  */
 
 (() => {
-	const PORTAL_VERSION = "2025-12-31-20";
+const PORTAL_VERSION = "2025-12-31-22";
 	window.__CMS_PORTAL_VERSION__ = PORTAL_VERSION;
 	console.log(`[cms-portal] loaded v${PORTAL_VERSION}`);
 
@@ -197,11 +197,10 @@
 		let inPre = false;
 		return lines
 			.map((line) => {
-				const lower = line.toLowerCase();
-				const startsPre = lower.includes("<pre");
-				const endsPre = lower.includes("</pre");
-				const out = !inPre && line ? `${pad}${line}` : line;
+				const startsPre = /<pre\b/i.test(line);
+				const endsPre = /<\/pre>/i.test(line);
 				if (startsPre) inPre = true;
+				const out = !inPre && line ? `${pad}${line}` : line;
 				if (endsPre) inPre = false;
 				return out;
 			})
@@ -318,7 +317,9 @@
 					if (node.childNodes?.length) mergeAdjacentPres(node);
 					continue;
 				}
-				const lines = [node.innerText || node.textContent || ""].map((t) =>
+				const codeEl = node.querySelector("code");
+				const baseText = codeEl ? codeEl.textContent : node.textContent;
+				const lines = [baseText || ""].map((t) =>
 					String(t || "").replace(/\n+$/g, ""),
 				);
 				let j = i + 1;
@@ -328,12 +329,11 @@
 						next instanceof Element &&
 						next.tagName.toLowerCase() === "pre"
 					) {
-						lines.push(
-							String(next.innerText || next.textContent || "").replace(
-								/\n+$/g,
-								"",
-							),
-						);
+						const nextCode = next.querySelector("code");
+						const nextText = nextCode
+							? nextCode.textContent
+							: next.textContent;
+						lines.push(String(nextText || "").replace(/\n+$/g, ""));
 						next.remove();
 						j += 1;
 						continue;
@@ -553,7 +553,8 @@
 		if (tag === "pre") {
 			const codeChild = node.querySelector("code");
 			const lang = getLangFromCodeEl(codeChild);
-			const text = escapeHtml(node.textContent || "");
+			const rawText = codeChild ? codeChild.textContent : node.textContent;
+			const text = escapeHtml(rawText || "");
 			if (lang) {
 				return `<pre><code class="language-${escapeAttr(lang)}">${text}</code></pre>`;
 			}
@@ -643,13 +644,22 @@
 		if (!node || !node.classList) {
 			return { type: "legacy", raw: String(node?.outerHTML || "") };
 		}
-		const cls = node.classList;
-		const cmsId = node.getAttribute("data-cms-id") || "";
+		const stripHighlightMarkup = (root) => {
+			root.querySelectorAll("pre code").forEach((code) => {
+				code.classList.remove("hljs");
+				code.removeAttribute("data-highlighted");
+				code.textContent = code.textContent || "";
+			});
+		};
+		const cleanNode = node.cloneNode(true);
+		stripHighlightMarkup(cleanNode);
+		const cls = cleanNode.classList;
+		const cmsId = cleanNode.getAttribute("data-cms-id") || "";
 		if (cls.contains("section")) {
-			const type = (node.getAttribute("data-type") || "").trim();
+			const type = (cleanNode.getAttribute("data-type") || "").trim();
 			if (type === "twoCol") {
-				const leftNode = node.querySelector("[data-col='left']");
-				const rightNode = node.querySelector("[data-col='right']");
+				const leftNode = cleanNode.querySelector("[data-col='left']");
+				const rightNode = cleanNode.querySelector("[data-col='right']");
 				const headingEl = leftNode?.querySelector("h2,h3");
 				const headingTag = headingEl
 					? headingEl.tagName.toLowerCase()
@@ -672,15 +682,16 @@
 				};
 			}
 			if (type === "imgText" || type === "split50") {
-				const headingEl = node.querySelector("h1,h2,h3");
+				const headingEl = cleanNode.querySelector("h1,h2,h3");
 				const headingTag = headingEl
 					? headingEl.tagName.toLowerCase()
 					: "h2";
 				const safeHeadingTag = headingTag === "h1" ? "h2" : headingTag;
-				const overlayEnabled = node.getAttribute("data-overlay") !== "false";
-				let body = node.innerHTML || "";
+				const overlayEnabled =
+					cleanNode.getAttribute("data-overlay") !== "false";
+				let body = cleanNode.innerHTML || "";
 				if (headingEl) {
-					const clone = node.cloneNode(true);
+					const clone = cleanNode.cloneNode(true);
 					const removeHeading = clone.querySelector("h1,h2,h3");
 					if (removeHeading) removeHeading.remove();
 					body = clone.innerHTML || "";
@@ -688,25 +699,25 @@
 				return {
 					type,
 					cmsId,
-					imgPos: node.getAttribute("data-img-pos") || "left",
-					img: node.getAttribute("data-img") || "",
-					caption: node.getAttribute("data-caption") || "",
-					lightbox: node.getAttribute("data-lightbox") || "false",
+					imgPos: cleanNode.getAttribute("data-img-pos") || "left",
+					img: cleanNode.getAttribute("data-img") || "",
+					caption: cleanNode.getAttribute("data-caption") || "",
+					lightbox: cleanNode.getAttribute("data-lightbox") || "false",
 					overlayEnabled,
-					overlayTitle: node.getAttribute("data-overlay-title") || "",
-					overlayText: node.getAttribute("data-overlay-text") || "",
+					overlayTitle: cleanNode.getAttribute("data-overlay-title") || "",
+					overlayText: cleanNode.getAttribute("data-overlay-text") || "",
 					heading: headingEl?.textContent?.trim() || "",
 					headingTag: safeHeadingTag,
 					body,
 				};
 			}
-			return { type: "legacy", cmsId, raw: node.outerHTML };
+			return { type: "legacy", cmsId, raw: cleanNode.outerHTML };
 		}
 
 		if (cls.contains("grid-wrapper") && cls.contains("grid-wrapper--row")) {
-			if (node.querySelector(".content.box.box-img")) {
+			if (cleanNode.querySelector(".content.box.box-img")) {
 				const cards = Array.from(
-					node.querySelectorAll(".content.box.box-img"),
+					cleanNode.querySelectorAll(".content.box.box-img"),
 				).map((card) => {
 					const img = card.querySelector("img");
 					const title = card.querySelector(".content-title");
@@ -721,8 +732,8 @@
 				});
 				return { type: "hoverCardRow", cmsId, cards };
 			}
-			if (node.querySelector(".box > img")) {
-				const items = Array.from(node.querySelectorAll(".box > img")).map(
+			if (cleanNode.querySelector(".box > img")) {
+				const items = Array.from(cleanNode.querySelectorAll(".box > img")).map(
 					(img) => ({
 						src: img.getAttribute("src") || "",
 						alt: img.getAttribute("alt") || "",
@@ -733,7 +744,7 @@
 			}
 		}
 
-		return { type: "legacy", cmsId, raw: node.outerHTML };
+		return { type: "legacy", cmsId, raw: cleanNode.outerHTML };
 	}
 
 	function parseMainBlocksFromHtml(mainHtml) {
@@ -4368,12 +4379,18 @@ function serializeSquareGridRow(block, ctx) {
 		const nodes = Array.from(wrap.children);
 
 		return nodes.map((node, idx) => {
-			const info = detectBlock(node);
+			const clean = node.cloneNode(true);
+			clean.querySelectorAll("pre code").forEach((code) => {
+				code.classList.remove("hljs");
+				code.removeAttribute("data-highlighted");
+				code.textContent = code.textContent || "";
+			});
+			const info = detectBlock(clean);
 			return {
 				idx,
 				type: info.type,
 				summary: info.summary,
-				html: node.outerHTML,
+				html: clean.outerHTML,
 			};
 		});
 	}
