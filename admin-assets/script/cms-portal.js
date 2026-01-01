@@ -4078,7 +4078,240 @@ function serializeSquareGridRow(block, ctx) {
 
 		let activeImageTarget = null;
 
-		const imageFields = buildImageSourceFields();
+		let currentInlineSize = "sml";
+		let currentUploadFile = null;
+		let currentUploadBase64 = "";
+		let currentUploadMime = "";
+		let currentUploadPath = "";
+		let currentUploadExt = "";
+		let setImageMode = null;
+
+		const imgInput = el("input", {
+			type: "text",
+			class: "cms-field__input",
+			placeholder: "/assets/img/...",
+		});
+		const imageModeSelect = el("select", { class: "cms-field__select" }, [
+			el("option", { value: "existing" }, ["Use existing"]),
+			el("option", { value: "upload" }, ["Upload new"]),
+		]);
+		imageModeSelect.value = "existing";
+		const imageLibrarySelect = el("select", { class: "cms-field__select" }, [
+			el("option", { value: "" }, ["Select an existing image"]),
+		]);
+		const imagePickBtn = el(
+			"button",
+			{
+				class: "cms-btn cms-btn--primary cms-btn--inline",
+				type: "button",
+			},
+			["Choose image"],
+		);
+		const uploadFileInput = el("input", {
+			type: "file",
+			class: "cms-field__input",
+		});
+		uploadFileInput.hidden = true;
+		const uploadNameInput = el("input", {
+			type: "text",
+			class: "cms-field__input",
+			placeholder: "Filename (e.g. hero.jpg or sub/hero.jpg)",
+		});
+		uploadNameInput.hidden = true;
+		const uploadWarning = el("div", { class: "cms-modal__note cms-note--warning" }, [
+			"\u26a0 Please note: Uploaded images are only stored in local memory until comitted and could be lost \u26a0",
+		]);
+		uploadWarning.hidden = true;
+		const getFileExtension = (name) => {
+			const match = String(name || "")
+				.trim()
+				.match(/(\.[A-Za-z0-9]+)$/);
+			return match ? match[1] : "";
+		};
+		const normalizeUploadName = (rawName) => {
+			const raw = String(rawName || "").trim();
+			if (!raw) {
+				if (currentUploadExt)
+					return { name: currentUploadExt, caret: 0, empty: true };
+				return { name: "", caret: 0, empty: true };
+			}
+			if (!currentUploadExt) return { name: raw, caret: raw.length };
+			const lowerRaw = raw.toLowerCase();
+			const lowerExt = currentUploadExt.toLowerCase();
+			let base = raw;
+			if (lowerRaw.endsWith(lowerExt)) {
+				base = raw.slice(0, -currentUploadExt.length);
+			}
+			if (base.endsWith(".")) base = base.slice(0, -1);
+			return {
+				name: `${base}${currentUploadExt}`,
+				caret: base.length,
+				empty: !base,
+			};
+		};
+		const syncUploadName = (rawName, { normalize = false } = {}) => {
+			const normalized = normalizeUploadName(rawName);
+			if (!normalized.name) return;
+			if (normalized.empty && currentUploadExt) {
+				if (normalize && uploadNameInput) {
+					uploadNameInput.value = currentUploadExt;
+					if (document.activeElement === uploadNameInput) {
+						uploadNameInput.setSelectionRange(0, 0);
+					}
+				}
+				return;
+			}
+			const safePath = sanitizeImagePath(
+				normalized.name,
+				currentUploadFile?.name || "",
+			);
+			if (!safePath) return;
+			const safeName = safePath.replace(/^assets\/img\//, "");
+			if (normalize && uploadNameInput) {
+				uploadNameInput.value = safeName;
+				if (currentUploadExt && document.activeElement === uploadNameInput) {
+					const caret = Math.max(0, safeName.length - currentUploadExt.length);
+					uploadNameInput.setSelectionRange(caret, caret);
+				}
+			}
+			imgInput.value = `/${safePath}`;
+			if (currentUploadBase64) {
+				if (currentUploadPath && currentUploadPath !== safePath) {
+					state.assetUploads = (state.assetUploads || []).filter(
+						(item) => item.path !== currentUploadPath,
+					);
+				}
+				addAssetUpload({
+					name: safeName,
+					content: currentUploadBase64,
+					path: safePath,
+					mime: currentUploadMime || "",
+				});
+				currentUploadPath = safePath;
+			}
+			updateImagePreview();
+		};
+		const stageUpload = (file, filename) => {
+			if (!file) return;
+			const safePath = sanitizeImagePath(filename, file.name || "");
+			if (!safePath) return;
+			const safeName = safePath.replace(/^assets\/img\//, "");
+			if (uploadNameInput) uploadNameInput.value = safeName;
+			const reader = new FileReader();
+			reader.onload = () => {
+				const dataUrl = String(reader.result || "");
+				const base64 = dataUrl.split(",")[1] || "";
+				currentUploadBase64 = base64;
+				currentUploadMime = file.type || "";
+				syncUploadName(uploadNameInput?.value.trim() || safeName, {
+					normalize: true,
+				});
+			};
+			reader.readAsDataURL(file);
+		};
+		imagePickBtn.addEventListener("click", () => {
+			uploadFileInput?.click();
+		});
+		uploadFileInput.addEventListener("change", () => {
+			const file = uploadFileInput.files?.[0];
+			if (!file) return;
+			currentUploadFile = file;
+			currentUploadExt = getFileExtension(file.name || "");
+			if (uploadNameInput && !uploadNameInput.value.trim()) {
+				uploadNameInput.value = file.name || "";
+			}
+			stageUpload(file, uploadNameInput?.value.trim() || "");
+		});
+		uploadNameInput.addEventListener("input", () => {
+			syncUploadName(uploadNameInput.value.trim(), { normalize: true });
+		});
+		uploadNameInput.addEventListener("blur", () => {
+			if (!currentUploadFile) return;
+			if (currentUploadBase64) {
+				syncUploadName(uploadNameInput.value.trim(), { normalize: true });
+				return;
+			}
+			stageUpload(currentUploadFile, uploadNameInput.value.trim());
+		});
+		setImageMode = (mode) => {
+			const useUpload = mode === "upload";
+			if (imageLibrarySelect) imageLibrarySelect.hidden = useUpload;
+			if (imagePickBtn) imagePickBtn.hidden = !useUpload;
+			if (uploadNameInput) uploadNameInput.hidden = !useUpload;
+			if (uploadNameLabel) uploadNameLabel.hidden = !useUpload;
+			if (uploadNameRow) uploadNameRow.hidden = !useUpload;
+			if (imgInput) {
+				imgInput.disabled = useUpload;
+				imgInput.classList.toggle("cms-field__input--muted", useUpload);
+			}
+			if (uploadWarning) uploadWarning.hidden = !useUpload;
+			if (!useUpload && imageLibrarySelect) {
+				loadImageLibraryIntoSelect(imageLibrarySelect)
+					.then(() => {
+						const local = getLocalAssetPath(imgInput.value || "");
+						if (local) imageLibrarySelect.value = local;
+					})
+					.catch((err) => console.error(err));
+			}
+			updateImagePreview();
+		};
+		imageModeSelect.addEventListener("change", () => {
+			setImageMode(imageModeSelect.value);
+		});
+		imageLibrarySelect.addEventListener("change", () => {
+			const path = imageLibrarySelect.value;
+			if (!path) return;
+			const safePath = sanitizeImagePath(path, "");
+			if (!safePath) return;
+			imgInput.value = `/${safePath}`;
+			updateImagePreview();
+		});
+		const imagePreviewImg = el("img", {
+			class: "cms-image-preview__img cms-image-preview__img--block",
+			alt: "Preview",
+		});
+		const imagePreviewWrap = el(
+			"div",
+			{ class: "cms-image-preview cms-image-preview--inline content content--full" },
+			[imagePreviewImg],
+		);
+		const overlayLayer = el("div", { class: "content-overlay" });
+		const overlayTitlePreview = el("h3", { class: "content-title" });
+		const overlayTextPreview = el("p", { class: "content-text" });
+		const overlayDetails = el("div", { class: "content-details fadeIn-bottom" }, [
+			overlayTitlePreview,
+			overlayTextPreview,
+		]);
+		imagePreviewWrap.appendChild(overlayLayer);
+		imagePreviewWrap.appendChild(overlayDetails);
+		const updateImagePreview = () => {
+			const raw = imgInput.value.trim();
+			let src = raw ? normalizeImageSource(raw) : "";
+			if (src && !src.startsWith("data:")) {
+				const local = getLocalAssetPath(src);
+				const cached = local ? getCachedAssetDataUrl(local) : "";
+				if (cached) src = cached;
+			}
+			if (!src) {
+				imagePreviewWrap.hidden = true;
+				imagePreviewImg.removeAttribute("src");
+				updateOverlayPreview();
+				return;
+			}
+			imagePreviewWrap.hidden = false;
+			imagePreviewImg.src = src;
+			if (imageLibrarySelect && !imageLibrarySelect.hidden) {
+				const local = getLocalAssetPath(raw);
+				if (local) imageLibrarySelect.value = local;
+			}
+			updateOverlayPreview();
+		};
+		imgInput.addEventListener("input", updateImagePreview);
+		imgInput.addEventListener("blur", () => {
+			const normalized = normalizeImageSource(imgInput.value);
+			if (normalized) imgInput.value = normalized;
+			updateImagePreview();
+		});
 		const captionInput = el("input", {
 			type: "text",
 			class: "cms-field__input",
@@ -4099,23 +4332,11 @@ function serializeSquareGridRow(block, ctx) {
 			class: "cms-field__input",
 			placeholder: "Overlay text (optional)",
 		});
-		const overlayOptionsWrap = el("div", { class: "cms-rte__panel-subgroup" }, [
-			buildField({
-				label: "Overlay text",
-				input: el("div", { class: "cms-field__row" }, [
-					overlayTitleInput,
-					overlayTextInput,
-				]),
-			}),
-		]);
-		const sizeSelect = el(
-			"select",
-			{ class: "cms-field__select" },
-			[
-				el("option", { value: "sml" }, ["Small"]),
-				el("option", { value: "lrg" }, ["Large"]),
-			],
-		);
+		const lightboxInput = el("input", {
+			type: "checkbox",
+			class: "cms-field__checkbox",
+		});
+		lightboxInput.checked = true;
 		const scaleSelect = el(
 			"select",
 			{ class: "cms-field__select" },
@@ -4128,7 +4349,7 @@ function serializeSquareGridRow(block, ctx) {
 			],
 		);
 		const applyScalePreview = () => {
-			const img = imageFields.previewImg;
+			const img = imagePreviewImg;
 			if (!img) return;
 			img.classList.remove(
 				"cms-image-preview__img--sm",
@@ -4142,11 +4363,79 @@ function serializeSquareGridRow(block, ctx) {
 			}
 		};
 		scaleSelect.addEventListener("change", applyScalePreview);
-		const lightboxInput = el("input", {
-			type: "checkbox",
-			class: "cms-field__checkbox",
-		});
-		lightboxInput.checked = true;
+		const updateOverlayPreview = () => {
+			const enabled = overlayEnabledInput.checked;
+			if (!enabled || imagePreviewWrap.hidden) {
+				overlayLayer.hidden = true;
+				overlayDetails.hidden = true;
+				overlayTitlePreview.textContent = "";
+				overlayTextPreview.textContent = "";
+				return;
+			}
+			const title = overlayTitleInput.value.trim();
+			const text = overlayTextInput.value.trim();
+			const fallback =
+				!title && !text && lightboxInput.checked ? "Click to view" : text;
+			overlayLayer.hidden = false;
+			overlayDetails.hidden = false;
+			overlayTitlePreview.textContent = title;
+			overlayTextPreview.textContent = fallback;
+			overlayTitlePreview.hidden = !title;
+			overlayTextPreview.hidden = !fallback;
+		};
+		lightboxInput.addEventListener("change", updateOverlayPreview);
+		overlayTitleInput.addEventListener("input", updateOverlayPreview);
+		overlayTextInput.addEventListener("input", updateOverlayPreview);
+		updateImagePreview();
+
+		const imageRow = el("div", { class: "cms-field__row" }, [
+			imgInput,
+			imageModeSelect,
+			imageLibrarySelect,
+			imagePickBtn,
+			uploadFileInput,
+		]);
+		let uploadNameLabel = null;
+		let uploadNameRow = null;
+		let imageInput = imageRow;
+		if (uploadNameInput) {
+			uploadNameLabel = el("div", { class: "cms-field__label" }, ["Filename"]);
+			uploadNameRow = el("div", { class: "cms-field__row" }, [uploadNameInput]);
+			uploadNameRow.hidden = uploadNameInput.hidden;
+			uploadNameLabel.hidden = uploadNameInput.hidden;
+			imageInput = el("div", { class: "cms-field__stack" }, [
+				imageRow,
+				uploadNameLabel,
+				uploadNameRow,
+			]);
+		}
+		const overlayInputs = el("div", { class: "cms-field__stack" }, [
+			overlayTitleInput,
+			overlayTextInput,
+		]);
+		const overlayGroup = buildField({ label: "Overlay", input: overlayInputs });
+		const displayRow = el("div", { class: "cms-field__row" }, [
+			el("label", { class: "cms-field__toggle" }, [
+				lightboxInput,
+				el("span", { class: "cms-field__toggle-text" }, ["Lightbox"]),
+			]),
+			el("label", { class: "cms-field__toggle" }, [
+				overlayEnabledInput,
+				el("span", { class: "cms-field__toggle-text" }, ["Overlay"]),
+			]),
+		]);
+		const displayField = buildField({ label: "Display", input: displayRow });
+		const captionField = buildField({ label: "Caption", input: captionInput });
+		const sizeField = buildField({ label: "Size", input: scaleSelect });
+		const controlsWrap = el(
+			"div",
+			{ class: "cms-image-settings__controls" },
+			[displayField, captionField, sizeField, overlayGroup],
+		);
+		const settingsRow = el("div", { class: "cms-image-settings" }, [
+			el("div", { class: "cms-image-settings__preview" }, [imagePreviewWrap]),
+			controlsWrap,
+		]);
 		const imageSaveBtn = el(
 			"button",
 			{ class: "cms-btn cms-btn--success", type: "button" },
@@ -4166,25 +4455,13 @@ function serializeSquareGridRow(block, ctx) {
 			"div",
 			{ class: "cms-rte__panel cms-rte__panel--image" },
 			[
-				imageFields.wrap,
-				buildField({ label: "Caption", input: captionInput }),
 				buildField({
-					label: "Lightbox",
-					input: el("label", { class: "cms-field__toggle" }, [
-						lightboxInput,
-						el("span", { class: "cms-field__toggle-text" }, ["Enable"]),
-					]),
+					label: "Image source",
+					input: imageInput,
+					note: "Required for inline images.",
 				}),
-				buildField({
-					label: "Overlay",
-					input: el("label", { class: "cms-field__toggle" }, [
-						overlayEnabledInput,
-						el("span", { class: "cms-field__toggle-text" }, ["Enable"]),
-					]),
-				}),
-				overlayOptionsWrap,
-				buildField({ label: "Size", input: sizeSelect }),
-				buildField({ label: "Scale", input: scaleSelect }),
+				uploadWarning,
+				buildField({ label: "Image settings", input: settingsRow }),
 				el("div", { class: "cms-rte__panel-actions" }, [
 					imageDeleteBtn,
 					imageCancelBtn,
@@ -4198,10 +4475,12 @@ function serializeSquareGridRow(block, ctx) {
 			const enabled = overlayEnabledInput.checked;
 			overlayTitleInput.disabled = !enabled;
 			overlayTextInput.disabled = !enabled;
-			overlayOptionsWrap.hidden = !enabled;
+			if (overlayGroup) overlayGroup.hidden = !enabled;
+			updateOverlayPreview();
 		};
 		syncOverlayState();
 		overlayEnabledInput.addEventListener("change", syncOverlayState);
+		setImageMode(imageModeSelect.value);
 
 		const wrap = el("div", { class: "cms-rte__field" }, [
 			el("div", { class: "cms-rte__label" }, [label]),
@@ -4210,8 +4489,200 @@ function serializeSquareGridRow(block, ctx) {
 			imagePanel,
 		]);
 
+		const openInlineDeleteConfirm = ({ onConfirm }) => {
+			const root = qs("#cms-modal");
+			const hadModal = Boolean(root && root.classList.contains("is-open"));
+			const prevTitle = hadModal ? qs("#cms-modal-title")?.textContent || "" : "";
+			const prevBody = hadModal ? qs("#cms-modal-body") : null;
+			const prevFooter = hadModal ? qs("#cms-modal-footer") : null;
+			const prevBodyNodes =
+				hadModal && prevBody ? Array.from(prevBody.childNodes) : [];
+			const prevFooterNodes =
+				hadModal && prevFooter ? Array.from(prevFooter.childNodes) : [];
+			const prevPrune = hadModal && root ? root.dataset.pruneAssets : "false";
+
+			const restoreParentModal = () => {
+				if (!hadModal || !root || !prevBody || !prevFooter) {
+					closeModal();
+					return;
+				}
+				qs("#cms-modal-title").textContent = prevTitle || "Modal";
+				prevBody.innerHTML = "";
+				prevFooter.innerHTML = "";
+				prevBodyNodes.forEach((node) => prevBody.appendChild(node));
+				prevFooterNodes.forEach((node) => prevFooter.appendChild(node));
+				root.dataset.pruneAssets = prevPrune || "false";
+				root.classList.add("is-open");
+				document.documentElement.classList.add("cms-lock");
+				document.body.classList.add("cms-lock");
+			};
+
+			const closeConfirm = () => {
+				if (hadModal) restoreParentModal();
+				else closeModal();
+			};
+
+			const cancel = el(
+				"button",
+				{
+					class: "cms-btn cms-modal__action",
+					type: "button",
+					"data-close": "true",
+				},
+				["Cancel"],
+			);
+			const confirm = el(
+				"button",
+				{
+					class: "cms-btn cms-modal__action cms-btn--danger",
+					type: "button",
+				},
+				["Delete"],
+			);
+			confirm.addEventListener("click", () => {
+				closeConfirm();
+				if (typeof onConfirm === "function") onConfirm();
+			});
+
+			openModal({
+				title: "Delete image",
+				bodyNodes: [
+					el("p", { class: "cms-modal__text" }, [
+						"Delete this inline image?",
+					]),
+				],
+				footerNodes: [cancel, confirm],
+				onClose: closeConfirm,
+			});
+		};
+
+		const renderInlineImageStub = (stub) => {
+			if (!(stub instanceof HTMLElement)) return;
+			const rawSrc = stub.getAttribute("data-img") || "";
+			const imgSrc = rawSrc ? normalizeImageSource(rawSrc) : "";
+			const caption = stub.getAttribute("data-caption") || "";
+			const lightbox =
+				normalizeBool(stub.getAttribute("data-lightbox"), "false") === "true";
+			const overlayEnabled = stub.getAttribute("data-overlay") !== "false";
+			const overlayTitle = stub.getAttribute("data-overlay-title") || "";
+			const overlayText = stub.getAttribute("data-overlay-text") || "";
+			const scale = (stub.getAttribute("data-scale") || "")
+				.trim()
+				.toLowerCase();
+			const size = (stub.getAttribute("data-size") || "sml")
+				.trim()
+				.toLowerCase();
+			const sizeClass = size === "lrg" ? "lrg-img-text-div-img" : "img-text-div-img";
+
+			let previewSrc = imgSrc;
+			if (previewSrc && !previewSrc.startsWith("data:")) {
+				const local = getLocalAssetPath(previewSrc);
+				const cached = local ? getCachedAssetDataUrl(local) : "";
+				if (cached) previewSrc = cached;
+			}
+
+			stub.classList.remove(
+				"img-text-div-img",
+				"lrg-img-text-div-img",
+				"img-scale-sm",
+				"img-scale-md",
+				"img-scale-lg",
+				"img-scale-full",
+			);
+			stub.classList.add("img-stub", sizeClass);
+			if (scale && scale !== "auto") stub.classList.add(`img-scale-${scale}`);
+
+			stub.innerHTML = "";
+			const content = el("div", { class: "content content--full" }, []);
+			if (previewSrc) {
+				const img = document.createElement("img");
+				img.className = "content-image";
+				img.src = previewSrc;
+				img.alt = caption || overlayTitle || "Image";
+
+				let titleText = (overlayTitle || "").trim();
+				let bodyText = (overlayText || "").trim();
+				if (overlayEnabled && !titleText && !bodyText && lightbox) {
+					bodyText = "Click to view";
+				}
+				if (overlayEnabled) {
+					const overlay = el("div", { class: "content-overlay" });
+					const details = el("div", { class: "content-details fadeIn-bottom" }, []);
+					if (titleText) {
+						const h3 = document.createElement("h3");
+						h3.className = "content-title";
+						h3.textContent = titleText;
+						details.appendChild(h3);
+					}
+					if (bodyText) {
+						const p = document.createElement("p");
+						p.className = "content-text";
+						p.textContent = bodyText;
+						details.appendChild(p);
+					}
+					content.appendChild(overlay);
+					content.appendChild(img);
+					if (titleText || bodyText) content.appendChild(details);
+				} else {
+					content.appendChild(img);
+				}
+			}
+			stub.appendChild(content);
+			if (caption) {
+				stub.appendChild(el("p", { class: "cms-inline-caption" }, [caption]));
+			}
+
+			const editBtn = el(
+				"button",
+				{
+					type: "button",
+					class: "cms-block__btn cms-block__btn--edit cms-inline-action",
+				},
+				[buildPenIcon(), "Edit"],
+			);
+			editBtn.addEventListener("click", (event) => {
+				event.preventDefault();
+				event.stopPropagation();
+				openImagePanel({ targetStub: stub });
+			});
+			const deleteBtn = el(
+				"button",
+				{
+					type: "button",
+					class: "cms-block__btn cms-block__btn--danger cms-inline-action",
+				},
+				[buildTrashIcon(), "Delete"],
+			);
+			deleteBtn.addEventListener("click", (event) => {
+				event.preventDefault();
+				event.stopPropagation();
+				openInlineDeleteConfirm({
+					onConfirm: () => {
+						if (activeImageTarget === stub) closeImagePanel();
+						stub.remove();
+					},
+				});
+			});
+			const actions = el("div", { class: "cms-inline-actions" }, [
+				editBtn,
+				deleteBtn,
+			]);
+			stub.appendChild(actions);
+		};
+
+		const renderInlineImageStubs = () => {
+			editor.querySelectorAll(".img-stub").forEach((stub) => {
+				renderInlineImageStub(stub);
+			});
+		};
+
 		const openImagePanel = ({ targetStub = null } = {}) => {
 			activeImageTarget = targetStub;
+			currentUploadFile = null;
+			currentUploadBase64 = "";
+			currentUploadMime = "";
+			currentUploadPath = "";
+			currentUploadExt = "";
 			const attrs = targetStub
 				? {
 						img: targetStub.getAttribute("data-img") || "",
@@ -4224,34 +4695,49 @@ function serializeSquareGridRow(block, ctx) {
 						scale: targetStub.getAttribute("data-scale") || "auto",
 					}
 				: null;
+			const localPath = attrs ? getLocalAssetPath(attrs.img) : "";
+			const uploadItem =
+				localPath &&
+				(state.assetUploads || []).find((item) => item.path === localPath);
 			if (attrs) {
-				imageFields.modeSelect.value = "existing";
-				imageFields.sourceInput.value = attrs.img;
+				imgInput.value = attrs.img;
 				captionInput.value = attrs.caption;
 				lightboxInput.checked = normalizeBool(attrs.lightbox, "false") === "true";
 				overlayEnabledInput.checked = attrs.overlay !== "false";
 				overlayTitleInput.value = attrs.overlayTitle;
 				overlayTextInput.value = attrs.overlayText;
-				sizeSelect.value = attrs.size || "sml";
+				currentInlineSize = attrs.size || "sml";
 				scaleSelect.value = attrs.scale || "auto";
 			} else {
-				imageFields.modeSelect.value = "existing";
-				imageFields.sourceInput.value = "";
+				imgInput.value = "";
 				captionInput.value = "";
 				lightboxInput.checked = true;
 				overlayEnabledInput.checked = true;
 				overlayTitleInput.value = "";
 				overlayTextInput.value = "";
-				sizeSelect.value = "sml";
+				currentInlineSize = "sml";
 				scaleSelect.value = "auto";
 			}
 			syncOverlayState();
-			imageFields.updatePreview();
 			applyScalePreview();
+			if (uploadItem) {
+				imageModeSelect.value = "upload";
+				currentUploadBase64 = uploadItem.content || "";
+				currentUploadMime = uploadItem.mime || "";
+				currentUploadPath = uploadItem.path || "";
+				currentUploadExt = getFileExtension(uploadItem.path || "");
+				if (uploadNameInput) {
+					uploadNameInput.value = uploadItem.path.replace(/^assets\/img\//, "");
+				}
+			} else {
+				imageModeSelect.value = "existing";
+				if (uploadNameInput) uploadNameInput.value = "";
+			}
+			if (setImageMode) setImageMode(imageModeSelect.value);
 			imageSaveBtn.textContent = targetStub ? "Update image" : "Insert image";
 			imageDeleteBtn.disabled = !targetStub;
 			imagePanel.hidden = false;
-			loadImageLibraryIntoSelect(imageFields.librarySelect).catch((err) =>
+			loadImageLibraryIntoSelect(imageLibrarySelect).catch((err) =>
 				console.error(err),
 			);
 			imagePanel.scrollIntoView({ block: "center", behavior: "smooth" });
@@ -4263,22 +4749,22 @@ function serializeSquareGridRow(block, ctx) {
 		};
 
 		imageSaveBtn.addEventListener("click", () => {
-			const src = imageFields.getSource();
+			const src = normalizeImageSource(imgInput.value.trim());
 			if (!src) return;
-				const attrs = {
-					img: src,
-					caption: captionInput.value.trim(),
-					lightbox: lightboxInput.checked ? "true" : "false",
-					overlayEnabled: overlayEnabledInput.checked,
-					overlayTitle: overlayEnabledInput.checked
-						? overlayTitleInput.value.trim()
-						: "",
-					overlayText: overlayEnabledInput.checked
-						? overlayTextInput.value.trim()
-						: "",
-					size: sizeSelect.value || "sml",
-					scale: scaleSelect.value || "auto",
-				};
+			const attrs = {
+				img: src,
+				caption: captionInput.value.trim(),
+				lightbox: lightboxInput.checked ? "true" : "false",
+				overlayEnabled: overlayEnabledInput.checked,
+				overlayTitle: overlayEnabledInput.checked
+					? overlayTitleInput.value.trim()
+					: "",
+				overlayText: overlayEnabledInput.checked
+					? overlayTextInput.value.trim()
+					: "",
+				size: currentInlineSize || "sml",
+				scale: scaleSelect.value || "auto",
+			};
 			if (activeImageTarget) {
 				activeImageTarget.setAttribute("data-img", attrs.img);
 				activeImageTarget.setAttribute("data-caption", attrs.caption || "");
@@ -4292,20 +4778,28 @@ function serializeSquareGridRow(block, ctx) {
 					"data-overlay-title",
 					attrs.overlayTitle || "",
 				);
-					activeImageTarget.setAttribute(
-						"data-overlay-text",
-						attrs.overlayText || "",
-					);
-					activeImageTarget.setAttribute("data-size", attrs.size || "sml");
-					if (attrs.scale && attrs.scale !== "auto") {
-						activeImageTarget.setAttribute("data-scale", attrs.scale);
-					} else {
-						activeImageTarget.removeAttribute("data-scale");
-					}
+				activeImageTarget.setAttribute(
+					"data-overlay-text",
+					attrs.overlayText || "",
+				);
+				if (attrs.size) {
+					activeImageTarget.setAttribute("data-size", attrs.size);
 				} else {
+					activeImageTarget.removeAttribute("data-size");
+				}
+				if (attrs.scale && attrs.scale !== "auto") {
+					activeImageTarget.setAttribute("data-scale", attrs.scale);
+				} else {
+					activeImageTarget.removeAttribute("data-scale");
+				}
+				renderInlineImageStub(activeImageTarget);
+			} else {
 				const html = serializeImgStub(attrs);
 				restoreSelection();
 				insertHtmlAtCursor(editor, html);
+				queueMicrotask(() => {
+					renderInlineImageStubs();
+				});
 			}
 			closeImagePanel();
 		});
@@ -4512,6 +5006,7 @@ function serializeSquareGridRow(block, ctx) {
 				openImagePanel({ targetStub: stub });
 			}
 		});
+		renderInlineImageStubs();
 		return {
 			wrap,
 			editor,
