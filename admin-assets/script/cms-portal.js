@@ -4762,6 +4762,10 @@ function serializeSquareGridRow(block, ctx) {
 			let imageModeSelect = null;
 			let imageLibrarySelect = null;
 			let captionInput = null;
+			let uploadFileInput = null;
+			let uploadNameInput = null;
+			let uploadNameRow = null;
+			let currentUploadFile = null;
 			let overlayEnabledInput = null;
 			let overlayTitleInput = null;
 			let overlayTextInput = null;
@@ -4806,21 +4810,60 @@ function serializeSquareGridRow(block, ctx) {
 					},
 					["Choose image"],
 				);
+				uploadFileInput = el("input", {
+					type: "file",
+					class: "cms-field__input",
+				});
+				uploadFileInput.hidden = true;
+				uploadNameInput = el("input", {
+					type: "text",
+					class: "cms-field__input",
+					placeholder: "Filename (e.g. hero.jpg or sub/hero.jpg)",
+				});
+				uploadNameInput.hidden = true;
+				const stageUpload = (file, filename) => {
+					if (!file) return;
+					const safePath = sanitizeImagePath(filename, file.name || "");
+					if (!safePath) return;
+					const safeName = safePath.replace(/^assets\/img\//, "");
+					if (uploadNameInput) uploadNameInput.value = safeName;
+					const reader = new FileReader();
+					reader.onload = () => {
+						const dataUrl = String(reader.result || "");
+						const base64 = dataUrl.split(",")[1] || "";
+						addAssetUpload({
+							name: safeName,
+							content: base64,
+							path: safePath,
+							mime: file.type || "",
+						});
+						imgInput.value = `/${safePath}`;
+						if (updateBlockPreview) updateBlockPreview();
+					};
+					reader.readAsDataURL(file);
+				};
 				imagePickBtn.addEventListener("click", () => {
-					openImageSourcePicker({
-						onSelect: (src) => {
-							imgInput.value = src;
-							if (updateBlockPreview) updateBlockPreview();
-						},
-						initialMode: imageModeSelect?.value || "existing",
-						initialSrc: imgInput.value || "",
-						title: "Choose image for block",
-					});
+					uploadFileInput?.click();
+				});
+				uploadFileInput.addEventListener("change", () => {
+					const file = uploadFileInput.files?.[0];
+					if (!file) return;
+					currentUploadFile = file;
+					if (uploadNameInput && !uploadNameInput.value.trim()) {
+						uploadNameInput.value = file.name || "";
+					}
+					stageUpload(file, uploadNameInput?.value.trim() || "");
+				});
+				uploadNameInput.addEventListener("blur", () => {
+					if (!currentUploadFile) return;
+					stageUpload(currentUploadFile, uploadNameInput.value.trim());
 				});
 				const setImageMode = (mode) => {
 					const useUpload = mode === "upload";
 					if (imageLibrarySelect) imageLibrarySelect.hidden = useUpload;
 					if (imagePickBtn) imagePickBtn.hidden = !useUpload;
+					if (uploadNameInput) uploadNameInput.hidden = !useUpload;
+					if (uploadNameRow) uploadNameRow.hidden = !useUpload;
 					if (!useUpload && imageLibrarySelect) {
 						loadImageLibraryIntoSelect(imageLibrarySelect)
 							.then(() => {
@@ -4989,7 +5032,20 @@ function serializeSquareGridRow(block, ctx) {
 					imageModeSelect,
 					imageLibrarySelect,
 					imagePickBtn,
+					uploadFileInput,
 				]);
+				if (uploadNameInput) {
+					uploadNameRow = el("div", { class: "cms-field__row" }, [
+						uploadNameInput,
+					]);
+					uploadNameRow.hidden = uploadNameInput.hidden;
+				}
+				const imageInput = uploadNameRow
+					? el("div", { class: "cms-field__stack" }, [
+							imageRow,
+							uploadNameRow,
+						])
+					: imageRow;
 				const displayRow = el("div", { class: "cms-field__row" }, [
 					posSelect,
 					el("label", { class: "cms-field__toggle" }, [
@@ -5020,7 +5076,7 @@ function serializeSquareGridRow(block, ctx) {
 				settingsNodes.push(
 					buildField({
 						label: "Image source",
-						input: imageRow,
+						input: imageInput,
 						note: "Required for image blocks.",
 					}),
 				);
