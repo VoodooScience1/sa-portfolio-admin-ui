@@ -2688,6 +2688,18 @@ function serializeSquareGridRow(block, ctx) {
 			const entry = state.dirtyPages[path];
 			if (!entry) return;
 			if (normalizeLocalBlocks(entry.localBlocks || []).length) return;
+			if (path === state.path) {
+				const baseNow = state.originalHtml || "";
+				const dirtyNow = entry.html || "";
+				if (
+					baseNow &&
+					normalizeForDirtyCompare(dirtyNow, path) ===
+						normalizeForDirtyCompare(baseNow, path)
+				) {
+					clearDirtyPage(path);
+					return;
+				}
+			}
 			if (
 				entry.baseHash &&
 				entry.dirtyHash &&
