@@ -3877,22 +3877,43 @@ function serializeSquareGridRow(block, ctx) {
 	}
 
 	function buildRteEditor({ label, initialHtml }) {
+		const buildToolbarGroup = (title, actions) =>
+			el("div", { class: "cms-rte__toolbar-group" }, [
+				el("div", { class: "cms-rte__toolbar-title" }, [
+					el("span", { class: "cms-rte__toolbar-title-text" }, [title]),
+					el("span", { class: "cms-rte__toolbar-title-line" }),
+				]),
+				el("div", { class: "cms-rte__toolbar-actions" }, actions),
+			]);
+		const toolbarDivider = () =>
+			el("div", { class: "cms-rte__toolbar-divider", "aria-hidden": "true" });
 		const toolbar = el("div", { class: "cms-rte__toolbar" }, [
-			el("button", { type: "button", "data-cmd": "bold" }, ["B"]),
-			el("button", { type: "button", "data-cmd": "italic" }, ["I"]),
-			el("button", { type: "button", "data-cmd": "underline" }, ["U"]),
-			el("button", { type: "button", "data-cmd": "h2" }, ["H2"]),
-			el("button", { type: "button", "data-cmd": "h3" }, ["H3"]),
-			el("button", { type: "button", "data-cmd": "quote" }, ["❝"]),
-			el("button", { type: "button", "data-cmd": "ul" }, ["•"]),
-			el("button", { type: "button", "data-cmd": "ol" }, ["1."]),
-			el("button", { type: "button", "data-cmd": "table" }, ["Table"]),
-			el("button", { type: "button", "data-cmd": "table-row" }, ["Row +"]),
-			el("button", { type: "button", "data-cmd": "table-col" }, ["Col +"]),
-			el("button", { type: "button", "data-cmd": "code" }, ["Code"]),
-			el("button", { type: "button", "data-cmd": "code-block" }, ["Block code"]),
-			el("button", { type: "button", "data-cmd": "code-wrap" }, ["Code wrap"]),
-			el("button", { type: "button", "data-cmd": "img" }, ["Image"]),
+			buildToolbarGroup("Styling", [
+				el("button", { type: "button", "data-cmd": "bold" }, ["B"]),
+				el("button", { type: "button", "data-cmd": "italic" }, ["I"]),
+				el("button", { type: "button", "data-cmd": "underline" }, ["U"]),
+				el("button", { type: "button", "data-cmd": "h2" }, ["H2"]),
+				el("button", { type: "button", "data-cmd": "h3" }, ["H3"]),
+				el("button", { type: "button", "data-cmd": "quote" }, ["❝"]),
+				el("button", { type: "button", "data-cmd": "ul" }, ["•"]),
+				el("button", { type: "button", "data-cmd": "ol" }, ["1."]),
+			]),
+			toolbarDivider(),
+			buildToolbarGroup("Table", [
+				el("button", { type: "button", "data-cmd": "table" }, ["Table"]),
+				el("button", { type: "button", "data-cmd": "table-row" }, ["Row +"]),
+				el("button", { type: "button", "data-cmd": "table-col" }, ["Col +"]),
+			]),
+			toolbarDivider(),
+			buildToolbarGroup("Code", [
+				el("button", { type: "button", "data-cmd": "code" }, ["Code"]),
+				el("button", { type: "button", "data-cmd": "code-block" }, ["Block code"]),
+				el("button", { type: "button", "data-cmd": "code-wrap" }, ["Code wrap"]),
+			]),
+			toolbarDivider(),
+			buildToolbarGroup("Tools", [
+				el("button", { type: "button", "data-cmd": "img" }, ["Image"]),
+			]),
 		]);
 		const editor = el("div", {
 			class: "cms-rte",
