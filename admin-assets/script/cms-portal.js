@@ -5135,14 +5135,14 @@ function serializeSquareGridRow(block, ctx) {
 			removeSessionCommitted(number);
 			removePrFromState(number);
 			stopPrPolling();
-			pruneLocalBlocksForPrAll(number);
+			resetPendingBlocksIfNoPr();
 			if (state.prUrl) {
 				setUiState("pr", buildPrLabel());
 				startPrPolling();
 			} else {
 				await purgeDirtyPagesFromRepo(true);
 				await refreshCurrentPageFromRepo();
-				pruneLocalBlocksForPrAll(number);
+				resetPendingBlocksIfNoPr();
 				purgeCleanDirtyPages();
 				if (dirtyCount()) setUiState("dirty", buildDirtyLabel());
 				else setUiState("clean", "PR CLOSED");
