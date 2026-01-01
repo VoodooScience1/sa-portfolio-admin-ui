@@ -164,11 +164,35 @@
 			Array.from(node.children).forEach((child) => stripCmsIds(child));
 		};
 
+		const stripHighlightMarkup = (node) => {
+			if (node.nodeType !== Node.ELEMENT_NODE) return;
+			if (node.classList?.contains("hljs")) node.classList.remove("hljs");
+			if (node.hasAttribute?.("data-highlighted"))
+				node.removeAttribute("data-highlighted");
+			if (node.tagName?.toLowerCase() === "code") {
+				node.classList?.remove("hljs");
+				node.removeAttribute?.("data-highlighted");
+			}
+			node.querySelectorAll?.("code").forEach((code) => {
+				code.classList.remove("hljs");
+				code.removeAttribute("data-highlighted");
+			});
+			node.querySelectorAll?.("span").forEach((span) => {
+				const cls = span.getAttribute("class") || "";
+				const isHljs = cls
+					.split(/\s+/)
+					.some((c) => c === "hljs" || c.startsWith("hljs-"));
+				if (!isHljs) return;
+				span.replaceWith(document.createTextNode(span.textContent || ""));
+			});
+		};
+
 		const parts = [];
 		wrap.childNodes.forEach((node) => {
 			if (node.nodeType === Node.ELEMENT_NODE) {
 				const clone = node.cloneNode(true);
 				stripCmsIds(clone);
+				stripHighlightMarkup(clone);
 				parts.push(clone.outerHTML);
 				return;
 			}
@@ -321,6 +345,10 @@
 			/<code\b[^>]*>([\s\S]*?)<\/code>/gi,
 			(match, inner) => {
 				const escaped = String(inner || "")
+					.replace(
+						/&(?!(?:[a-zA-Z]+|#\d+|#x[0-9a-fA-F]+);)/g,
+						"&amp;",
+					)
 					.replace(/</g, "&lt;")
 					.replace(/>/g, "&gt;");
 				return match.replace(inner, escaped);
@@ -583,7 +611,7 @@
 			const codeChild = node.querySelector("code");
 			const lang = getLangFromCodeEl(codeChild);
 			const rawText = codeChild ? codeChild.textContent : node.textContent;
-			const text = escapeHtml(normalizeCodeText(rawText || ""));
+			const text = escapeHtml(rawText || "");
 			if (lang) {
 				return `<pre><code class="language-${escapeAttr(lang)}">${text}</code></pre>`;
 			}
