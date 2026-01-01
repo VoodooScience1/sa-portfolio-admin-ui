@@ -4596,6 +4596,7 @@ function serializeSquareGridRow(block, ctx) {
 			let imagePreviewWrap = null;
 			let imagePreviewImg = null;
 			let updateBlockPreview = null;
+			let updateOverlayPreview = null;
 			let overlayGroup = null;
 
 			if (parsed.type === "imgText" || parsed.type === "split50") {
@@ -4676,12 +4677,29 @@ function serializeSquareGridRow(block, ctx) {
 					{ class: "cms-image-preview cms-image-preview--inline" },
 					[imagePreviewImg],
 				);
+				const overlayLayer = el("div", {
+					class: "cms-image-preview__overlay",
+				});
+				const overlayTitlePreview = el("div", {
+					class: "cms-image-preview__title",
+				});
+				const overlayTextPreview = el("div", {
+					class: "cms-image-preview__text",
+				});
+				const overlayDetails = el(
+					"div",
+					{ class: "cms-image-preview__details" },
+					[overlayTitlePreview, overlayTextPreview],
+				);
+				imagePreviewWrap.appendChild(overlayLayer);
+				imagePreviewWrap.appendChild(overlayDetails);
 				updateBlockPreview = () => {
 					const raw = imgInput.value.trim();
 					const src = raw ? normalizeImageSource(raw) : "";
 					if (!src) {
 						imagePreviewWrap.hidden = true;
 						imagePreviewImg.removeAttribute("src");
+						imagePreviewWrap.classList.remove("cms-image-preview--overlay");
 						return;
 					}
 					imagePreviewWrap.hidden = false;
@@ -4690,6 +4708,24 @@ function serializeSquareGridRow(block, ctx) {
 						const local = getLocalAssetPath(raw);
 						if (local) imageLibrarySelect.value = local;
 					}
+					if (updateOverlayPreview) updateOverlayPreview();
+				};
+				updateOverlayPreview = () => {
+					const enabled = overlayEnabledInput?.checked;
+					if (!enabled || imagePreviewWrap.hidden) {
+						imagePreviewWrap.classList.remove("cms-image-preview--overlay");
+						overlayTitlePreview.textContent = "";
+						overlayTextPreview.textContent = "";
+						return;
+					}
+					imagePreviewWrap.classList.add("cms-image-preview--overlay");
+					const title = overlayTitleInput?.value.trim() || "";
+					const text = overlayTextInput?.value.trim() || "";
+					const fallback = !title && !text ? "Click to view" : text;
+					overlayTitlePreview.textContent = title;
+					overlayTextPreview.textContent = fallback;
+					overlayTitlePreview.hidden = !title;
+					overlayTextPreview.hidden = !fallback;
 				};
 				imgInput.addEventListener("input", updateBlockPreview);
 				imgInput.addEventListener("blur", () => {
@@ -4813,9 +4849,16 @@ function serializeSquareGridRow(block, ctx) {
 					overlayTitleInput.disabled = !enabled;
 					overlayTextInput.disabled = !enabled;
 					if (overlayGroup) overlayGroup.hidden = !enabled;
+					if (updateOverlayPreview) updateOverlayPreview();
 				};
 				syncOverlayState();
 				overlayEnabledInput.addEventListener("change", syncOverlayState);
+				overlayTitleInput.addEventListener("input", () => {
+					if (updateOverlayPreview) updateOverlayPreview();
+				});
+				overlayTextInput.addEventListener("input", () => {
+					if (updateOverlayPreview) updateOverlayPreview();
+				});
 			}
 
 			const settingsWrap =
