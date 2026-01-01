@@ -1227,7 +1227,13 @@ function serializeSquareGridRow(block, ctx) {
 		return root;
 	}
 
-	function openModal({ title, bodyNodes, footerNodes, pruneAssets = false }) {
+	function openModal({
+		title,
+		bodyNodes,
+		footerNodes,
+		pruneAssets = false,
+		onClose,
+	}) {
 		const root = ensureModalRoot();
 		qs("#cms-modal-title").textContent = title || "Modal";
 		const body = qs("#cms-modal-body");
@@ -1241,11 +1247,12 @@ function serializeSquareGridRow(block, ctx) {
 		document.documentElement.classList.add("cms-lock");
 		document.body.classList.add("cms-lock");
 
+		const closeHandler = typeof onClose === "function" ? onClose : closeModal;
 		root.querySelectorAll("[data-close='true']").forEach((btn) => {
 			btn.addEventListener(
 				"click",
 				() => {
-					closeModal();
+					closeHandler();
 				},
 				{ once: true },
 			);
@@ -3672,11 +3679,47 @@ function serializeSquareGridRow(block, ctx) {
 		};
 	}
 
-	function openImageSourcePicker({ onSelect, title = "Choose image", initialMode = "existing", initialSrc = "" }) {
+	function openImageSourcePicker({
+		onSelect,
+		title = "Choose image",
+		initialMode = "existing",
+		initialSrc = "",
+	}) {
 		const fields = buildImageSourceFields({
 			initialSrc,
 			initialMode,
 		});
+
+		const root = qs("#cms-modal");
+		const hadModal = Boolean(root && root.classList.contains("is-open"));
+		const prevTitle = hadModal ? qs("#cms-modal-title")?.textContent || "" : "";
+		const prevBody = hadModal ? qs("#cms-modal-body") : null;
+		const prevFooter = hadModal ? qs("#cms-modal-footer") : null;
+		const prevBodyNodes = hadModal && prevBody ? Array.from(prevBody.childNodes) : [];
+		const prevFooterNodes =
+			hadModal && prevFooter ? Array.from(prevFooter.childNodes) : [];
+		const prevPrune = hadModal && root ? root.dataset.pruneAssets : "false";
+
+		const restoreParentModal = () => {
+			if (!hadModal || !root || !prevBody || !prevFooter) {
+				closeModal();
+				return;
+			}
+			qs("#cms-modal-title").textContent = prevTitle || "Modal";
+			prevBody.innerHTML = "";
+			prevFooter.innerHTML = "";
+			prevBodyNodes.forEach((node) => prevBody.appendChild(node));
+			prevFooterNodes.forEach((node) => prevFooter.appendChild(node));
+			root.dataset.pruneAssets = prevPrune || "false";
+			root.classList.add("is-open");
+			document.documentElement.classList.add("cms-lock");
+			document.body.classList.add("cms-lock");
+		};
+
+		const closePicker = () => {
+			if (hadModal) restoreParentModal();
+			else closeModal();
+		};
 
 		openModal({
 			title,
@@ -3709,6 +3752,7 @@ function serializeSquareGridRow(block, ctx) {
 					["Use image"],
 				),
 			],
+			onClose: closePicker,
 		});
 
 		loadImageLibraryIntoSelect(fields.librarySelect).catch((err) =>
@@ -3724,7 +3768,7 @@ function serializeSquareGridRow(block, ctx) {
 			const src = fields.getSource();
 			if (!src) return;
 			onSelect?.(src);
-			closeModal();
+			closePicker();
 		});
 	}
 
