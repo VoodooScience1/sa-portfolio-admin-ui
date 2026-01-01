@@ -2203,6 +2203,7 @@ function serializeSquareGridRow(block, ctx) {
 			baseBlocks.map((b) => [`${b.sig}::${b.occ ?? 0}`, b]),
 		);
 		const baseByPos = baseBlocks.map((b) => (b.html || "").trim());
+		const baseSigByPos = baseBlocks.map((b) => signatureForHtml(b.html || ""));
 		const localsWithPos = items
 			.filter((item) => Number.isInteger(item.pos))
 			.map((item) => item.pos)
@@ -2239,9 +2240,10 @@ function serializeSquareGridRow(block, ctx) {
 					(pos) => pos < item.pos,
 				).length;
 				const baseIndex = item.pos - beforeCount;
-				const baseAt = baseByPos[baseIndex] || "";
+				const baseSigAt = baseSigByPos[baseIndex] || "";
+				const itemSig = signatureForHtml(html);
 				// Drop any local block that now exactly matches the repo at its mapped position.
-				return baseAt.trim() !== html;
+				return baseSigAt !== itemSig;
 			}
 			return true;
 		});
