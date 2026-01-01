@@ -784,15 +784,26 @@
 		const wrap = doc.querySelector("#__wrap__");
 		const nodes = wrap ? Array.from(wrap.children) : [];
 		const occMap = new Map();
+		const usedIds = new Set();
 		return nodes.map((node, idx) => {
-			const parsed = parseMainBlockNode(node);
-			if (parsed.cmsId) return parsed;
 			const sig = signatureForHtml(node?.outerHTML || "");
 			const occ = sig ? occMap.get(sig) || 0 : 0;
 			if (sig) occMap.set(sig, occ + 1);
+			const existingId = node?.getAttribute("data-cms-id") || "";
+			const cmsId = ensureUniqueCmsId({
+				existingId,
+				sig,
+				occ,
+				fallback: node?.outerHTML || String(idx),
+				usedIds,
+			});
+			if (cmsId && existingId !== cmsId) {
+				node.setAttribute("data-cms-id", cmsId);
+			}
+			const parsed = parseMainBlockNode(node);
 			return {
 				...parsed,
-				cmsId: makeCmsIdFromSig(sig, occ, node?.outerHTML || String(idx)),
+				cmsId,
 			};
 		});
 	}
@@ -939,6 +950,7 @@ function serializeSquareGridRow(block, ctx) {
 	function serializeMainBlocks(blocks, ctx) {
 		const list = blocks || [];
 		const occMap = new Map();
+		const usedIds = new Set();
 		return list
 			.map((block, idx) => {
 				const sig =
@@ -946,15 +958,19 @@ function serializeSquareGridRow(block, ctx) {
 					hashText(JSON.stringify(block || {}));
 				const occ = sig ? occMap.get(sig) || 0 : 0;
 				if (sig) occMap.set(sig, occ + 1);
+				const stableId = ensureUniqueCmsId({
+					existingId: block?.baseId || block?.id || block?.cmsId || "",
+					sig,
+					occ,
+					fallback: block?.raw || block?.html || String(idx),
+					usedIds,
+				});
 				const blockCtx = {
 					...ctx,
 					index: idx,
 					sig,
 					occ,
-					blockId:
-						block.baseId ||
-						block.id ||
-						makeCmsIdFromSig(sig, occ, block?.raw || block?.html || String(idx)),
+					blockId: stableId,
 					blockIdShort: hashText(
 						`${block.baseId || block.id || "block"}::${idx}`,
 					).slice(0, 4),
@@ -976,11 +992,16 @@ function serializeSquareGridRow(block, ctx) {
 						);
 						const node = doc.querySelector("#__wrap__")?.firstElementChild;
 						if (node) {
-							if (!node.getAttribute("data-cms-id")) {
-								node.setAttribute(
-									"data-cms-id",
-									getBlockCmsId(block, idx, blockCtx),
-								);
+							const existingId = node.getAttribute("data-cms-id") || "";
+							const nodeId = ensureUniqueCmsId({
+								existingId,
+								sig,
+								occ,
+								fallback: node.outerHTML || String(idx),
+								usedIds,
+							});
+							if (nodeId && existingId !== nodeId) {
+								node.setAttribute("data-cms-id", nodeId);
 							}
 							return node.outerHTML.trim();
 						}
@@ -1236,6 +1257,21 @@ function serializeSquareGridRow(block, ctx) {
 		return `cms-${hashText(token)}-${occ || 0}`;
 	}
 
+	function ensureUniqueCmsId({ existingId, sig, occ, fallback, usedIds }) {
+		let id = existingId || "";
+		if (!id || usedIds.has(id)) {
+			const base = makeCmsIdFromSig(sig, occ, fallback);
+			id = base;
+			if (usedIds.has(id)) {
+				let n = 1;
+				while (usedIds.has(`${base}-${n}`)) n += 1;
+				id = `${base}-${n}`;
+			}
+		}
+		usedIds.add(id);
+		return id;
+	}
+
 	function buildBaseBlocksWithOcc(baseHtml) {
 		const main = extractRegion(baseHtml || "", "main");
 		const blocks = main.found ? parseBlocks(main.inner) : [];
@@ -1253,12 +1289,15 @@ function serializeSquareGridRow(block, ctx) {
 					"text/html",
 				);
 				const node = doc.querySelector("#__wrap__")?.firstElementChild;
-				baseId = node?.getAttribute("data-cms-id") || "";
-				if (!baseId && sig) baseId = makeCmsIdFromSig(sig, occ, block.html);
-				if (baseId && usedIds.has(baseId)) {
-					baseId = makeCmsIdFromSig(sig, occ, block.html);
-				}
-				if (node && baseId && node.getAttribute("data-cms-id") !== baseId) {
+				const existingId = node?.getAttribute("data-cms-id") || "";
+				baseId = ensureUniqueCmsId({
+					existingId,
+					sig,
+					occ,
+					fallback: block.html,
+					usedIds,
+				});
+				if (node && baseId && existingId !== baseId) {
 					node.setAttribute("data-cms-id", baseId);
 					updatedHtml = node.outerHTML;
 				}
@@ -1266,11 +1305,14 @@ function serializeSquareGridRow(block, ctx) {
 				baseId = "";
 			}
 			if (!baseId) {
-				baseId = sig
-					? makeCmsIdFromSig(sig, occ, block.html)
-					: makeCmsIdFromSig(String(idx), occ, block.html);
+				baseId = ensureUniqueCmsId({
+					existingId: "",
+					sig,
+					occ,
+					fallback: block.html || String(idx),
+					usedIds,
+				});
 			}
-			if (baseId) usedIds.add(baseId);
 			return { html: updatedHtml, sig, occ, id: baseId, pos: idx };
 		});
 	}
@@ -4496,12 +4538,17 @@ function serializeSquareGridRow(block, ctx) {
 			const sig = signatureForHtml(clean.outerHTML || "");
 			const occ = sig ? occMap.get(sig) || 0 : 0;
 			if (sig) occMap.set(sig, occ + 1);
-			const cmsId = clean.getAttribute("data-cms-id") || "";
-			if (cmsId && usedIds.has(cmsId)) {
-				clean.setAttribute("data-cms-id", makeCmsIdFromSig(sig, occ, sig));
+			const existingId = clean.getAttribute("data-cms-id") || "";
+			const cmsId = ensureUniqueCmsId({
+				existingId,
+				sig,
+				occ,
+				fallback: clean.outerHTML || sig || String(idx),
+				usedIds,
+			});
+			if (cmsId && existingId !== cmsId) {
+				clean.setAttribute("data-cms-id", cmsId);
 			}
-			const finalId = clean.getAttribute("data-cms-id") || "";
-			if (finalId) usedIds.add(finalId);
 			const info = detectBlock(clean);
 			return {
 				idx,
