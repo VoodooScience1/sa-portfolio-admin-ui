@@ -4674,6 +4674,7 @@ function serializeSquareGridRow(block, ctx) {
 			let currentUploadMime = "";
 			let currentUploadPath = "";
 			let uploadWarning = null;
+			let setImageMode = null;
 			let overlayEnabledInput = null;
 			let overlayTitleInput = null;
 			let overlayTextInput = null;
@@ -4797,7 +4798,7 @@ function serializeSquareGridRow(block, ctx) {
 					}
 					stageUpload(currentUploadFile, uploadNameInput.value.trim());
 				});
-				const setImageMode = (mode) => {
+				setImageMode = (mode) => {
 					const useUpload = mode === "upload";
 					if (imageLibrarySelect) imageLibrarySelect.hidden = useUpload;
 					if (imagePickBtn) imagePickBtn.hidden = !useUpload;
@@ -5057,7 +5058,7 @@ function serializeSquareGridRow(block, ctx) {
 				overlayTextInput.addEventListener("input", () => {
 					if (updateOverlayPreview) updateOverlayPreview();
 				});
-				setImageMode(imageModeSelect.value);
+				if (setImageMode) setImageMode(imageModeSelect.value);
 			}
 
 			const settingsWrap =
