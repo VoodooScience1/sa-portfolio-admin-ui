@@ -244,12 +244,13 @@
 		if (raw.startsWith("<") || /<\/[a-z]/i.test(raw)) return "html";
 		if (/^\s*[{[]/.test(raw) && /":\s*/.test(raw)) return "json";
 		if (/(^|\n)\s*#/.test(raw) || /```/.test(raw)) return "markdown";
-		if (/(^|\n)\s*[A-Za-z0-9_-]+\s*:\s*[^{}]/.test(raw)) return "yaml";
 		if (/(^|\n)\s*(def|class|import|from)\s+/.test(raw)) return "python";
 		if (/(^|\n)\s*(const|let|var|function)\s+/.test(raw) || /=>/.test(raw))
 			return "javascript";
 		if (/[.#][A-Za-z0-9_-]+\s*\{/.test(raw) || /:\s*[^;]+;/.test(raw))
 			return "css";
+		if (/(^|\n)\s*[A-Za-z0-9_-]+\s*:\s*[^{};\n]+(\n|$)/.test(raw))
+			return "yaml";
 		return "auto";
 	}
 
@@ -3452,6 +3453,16 @@ function serializeSquareGridRow(block, ctx) {
 
 		const TOOLBAR_TEXT_RE =
 			/Auto\s*JS\s*JSON\s*HTML\s*CSS\s*Python\s*Markdown\s*YAML\s*Format/g;
+		const CODE_LANG_OPTIONS = [
+			{ value: "auto", label: "Auto" },
+			{ value: "javascript", label: "JS" },
+			{ value: "json", label: "JSON" },
+			{ value: "html", label: "HTML" },
+			{ value: "css", label: "CSS" },
+			{ value: "python", label: "Python" },
+			{ value: "markdown", label: "Markdown" },
+			{ value: "yaml", label: "YAML" },
+		];
 
 		const stripToolbarText = (root) => {
 			const walker = document.createTreeWalker(
@@ -3493,6 +3504,68 @@ function serializeSquareGridRow(block, ctx) {
 			codeEl.setAttribute("spellcheck", "false");
 		};
 
+		const ensureCodeToolbarWrap = (pre) => {
+			if (!pre?.parentElement) return null;
+			if (pre.parentElement.classList.contains("cms-code-block-wrap"))
+				return pre.parentElement;
+			const wrap = document.createElement("div");
+			wrap.className = "cms-code-block-wrap";
+			pre.parentElement.insertBefore(wrap, pre);
+			wrap.appendChild(pre);
+			return wrap;
+		};
+
+		const ensureCodeToolbarUi = (pre, codeEl) => {
+			const wrap = ensureCodeToolbarWrap(pre);
+			if (!wrap) return;
+			let toolbar = wrap.querySelector(":scope > .cms-code-toolbar");
+			if (!toolbar) {
+				const select = document.createElement("select");
+				select.className = "cms-code-toolbar__select";
+				CODE_LANG_OPTIONS.forEach((opt) => {
+					const option = document.createElement("option");
+					option.value = opt.value;
+					option.textContent = opt.label;
+					select.appendChild(option);
+				});
+				const autoBtn = document.createElement("button");
+				autoBtn.type = "button";
+				autoBtn.className = "cms-code-toolbar__btn";
+				autoBtn.textContent = "Auto";
+				const applySelection = (value) => {
+					if (value === "auto") {
+						const detected =
+							guessLanguageFromText(codeEl?.textContent) || "auto";
+						if (detected && detected !== "auto") {
+							updateCodeLanguage(codeEl, detected);
+							select.value = detected;
+							return;
+						}
+						updateCodeLanguage(codeEl, "auto");
+						select.value = "auto";
+						return;
+					}
+					updateCodeLanguage(codeEl, value);
+				};
+				select.addEventListener("change", () =>
+					applySelection(select.value),
+				);
+				autoBtn.addEventListener("click", (event) => {
+					event.preventDefault();
+					applySelection("auto");
+				});
+				toolbar = document.createElement("div");
+				toolbar.className = "cms-code-toolbar";
+				toolbar.appendChild(select);
+				toolbar.appendChild(autoBtn);
+				wrap.appendChild(toolbar);
+			}
+			const select = toolbar.querySelector("select.cms-code-toolbar__select");
+			if (select) {
+				select.value = getLangFromCodeEl(codeEl) || "auto";
+			}
+		};
+
 		const ensureCodeToolbar = (pre) => {
 			if (!pre) return;
 			const codeEl = pre.querySelector("code");
@@ -3511,6 +3584,7 @@ function serializeSquareGridRow(block, ctx) {
 			codeEl.removeAttribute("data-highlighted");
 			codeEl.classList.remove("hljs");
 			codeEl.textContent = codeEl.textContent || "";
+			ensureCodeToolbarUi(pre, codeEl);
 		};
 
 		editor.querySelectorAll("pre").forEach((pre) => ensureCodeToolbar(pre));
