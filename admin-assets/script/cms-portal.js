@@ -26,6 +26,7 @@
 	const PR_STORAGE_KEY = "cms-pr-state";
 	const SESSION_STORAGE_KEY = "cms-session-state";
 	const DEBUG_ENABLED_DEFAULT = true;
+	const DEBUG_CODE_STYLES_DEFAULT = false;
 	const UPDATE_VERSION = 29;
 
 	const BLOCK_LIBRARY = [
@@ -125,6 +126,12 @@
 		return raw === "1";
 	}
 
+	function debugCodeStylesEnabled() {
+		const raw = localStorage.getItem("cms-debug-code-styles");
+		if (raw === null) return DEBUG_CODE_STYLES_DEFAULT;
+		return raw === "1";
+	}
+
 	function setDebugEnabled(val) {
 		localStorage.setItem("cms-debug", val ? "1" : "0");
 		state.debug = Boolean(val);
@@ -142,6 +149,12 @@
 		}
 		renderDebugOverlay();
 		renderDebugPill();
+	}
+
+	function setDebugCodeStylesEnabled(val) {
+		localStorage.setItem("cms-debug-code-styles", val ? "1" : "0");
+		state.debugCodeStyles = Boolean(val);
+		renderDebugOverlay();
 	}
 
 	function buildSummaryForHtml(html) {
@@ -4802,6 +4815,7 @@ function serializeSquareGridRow(block, ctx) {
 		rebuiltHtml: "",
 		updateTick: 0,
 		debug: debugEnabled(),
+		debugCodeStyles: debugCodeStylesEnabled(),
 		lastReorderLocal: null,
 		assetUploads: [],
 		prUrl: "",
@@ -5916,11 +5930,17 @@ function serializeSquareGridRow(block, ctx) {
 			const btn = el("button", { id: "cms-debug-copy", type: "button" }, [
 				"Copy",
 			]);
+			const styleBtn = el(
+				"button",
+				{ id: "cms-debug-code-style", type: "button" },
+				[state.debugCodeStyles ? "Code CSS ON" : "Code CSS OFF"],
+			);
 			const close = el("button", { id: "cms-debug-close", type: "button" }, [
 				"×",
 			]);
 			const pre = el("pre", { id: "cms-debug-text" }, []);
 			header.appendChild(btn);
+			header.appendChild(styleBtn);
 			header.appendChild(close);
 			host.appendChild(header);
 			host.appendChild(pre);
@@ -5941,6 +5961,9 @@ function serializeSquareGridRow(block, ctx) {
 						btn.textContent = "Copy";
 					}, 1200);
 				}
+			});
+			styleBtn.addEventListener("click", () => {
+				setDebugCodeStylesEnabled(!state.debugCodeStyles);
 			});
 			close.addEventListener("click", () => {
 				setDebugEnabled(false);
@@ -5983,45 +6006,50 @@ function serializeSquareGridRow(block, ctx) {
 			close.style.fontSize = "12px";
 			close.style.padding = "2px 6px";
 		}
+		const styleBtn = qs("#cms-debug-code-style");
+		if (styleBtn) {
+			styleBtn.textContent = state.debugCodeStyles
+				? "Code CSS ON"
+				: "Code CSS OFF";
+			styleBtn.style.fontSize = "11px";
+		}
 
-			const baseBlocks = buildBaseBlocksWithOcc(state.originalHtml || "");
-			const baselineOrder = baseBlocks.map((b) => b.id);
-			const localBlocks = normalizeLocalBlocks(
-				state.dirtyPages[state.path]?.localBlocks || [],
-			);
-			const cmsIdCounts = new Map();
-			const missingCmsIds = [];
-			const recordCmsId = (id) => {
-				if (!id) return;
-				cmsIdCounts.set(id, (cmsIdCounts.get(id) || 0) + 1);
-			};
-			const mainSnapshot = state.mainInner || "";
-			const mainDoc = new DOMParser().parseFromString(
-				`<div id="__wrap__">${mainSnapshot}</div>`,
-				"text/html",
-			);
-			Array.from(mainDoc.querySelectorAll("#__wrap__ > *")).forEach(
-				(node) => {
-					const id = node.getAttribute("data-cms-id") || "";
-					if (!id) missingCmsIds.push(node.tagName.toLowerCase());
-					else recordCmsId(id);
-				},
-			);
-			const duplicates = Array.from(cmsIdCounts.entries())
-				.filter(([, count]) => count > 1)
-				.map(([id, count]) => `${id}(${count})`);
-			const currentOrder = buildBaseOrderFromReorders(baseBlocks, localBlocks);
-			const short = (id) => (id ? String(id).slice(0, 10) : "null");
-			const lines = [];
-			lines.push(`path: ${state.path}`);
-			lines.push(
-				`cms-id duplicates: ${duplicates.length ? duplicates.join(", ") : "none"}`,
-			);
-			lines.push(
-				`cms-id missing: ${missingCmsIds.length ? missingCmsIds.length : "0"}`,
-			);
-			lines.push(`baseline: ${baselineOrder.map(short).join(", ")}`);
-			lines.push(`current : ${currentOrder.map(short).join(", ")}`);
+		const baseBlocks = buildBaseBlocksWithOcc(state.originalHtml || "");
+		const baselineOrder = baseBlocks.map((b) => b.id);
+		const localBlocks = normalizeLocalBlocks(
+			state.dirtyPages[state.path]?.localBlocks || [],
+		);
+		const cmsIdCounts = new Map();
+		const missingCmsIds = [];
+		const recordCmsId = (id) => {
+			if (!id) return;
+			cmsIdCounts.set(id, (cmsIdCounts.get(id) || 0) + 1);
+		};
+		const mainSnapshot = state.mainInner || "";
+		const mainDoc = new DOMParser().parseFromString(
+			`<div id="__wrap__">${mainSnapshot}</div>`,
+			"text/html",
+		);
+		Array.from(mainDoc.querySelectorAll("#__wrap__ > *")).forEach((node) => {
+			const id = node.getAttribute("data-cms-id") || "";
+			if (!id) missingCmsIds.push(node.tagName.toLowerCase());
+			else recordCmsId(id);
+		});
+		const duplicates = Array.from(cmsIdCounts.entries())
+			.filter(([, count]) => count > 1)
+			.map(([id, count]) => `${id}(${count})`);
+		const currentOrder = buildBaseOrderFromReorders(baseBlocks, localBlocks);
+		const short = (id) => (id ? String(id).slice(0, 10) : "null");
+		const lines = [];
+		lines.push(`path: ${state.path}`);
+		lines.push(
+			`cms-id duplicates: ${duplicates.length ? duplicates.join(", ") : "none"}`,
+		);
+		lines.push(
+			`cms-id missing: ${missingCmsIds.length ? missingCmsIds.length : "0"}`,
+		);
+		lines.push(`baseline: ${baselineOrder.map(short).join(", ")}`);
+		lines.push(`current : ${currentOrder.map(short).join(", ")}`);
 		lines.push(
 			`locals  : ${localBlocks
 				.map(
@@ -6032,6 +6060,25 @@ function serializeSquareGridRow(block, ctx) {
 				)
 				.join(" | ")}`,
 		);
+		if (state.debugCodeStyles) {
+			const codes = Array.from(document.querySelectorAll("pre code"));
+			const missingLang = codes.filter((code) => {
+				const cls = code.getAttribute("class") || "";
+				return !code.getAttribute("data-lang") && !/language-/.test(cls);
+			}).length;
+			const missingHljs = codes.filter(
+				(code) => !code.classList.contains("hljs"),
+			).length;
+			lines.push(
+				`code-style: blocks=${codes.length} data-lang-missing=${missingLang} hljs-missing=${missingHljs}`,
+			);
+			if (codes[0]) {
+				const css = getComputedStyle(codes[0]);
+				lines.push(
+					`code-style sample: padding=${css.padding} radius=${css.borderRadius} bg=${css.backgroundColor}`,
+				);
+			}
+		}
 		if (state.lastMove) {
 			lines.push(`lastMove: ${JSON.stringify(state.lastMove)}`);
 		}
