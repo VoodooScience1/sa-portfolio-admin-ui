@@ -1826,6 +1826,10 @@ function serializeSquareGridRow(block, ctx) {
 		const orderIndex = new Map();
 		localBlocks.forEach((item, idx) => {
 			orderIndex.set(item, idx);
+			if (item.action === "insert" && item.kind === "edited") {
+				const editedBaseId = item.baseId || item.anchor?.id || null;
+				if (editedBaseId) removeBaseIds.add(editedBaseId);
+			}
 			const key = anchorKey(item.anchor);
 			if (respectRemovals && item.action === "remove" && item.baseId) {
 				removeBaseIds.add(item.baseId);
