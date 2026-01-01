@@ -4596,6 +4596,7 @@ function serializeSquareGridRow(block, ctx) {
 			let imagePreviewWrap = null;
 			let imagePreviewImg = null;
 			let updateBlockPreview = null;
+			let overlayGroup = null;
 
 			if (parsed.type === "imgText" || parsed.type === "split50") {
 				headingInput = el("input", {
@@ -4667,7 +4668,7 @@ function serializeSquareGridRow(block, ctx) {
 					if (updateBlockPreview) updateBlockPreview();
 				});
 				imagePreviewImg = el("img", {
-					class: "cms-image-preview__img cms-image-preview__img--thumb",
+					class: "cms-image-preview__img cms-image-preview__img--block",
 					alt: "Preview",
 				});
 				imagePreviewWrap = el(
@@ -4734,6 +4735,14 @@ function serializeSquareGridRow(block, ctx) {
 					],
 				);
 				posSelect.value = parsed.imgPos === "right" ? "right" : "left";
+				const overlayInputs = el("div", { class: "cms-field__stack" }, [
+					overlayTitleInput,
+					overlayTextInput,
+				]);
+				overlayGroup = buildField({
+					label: "Overlay",
+					input: overlayInputs,
+				});
 			}
 
 			const body = buildRteEditor({
@@ -4770,11 +4779,22 @@ function serializeSquareGridRow(block, ctx) {
 						el("span", { class: "cms-field__toggle-text" }, ["Overlay"]),
 					]),
 				]);
-				const displayWrap = el(
+				const displayField = buildField({
+					label: "Display",
+					input: displayRow,
+				});
+				const captionField = buildField({ label: "Caption", input: captionInput });
+				const controlsWrap = el(
 					"div",
-					{ class: "cms-image-display-row" },
-					[imagePreviewWrap, displayRow],
+					{ class: "cms-image-settings__controls" },
+					[displayField, captionField, overlayGroup],
 				);
+				const settingsRow = el("div", { class: "cms-image-settings" }, [
+					el("div", { class: "cms-image-settings__preview" }, [
+						imagePreviewWrap,
+					]),
+					controlsWrap,
+				]);
 				settingsNodes.push(
 					buildField({
 						label: "Image source",
@@ -4784,33 +4804,15 @@ function serializeSquareGridRow(block, ctx) {
 				);
 				settingsNodes.push(
 					buildField({
-						label: "Display",
-						input: displayWrap,
+						label: "Image settings",
+						input: settingsRow,
 					}),
 				);
-				settingsNodes.push(
-					buildField({ label: "Caption", input: captionInput }),
-				);
-				const overlayOptionsWrap = el(
-					"div",
-					{ class: "cms-modal__subgroup" },
-					[
-						buildField({
-							label: "Overlay title",
-							input: overlayTitleInput,
-						}),
-						buildField({
-							label: "Overlay sub-text",
-							input: overlayTextInput,
-						}),
-					],
-				);
-				settingsNodes.push(overlayOptionsWrap);
 				const syncOverlayState = () => {
 					const enabled = overlayEnabledInput.checked;
 					overlayTitleInput.disabled = !enabled;
 					overlayTextInput.disabled = !enabled;
-					overlayOptionsWrap.hidden = !enabled;
+					if (overlayGroup) overlayGroup.hidden = !enabled;
 				};
 				syncOverlayState();
 				overlayEnabledInput.addEventListener("change", syncOverlayState);
