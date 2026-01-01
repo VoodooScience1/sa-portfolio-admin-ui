@@ -4673,6 +4673,7 @@ function serializeSquareGridRow(block, ctx) {
 			let currentUploadBase64 = "";
 			let currentUploadMime = "";
 			let currentUploadPath = "";
+			let currentUploadExt = "";
 			let uploadWarning = null;
 			let setImageMode = null;
 			let overlayEnabledInput = null;
@@ -4730,15 +4731,61 @@ function serializeSquareGridRow(block, ctx) {
 					placeholder: "Filename (e.g. hero.jpg or sub/hero.jpg)",
 				});
 				uploadNameInput.hidden = true;
+				const getFileExtension = (name) => {
+					const match = String(name || "")
+						.trim()
+						.match(/(\.[A-Za-z0-9]+)$/);
+					return match ? match[1] : "";
+				};
+				const normalizeUploadName = (rawName) => {
+					const raw = String(rawName || "").trim();
+					if (!raw) {
+						if (currentUploadExt)
+							return { name: currentUploadExt, caret: 0, empty: true };
+						return { name: "", caret: 0, empty: true };
+					}
+					if (!currentUploadExt) return { name: raw, caret: raw.length };
+					const lowerRaw = raw.toLowerCase();
+					const lowerExt = currentUploadExt.toLowerCase();
+					let base = raw;
+					if (lowerRaw.endsWith(lowerExt)) {
+						base = raw.slice(0, -currentUploadExt.length);
+					}
+					if (base.endsWith(".")) base = base.slice(0, -1);
+					return {
+						name: `${base}${currentUploadExt}`,
+						caret: base.length,
+						empty: !base,
+					};
+				};
 				const syncUploadName = (rawName, { normalize = false } = {}) => {
-					if (!rawName) return;
+					const normalized = normalizeUploadName(rawName);
+					if (!normalized.name) return;
+					if (normalized.empty && currentUploadExt) {
+						if (normalize && uploadNameInput) {
+							uploadNameInput.value = currentUploadExt;
+							if (document.activeElement === uploadNameInput) {
+								uploadNameInput.setSelectionRange(0, 0);
+							}
+						}
+						return;
+					}
 					const safePath = sanitizeImagePath(
-						rawName,
+						normalized.name,
 						currentUploadFile?.name || "",
 					);
 					if (!safePath) return;
 					const safeName = safePath.replace(/^assets\/img\//, "");
-					if (normalize && uploadNameInput) uploadNameInput.value = safeName;
+					if (normalize && uploadNameInput) {
+						uploadNameInput.value = safeName;
+						if (currentUploadExt && document.activeElement === uploadNameInput) {
+							const caret = Math.max(
+								0,
+								safeName.length - currentUploadExt.length,
+							);
+							uploadNameInput.setSelectionRange(caret, caret);
+						}
+					}
 					imgInput.value = `/${safePath}`;
 					if (currentUploadBase64) {
 						if (currentUploadPath && currentUploadPath !== safePath) {
@@ -4782,13 +4829,14 @@ function serializeSquareGridRow(block, ctx) {
 					const file = uploadFileInput.files?.[0];
 					if (!file) return;
 					currentUploadFile = file;
+					currentUploadExt = getFileExtension(file.name || "");
 					if (uploadNameInput && !uploadNameInput.value.trim()) {
 						uploadNameInput.value = file.name || "";
 					}
 					stageUpload(file, uploadNameInput?.value.trim() || "");
 				});
 				uploadNameInput.addEventListener("input", () => {
-					syncUploadName(uploadNameInput.value.trim());
+					syncUploadName(uploadNameInput.value.trim(), { normalize: true });
 				});
 				uploadNameInput.addEventListener("blur", () => {
 					if (!currentUploadFile) return;
