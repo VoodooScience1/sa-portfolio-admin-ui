@@ -382,6 +382,113 @@
 		return sanitizeImagePath(raw, "");
 	}
 
+	const ASSET_CACHE_DB = "cms-asset-cache";
+	const ASSET_CACHE_STORE = "uploads";
+	const ASSET_CACHE_MAX_BYTES = 25 * 1024 * 1024;
+	let assetCachePromise = null;
+
+	function openAssetCacheDb() {
+		if (typeof indexedDB === "undefined") return Promise.resolve(null);
+		if (assetCachePromise) return assetCachePromise;
+		assetCachePromise = new Promise((resolve) => {
+			const req = indexedDB.open(ASSET_CACHE_DB, 1);
+			req.onupgradeneeded = () => {
+				const db = req.result;
+				if (!db.objectStoreNames.contains(ASSET_CACHE_STORE)) {
+					const store = db.createObjectStore(ASSET_CACHE_STORE, {
+						keyPath: "path",
+					});
+					store.createIndex("updatedAt", "updatedAt");
+				}
+			};
+			req.onsuccess = () => resolve(req.result);
+			req.onerror = () => resolve(null);
+		});
+		return assetCachePromise;
+	}
+
+	function guessImageMime(path) {
+		const ext = String(path || "").split(".").pop()?.toLowerCase() || "";
+		if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
+		if (ext === "png") return "image/png";
+		if (ext === "webp") return "image/webp";
+		if (ext === "gif") return "image/gif";
+		if (ext === "svg") return "image/svg+xml";
+		if (ext === "avif") return "image/avif";
+		return "image/*";
+	}
+
+	async function assetCachePut(item) {
+		const db = await openAssetCacheDb();
+		if (!db || !item?.path) return;
+		return new Promise((resolve) => {
+			const tx = db.transaction(ASSET_CACHE_STORE, "readwrite");
+			const store = tx.objectStore(ASSET_CACHE_STORE);
+			store.put({
+				path: item.path,
+				content: item.content || "",
+				encoding: item.encoding || "base64",
+				mime: item.mime || "",
+				bytes: item.bytes || (item.content ? item.content.length : 0),
+				updatedAt: Date.now(),
+			});
+			tx.oncomplete = () => resolve();
+			tx.onerror = () => resolve();
+		});
+	}
+
+	async function assetCacheGet(path) {
+		const db = await openAssetCacheDb();
+		if (!db || !path) return null;
+		return new Promise((resolve) => {
+			const tx = db.transaction(ASSET_CACHE_STORE, "readonly");
+			const store = tx.objectStore(ASSET_CACHE_STORE);
+			const req = store.get(path);
+			req.onsuccess = () => resolve(req.result || null);
+			req.onerror = () => resolve(null);
+		});
+	}
+
+	async function assetCachePrune(keepPaths) {
+		const db = await openAssetCacheDb();
+		if (!db) return;
+		const keep = new Set(keepPaths || []);
+		return new Promise((resolve) => {
+			const tx = db.transaction(ASSET_CACHE_STORE, "readwrite");
+			const store = tx.objectStore(ASSET_CACHE_STORE);
+			const req = store.getAll();
+			req.onsuccess = () => {
+				const items = Array.isArray(req.result) ? req.result : [];
+				let total = 0;
+				items.forEach((item) => {
+					total += Number(item.bytes || 0);
+					if (keep.size && !keep.has(item.path)) store.delete(item.path);
+				});
+				if (ASSET_CACHE_MAX_BYTES && total > ASSET_CACHE_MAX_BYTES) {
+					const sorted = items
+						.filter((item) => !(keep.size && keep.has(item.path)))
+						.sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0));
+					let remaining = total;
+					for (const item of sorted) {
+						store.delete(item.path);
+						remaining -= Number(item.bytes || 0);
+						if (remaining <= ASSET_CACHE_MAX_BYTES) break;
+					}
+				}
+			};
+			tx.oncomplete = () => resolve();
+			tx.onerror = () => resolve();
+		});
+	}
+
+	function getCachedAssetDataUrl(path) {
+		if (!path) return "";
+		const item = (state.assetUploads || []).find((it) => it.path === path);
+		if (!item?.content) return "";
+		const mime = item.mime || guessImageMime(path);
+		return `data:${mime};base64,${item.content}`;
+	}
+
 	function sanitizeHref(href) {
 		const raw = String(href || "").trim();
 		if (!raw) return "";
@@ -3086,10 +3193,11 @@ function serializeSquareGridRow(block, ctx) {
 			renderPageSurface();
 		}
 		if (!dirtyCount()) state.assetUploads = [];
+		if (!dirtyCount()) assetCachePrune(new Set());
 		refreshUiStateForDirty();
 	}
 
-	function addAssetUpload({ name, content, path }) {
+	function addAssetUpload({ name, content, path, mime = "" }) {
 		if (!name || !content) return;
 		const clean = sanitizeImagePath(path || "", name);
 		if (!clean) return;
@@ -3100,11 +3208,41 @@ function serializeSquareGridRow(block, ctx) {
 			path: clean,
 			content,
 			encoding: "base64",
+			mime,
+		});
+		assetCachePut({
+			path: clean,
+			content,
+			encoding: "base64",
+			mime,
 		});
 	}
 
 	function pruneUnusedAssetUploads() {
 		if (!state.assetUploads || !state.assetUploads.length) return;
+		const referenced = getReferencedAssetPaths();
+		const next = state.assetUploads.filter((item) =>
+			referenced.has(item.path),
+		);
+		if (next.length !== state.assetUploads.length) {
+			state.assetUploads = next;
+		}
+		assetCachePrune(referenced);
+	}
+
+	function mergePrFiles(pageFiles, assetFiles) {
+		const merged = [];
+		const seen = new Set();
+		[...(assetFiles || []), ...(pageFiles || [])].forEach((file) => {
+			const path = String(file?.path || "").trim();
+			if (!path || seen.has(path)) return;
+			seen.add(path);
+			merged.push(file);
+		});
+		return merged;
+	}
+
+	function getReferencedAssetPaths() {
 		const referenced = new Set();
 		Object.values(state.dirtyPages || {}).forEach((entry) => {
 			const html = entry?.html || "";
@@ -3119,24 +3257,54 @@ function serializeSquareGridRow(block, ctx) {
 				if (local) referenced.add(local);
 			});
 		});
-		const next = state.assetUploads.filter((item) =>
-			referenced.has(item.path),
-		);
-		if (next.length !== state.assetUploads.length) {
-			state.assetUploads = next;
-		}
+		return referenced;
 	}
 
-	function mergePrFiles(pageFiles, assetFiles) {
-		const merged = [];
-		const seen = new Set();
-		[...(assetFiles || []), ...(pageFiles || [])].forEach((file) => {
-			const path = String(file?.path || "").trim();
-			if (!path || seen.has(path)) return;
-			seen.add(path);
-			merged.push(file);
+	async function rehydrateAssetUploadsFromCache() {
+		const referenced = getReferencedAssetPaths();
+		if (!referenced.size) return;
+		const existing = new Set(
+			(state.assetUploads || []).map((item) => item.path),
+		);
+		const missing = Array.from(referenced).filter((path) => !existing.has(path));
+		if (!missing.length) return;
+		const recovered = await Promise.all(
+			missing.map((path) => assetCacheGet(path)),
+		);
+		recovered.filter(Boolean).forEach((item) => {
+			state.assetUploads.push({
+				path: item.path,
+				content: item.content || "",
+				encoding: item.encoding || "base64",
+				mime: item.mime || "",
+			});
 		});
-		return merged;
+	}
+
+	function applyLocalImagePreviews(root = document) {
+		const uploads = state.assetUploads || [];
+		if (!uploads.length) return;
+		const byPath = new Map(uploads.map((item) => [item.path, item]));
+		const resolveDataUrl = (src) => {
+			const local = getLocalAssetPath(src);
+			if (!local) return "";
+			const item = byPath.get(local);
+			if (!item?.content) return "";
+			const mime = item.mime || guessImageMime(local);
+			return `data:${mime};base64,${item.content}`;
+		};
+		root.querySelectorAll("[data-img]").forEach((node) => {
+			const src = node.getAttribute("data-img") || "";
+			if (!src || src.startsWith("data:")) return;
+			const dataUrl = resolveDataUrl(src);
+			if (dataUrl) node.style.backgroundImage = `url("${dataUrl}")`;
+		});
+		root.querySelectorAll("img").forEach((img) => {
+			const src = img.getAttribute("src") || "";
+			if (!src || src.startsWith("data:")) return;
+			const dataUrl = resolveDataUrl(src);
+			if (dataUrl) img.src = dataUrl;
+		});
 	}
 
 	async function submitPr(paths, note, payloads = null) {
@@ -3580,8 +3748,13 @@ function serializeSquareGridRow(block, ctx) {
 				: modeSelect.value === "upload" && uploadPreviewSrc
 					? uploadPreviewSrc
 					: sourceInput.value.trim();
-			const src =
+			let src =
 				raw && !raw.startsWith("data:") ? normalizeImageSource(raw) : raw;
+			if (src && !src.startsWith("data:")) {
+				const local = getLocalAssetPath(src);
+				const cached = local ? getCachedAssetDataUrl(local) : "";
+				if (cached) src = cached;
+			}
 			if (!src) {
 				previewWrap.hidden = true;
 				previewImg.removeAttribute("src");
@@ -3605,6 +3778,7 @@ function serializeSquareGridRow(block, ctx) {
 					name: safeName,
 					content: base64,
 					path: safePath,
+					mime: file.type || "",
 				});
 				sourceInput.value = `/${safePath}`;
 				uploadPreviewSrc = dataUrl;
@@ -4695,7 +4869,12 @@ function serializeSquareGridRow(block, ctx) {
 				imagePreviewWrap.appendChild(overlayDetails);
 				updateBlockPreview = () => {
 					const raw = imgInput.value.trim();
-					const src = raw ? normalizeImageSource(raw) : "";
+					let src = raw ? normalizeImageSource(raw) : "";
+					if (src && !src.startsWith("data:")) {
+						const local = getLocalAssetPath(src);
+						const cached = local ? getCachedAssetDataUrl(local) : "";
+						if (cached) src = cached;
+					}
 					if (!src) {
 						imagePreviewWrap.hidden = true;
 						imagePreviewImg.removeAttribute("src");
@@ -6186,6 +6365,7 @@ function serializeSquareGridRow(block, ctx) {
 
 		// Parity behaviours
 		window.runSections?.();
+		applyLocalImagePreviews(root);
 		window.initLightbox?.();
 		renderDebugOverlay();
 	}
@@ -6640,6 +6820,7 @@ function serializeSquareGridRow(block, ctx) {
 			else setUiState("clean", "CONNECTED - CLEAN");
 		}
 
+		await rehydrateAssetUploadsFromCache();
 		renderPageSurface();
 	}
 
