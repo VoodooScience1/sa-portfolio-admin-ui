@@ -731,6 +731,13 @@
 						scale: node.getAttribute("data-scale") || "",
 					});
 				}
+				if (
+					cls.includes("flex-accordion-wrapper") ||
+					cls.includes("flex-accordion-box")
+				) {
+					const inner = serializeChildren(node);
+					return `<div class="${escapeAttr(cls)}">${inner}</div>`;
+				}
 				if (cls.includes("video-stub")) {
 					return serializeVideoStub({
 						video: node.getAttribute("data-video") || "",
@@ -3934,6 +3941,44 @@ function serializeSquareGridRow(block, ctx) {
 			);
 		const toolbarLabel = (text) =>
 			el("span", { class: "cms-rte__icon-label" }, [text]);
+		const buildAccordionMarkup = ({ styled }) => {
+			const baseId = `acc-${BUILD_TOKEN}-${makeLocalId()}`;
+			const items = [
+				{
+					id: `${baseId}-1`,
+					title: "Item 1",
+					body: "<ul><li>Point A</li><li>Point B</li></ul>",
+				},
+				{
+					id: `${baseId}-2`,
+					title: "Item 2",
+					body: "<ul><li>Thing 1</li><li>Thing 2</li></ul>",
+				},
+			];
+			const tabs = items
+				.map(
+					(item) => [
+						`<div class="tab">`,
+						`\t<input type="checkbox" id="${escapeAttr(item.id)}" />`,
+						`\t<label class="tab-label" for="${escapeAttr(item.id)}">${escapeHtml(item.title)}</label>`,
+						`\t<div class="tab-content">`,
+						`\t\t${item.body}`,
+						`\t</div>`,
+						`</div>`,
+					].join("\n"),
+				)
+				.join("\n\n");
+			if (!styled) return tabs;
+			return [
+				`<div class="flex-accordion-wrapper">`,
+				`\t<div class="flex-accordion-box">`,
+				`\t\t<h2>Accordion title</h2>`,
+				`\t\t<p>Optional intro text...</p>`,
+				`\t\t${tabs.replace(/\n/g, "\n\t\t")}`,
+				`\t</div>`,
+				`</div>`,
+			].join("\n");
+		};
 		const buildToolbarGroup = (title, actions) =>
 			el("div", { class: "cms-rte__toolbar-group" }, [
 				el("div", { class: "cms-rte__toolbar-title" }, [
@@ -4119,11 +4164,21 @@ function serializeSquareGridRow(block, ctx) {
 					"button",
 					{
 						type: "button",
-						"data-cmd": "accordion",
-						"data-tooltip": "Accordion (coming soon)",
-						"aria-label": "Accordion (coming soon)",
+						"data-cmd": "accordion-simple",
+						"data-tooltip": "Accordion (simple)",
+						"aria-label": "Accordion (simple)",
 					},
-					[toolbarIcon("dvr")],
+					[toolbarIcon("view_list")],
+				),
+				el(
+					"button",
+					{
+						type: "button",
+						"data-cmd": "accordion-styled",
+						"data-tooltip": "Accordion (styled)",
+						"aria-label": "Accordion (styled)",
+					},
+					[toolbarIcon("view_list")],
 				),
 			]),
 		]);
@@ -5436,8 +5491,12 @@ function serializeSquareGridRow(block, ctx) {
 				openImagePanel();
 			} else if (cmd === "video") {
 				openVideoPanel();
-			} else if (cmd === "accordion") {
-				return;
+			} else if (cmd === "accordion-simple") {
+				const html = buildAccordionMarkup({ styled: false });
+				insertHtmlAtCursor(editor, html);
+			} else if (cmd === "accordion-styled") {
+				const html = buildAccordionMarkup({ styled: true });
+				insertHtmlAtCursor(editor, html);
 			}
 		});
 		editor.addEventListener("keydown", (event) => {
