@@ -5156,9 +5156,24 @@ function serializeSquareGridRow(block, ctx) {
 				if (imagePanel.hidden && videoPanel.hidden && docPanel.hidden) return;
 				event.preventDefault();
 				event.stopImmediatePropagation();
+				const assetTarget = !imagePanel.hidden
+					? activeImageTarget
+					: !videoPanel.hidden
+						? activeVideoTarget
+						: !docPanel.hidden
+							? activeDocTarget
+							: null;
 				if (!imagePanel.hidden) closeImagePanel();
 				if (!videoPanel.hidden) closeVideoPanel();
 				if (!docPanel.hidden) closeDocPanel();
+				if (assetTarget && assetTarget.scrollIntoView) {
+					queueMicrotask(() => {
+						assetTarget.scrollIntoView({
+							block: "center",
+							behavior: "smooth",
+						});
+					});
+				}
 			};
 			root.querySelectorAll("[data-close='true']").forEach((btn) => {
 				btn.addEventListener("click", modalCloseInterceptor, true);
