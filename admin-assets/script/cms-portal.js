@@ -6480,6 +6480,73 @@ function serializeSquareGridRow(block, ctx) {
 			closeModal();
 			queueMicrotask(() => scrollToEditedBlock());
 		};
+		const bindModalCloseHandler = (closeHandler) => {
+			const root = qs("#cms-modal");
+			if (!root) return;
+			root.querySelectorAll("[data-close='true']").forEach((btn) => {
+				btn.addEventListener(
+					"click",
+					() => {
+						closeHandler();
+					},
+					{ once: true },
+				);
+			});
+		};
+		const openExitConfirm = () => {
+			const root = qs("#cms-modal");
+			if (!root) return;
+			const existing = root.querySelector(".cms-modal__confirm");
+			if (existing) return;
+			let overlay = null;
+			const closeConfirm = () => {
+				if (overlay) overlay.remove();
+			};
+			const cancel = el(
+				"button",
+				{
+					class: "cms-btn cms-btn--move cms-modal__action",
+					type: "button",
+				},
+				["Cancel"],
+			);
+			const confirm = el(
+				"button",
+				{
+					class: "cms-btn cms-modal__action cms-btn--danger",
+					type: "button",
+				},
+				["Exit"],
+			);
+			cancel.addEventListener("click", (event) => {
+				event.preventDefault();
+				closeConfirm();
+				bindModalCloseHandler(openExitConfirm);
+			});
+			confirm.addEventListener("click", (event) => {
+				event.preventDefault();
+				closeConfirm();
+				handleExitEdit();
+			});
+			const warning = el("div", { class: "cms-modal__note cms-note--warning" }, [
+				"\u26a0 Are you sure you want to close? All unsaved changes will be lost. \u26a0",
+			]);
+			const panel = el("div", { class: "cms-modal__confirm-panel" }, [
+				el("h3", { class: "cms-modal__confirm-title" }, ["Exit editor"]),
+				warning,
+				el("div", { class: "cms-modal__confirm-actions" }, [
+					cancel,
+					confirm,
+				]),
+			]);
+			overlay = el("div", { class: "cms-modal__confirm" }, [panel]);
+			overlay.addEventListener("click", (event) => {
+				if (event.target !== overlay) return;
+				closeConfirm();
+				bindModalCloseHandler(openExitConfirm);
+			});
+			root.appendChild(overlay);
+		};
 
 		if (parsed.type === "hoverCardRow" || parsed.type === "squareGridRow") {
 			openModal({
@@ -6500,7 +6567,7 @@ function serializeSquareGridRow(block, ctx) {
 						["Stop Editing Block"],
 					),
 				],
-				onClose: handleExitEdit,
+				onClose: openExitConfirm,
 			});
 			return;
 		}
@@ -6524,7 +6591,7 @@ function serializeSquareGridRow(block, ctx) {
 						["Stop Editing Block"],
 					),
 				],
-				onClose: handleExitEdit,
+				onClose: openExitConfirm,
 			});
 			return;
 		}
@@ -6582,7 +6649,7 @@ function serializeSquareGridRow(block, ctx) {
 					),
 				],
 				pruneAssets: true,
-				onClose: handleExitEdit,
+				onClose: openExitConfirm,
 			});
 			settings = { headingInput };
 		} else {
@@ -7068,7 +7135,7 @@ function serializeSquareGridRow(block, ctx) {
 					),
 				],
 				pruneAssets: true,
-				onClose: handleExitEdit,
+				onClose: openExitConfirm,
 			});
 
 			settings = {
