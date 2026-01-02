@@ -51,6 +51,11 @@
 			partial: "/admin-assets/partials/CloudFlareCMS/two-col.html",
 		},
 		{
+			id: "std-container",
+			label: "Standard container",
+			partial: "/admin-assets/partials/CloudFlareCMS/std-container.html",
+		},
+		{
 			id: "hover-cards",
 			label: "Hover cards row",
 			partial: "/admin-assets/partials/CloudFlareCMS/hover-cards.html",
@@ -941,25 +946,42 @@
 			if (type === "twoCol") {
 				const leftNode = cleanNode.querySelector("[data-col='left']");
 				const rightNode = cleanNode.querySelector("[data-col='right']");
-				const headingEl = leftNode?.querySelector("h2,h3");
-				const headingTag = headingEl
-					? headingEl.tagName.toLowerCase()
+				const leftHeadingEl = leftNode?.querySelector("h1,h2,h3");
+				const rightHeadingEl = rightNode?.querySelector("h1,h2,h3");
+				const leftHeadingTag = leftHeadingEl
+					? leftHeadingEl.tagName.toLowerCase()
 					: "h2";
-				const safeHeadingTag = headingTag === "h1" ? "h2" : headingTag;
+				const rightHeadingTag = rightHeadingEl
+					? rightHeadingEl.tagName.toLowerCase()
+					: "h2";
+				const safeLeftHeadingTag = leftHeadingTag === "h1" ? "h2" : leftHeadingTag;
+				const safeRightHeadingTag =
+					rightHeadingTag === "h1" ? "h2" : rightHeadingTag;
 				let leftHtml = leftNode?.innerHTML || "";
-				if (headingEl && leftNode) {
+				if (leftHeadingEl && leftNode) {
 					const clone = leftNode.cloneNode(true);
-					const removeHeading = clone.querySelector("h2,h3");
+					const removeHeading = clone.querySelector("h1,h2,h3");
 					if (removeHeading) removeHeading.remove();
 					leftHtml = clone.innerHTML || "";
+				}
+				let rightHtml = rightNode?.innerHTML || "";
+				if (rightHeadingEl && rightNode) {
+					const clone = rightNode.cloneNode(true);
+					const removeHeading = clone.querySelector("h1,h2,h3");
+					if (removeHeading) removeHeading.remove();
+					rightHtml = clone.innerHTML || "";
 				}
 				return {
 					type: "twoCol",
 					cmsId,
-					heading: headingEl?.textContent?.trim() || "",
-					headingTag: safeHeadingTag,
+					heading: leftHeadingEl?.textContent?.trim() || "",
+					headingTag: safeLeftHeadingTag,
+					leftHeading: leftHeadingEl?.textContent?.trim() || "",
+					leftHeadingTag: safeLeftHeadingTag,
+					rightHeading: rightHeadingEl?.textContent?.trim() || "",
+					rightHeadingTag: safeRightHeadingTag,
 					left: leftHtml,
-					right: rightNode?.innerHTML || "",
+					right: rightHtml,
 				};
 			}
 			if (type === "imgText" || type === "split50") {
@@ -1053,6 +1075,32 @@
 				intro,
 				items,
 			};
+		}
+
+		if (cls.contains("div-wrapper")) {
+			const inner = cleanNode.querySelector(".default-div-wrapper");
+			if (inner && !inner.classList.contains("hero-override")) {
+				const headingEl = inner.querySelector("h1,h2,h3");
+				const headingTag = headingEl
+					? headingEl.tagName.toLowerCase()
+					: "h1";
+				const headingStyle = headingEl?.getAttribute("style") || "";
+				let body = inner.innerHTML || "";
+				if (headingEl) {
+					const clone = inner.cloneNode(true);
+					const removeHeading = clone.querySelector("h1,h2,h3");
+					if (removeHeading) removeHeading.remove();
+					body = clone.innerHTML || "";
+				}
+				return {
+					type: "stdContainer",
+					cmsId,
+					heading: headingEl?.textContent?.trim() || "",
+					headingTag,
+					headingStyle,
+					body,
+				};
+			}
 		}
 
 		return { type: "legacy", cmsId, raw: cleanNode.outerHTML };
@@ -1152,10 +1200,17 @@
 
 	function serializeTwoCol(block, ctx) {
 		const cmsId = getBlockCmsId(block, ctx?.index ?? 0, ctx);
-		const headingText = (block.heading || "").trim();
-		const headingTag = (block.headingTag || "h2").toLowerCase();
-		const headingHtml = headingText
-			? `<${headingTag}>${escapeHtml(headingText)}</${headingTag}>`
+		const leftHeadingText = (
+			block.leftHeading || block.heading || ""
+		).trim();
+		const rightHeadingText = (block.rightHeading || "").trim();
+		const leftHeadingTag = (block.leftHeadingTag || block.headingTag || "h2").toLowerCase();
+		const rightHeadingTag = (block.rightHeadingTag || block.headingTag || "h2").toLowerCase();
+		const leftHeadingHtml = leftHeadingText
+			? `<${leftHeadingTag}>${escapeHtml(leftHeadingText)}</${leftHeadingTag}>`
+			: "";
+		const rightHeadingHtml = rightHeadingText
+			? `<${rightHeadingTag}>${escapeHtml(rightHeadingText)}</${rightHeadingTag}>`
 			: "";
 		const left = sanitizeRteHtml(block.left || "", ctx);
 		const right = sanitizeRteHtml(block.right || "", ctx);
@@ -1164,11 +1219,35 @@
 				cmsId,
 			)}" data-type="twoCol">`,
 			`\t<div data-col="left">`,
-			headingHtml ? `\t\t${headingHtml}` : "",
+			leftHeadingHtml ? `\t\t${leftHeadingHtml}` : "",
 			left ? indentLines(left, 2) : "",
 			`\t</div>`,
 			`\t<div data-col="right">`,
+			rightHeadingHtml ? `\t\t${rightHeadingHtml}` : "",
 			right ? indentLines(right, 2) : "",
+			`\t</div>`,
+			`</div>`,
+		].filter((line) => line !== "");
+		return lines.join("\n");
+	}
+
+	function serializeStdContainer(block, ctx) {
+		const cmsId = getBlockCmsId(block, ctx?.index ?? 0, ctx);
+		const headingText = String(block.heading || "").trim();
+		const headingTag = (block.headingTag || "h1").toLowerCase();
+		const headingStyle = String(block.headingStyle || "").trim();
+		const styleAttr = headingStyle ? ` style="${escapeAttr(headingStyle)}"` : "";
+		const headingHtml = headingText
+			? `<${headingTag}${styleAttr}>${escapeHtml(
+					headingText,
+				)}</${headingTag}>`
+			: "";
+		const body = sanitizeRteHtml(block.body || "", ctx);
+		const lines = [
+			`<div class="div-wrapper" data-cms-id="${escapeAttr(cmsId)}">`,
+			`\t<div class="default-div-wrapper">`,
+			headingHtml ? `\t\t${headingHtml}` : "",
+			body ? indentLines(body, 2) : "",
 			`\t</div>`,
 			`</div>`,
 		].filter((line) => line !== "");
@@ -1300,6 +1379,8 @@ function serializeStyledAccordion(block, ctx) {
 					).slice(0, 4),
 				};
 				if (block.type === "twoCol") return serializeTwoCol(block, blockCtx);
+				if (block.type === "stdContainer")
+					return serializeStdContainer(block, blockCtx);
 				if (block.type === "imgText" || block.type === "split50")
 					return serializeSectionStub(block, blockCtx);
 				if (block.type === "hoverCardRow")
@@ -7885,12 +7966,68 @@ function serializeStyledAccordion(block, ctx) {
 				accordionIntroInput: introInput,
 				accordionItems,
 			};
-		} else if (parsed.type === "twoCol") {
+		} else if (parsed.type === "stdContainer") {
 			const headingInput = el("input", {
 				type: "text",
 				class: "cms-field__input",
 				value: parsed.heading || "",
-				placeholder: "Heading",
+				placeholder: "Header text",
+			});
+			const body = buildRteEditor({
+				label: "Content",
+				initialHtml: parsed.body || "",
+			});
+			editors = [{ key: "body", editor: body.editor }];
+			openModal({
+				title: "Edit block",
+				bodyNodes: [
+					buildField({
+						label: "Header",
+						input: headingInput,
+						note: "Optional header for this container.",
+					}),
+					body.wrap,
+				],
+				footerNodes: [
+					el(
+						"button",
+						{
+							class: "cms-btn cms-modal__action cms-btn--danger",
+							type: "button",
+							"data-close": "true",
+						},
+						["Stop Editing Block"],
+					),
+					el(
+						"button",
+						{
+							class: "cms-btn cms-modal__action cms-btn--success",
+							type: "button",
+							"data-action": "save-block",
+						},
+						["Save"],
+					),
+				],
+				pruneAssets: true,
+				onClose: openExitConfirm,
+			});
+			settings = {
+				stdHeadingInput: headingInput,
+				stdHeadingTag: parsed.headingTag || "h1",
+				stdHeadingStyle: parsed.headingStyle || "",
+			};
+		} else if (parsed.type === "twoCol") {
+			const headingLeftInput = el("input", {
+				type: "text",
+				class: "cms-field__input",
+				value: parsed.leftHeading || parsed.heading || "",
+				placeholder: "Left header",
+			});
+			const headingRightInput = el("input", {
+				type: "text",
+				class: "cms-field__input",
+				value: parsed.rightHeading || "",
+				placeholder: "Right header",
 			});
 			const left = buildRteEditor({
 				label: "Left column",
@@ -7908,9 +8045,14 @@ function serializeStyledAccordion(block, ctx) {
 				title: "Edit block",
 				bodyNodes: [
 					buildField({
-						label: "Heading",
-						input: headingInput,
-						note: "Optional block heading.",
+						label: "Header (left)",
+						input: headingLeftInput,
+						note: "Optional left column header.",
+					}),
+					buildField({
+						label: "Header (right)",
+						input: headingRightInput,
+						note: "Optional right column header.",
 					}),
 					left.wrap,
 					right.wrap,
@@ -7938,7 +8080,12 @@ function serializeStyledAccordion(block, ctx) {
 				pruneAssets: true,
 				onClose: openExitConfirm,
 			});
-			settings = { headingInput };
+			settings = {
+				leftHeadingInput: headingLeftInput,
+				rightHeadingInput: headingRightInput,
+				leftHeadingTag: parsed.leftHeadingTag || parsed.headingTag || "h2",
+				rightHeadingTag: parsed.rightHeadingTag || "h2",
+			};
 		} else {
 			let headingInput = null;
 			let imgInput = null;
@@ -8449,16 +8596,32 @@ function serializeStyledAccordion(block, ctx) {
 			if (settings.accordionItems) {
 				updated.title = settings.accordionTitleInput?.value.trim() || "";
 				updated.titleTag = parsed.titleTag || "h2";
-				updated.intro = settings.accordionIntroInput?.value.trim() || "";
+				updated.intro = sanitizeRteHtml(
+					settings.accordionIntroEditor?.editor.innerHTML || "",
+					ctx,
+				);
 				updated.items = settings.accordionItems.map((item, idx) => ({
 					label:
 						item.labelInput?.value.trim() || `Item ${idx + 1}`,
 					body: sanitizeRteHtml(item.editor?.editor.innerHTML || "", ctx),
 				}));
 			}
+			if (settings.stdHeadingInput) {
+				updated.heading = settings.stdHeadingInput.value.trim();
+				updated.headingTag = settings.stdHeadingTag || "h1";
+				updated.headingStyle = settings.stdHeadingStyle || "";
+			}
 			if (settings.headingInput) {
 				updated.heading = settings.headingInput.value.trim();
 				updated.headingTag = parsed.headingTag || "h2";
+			}
+			if (settings.leftHeadingInput) {
+				updated.leftHeading = settings.leftHeadingInput.value.trim();
+				updated.leftHeadingTag = settings.leftHeadingTag || "h2";
+				updated.rightHeading = settings.rightHeadingInput?.value.trim() || "";
+				updated.rightHeadingTag = settings.rightHeadingTag || "h2";
+				updated.heading = updated.leftHeading;
+				updated.headingTag = updated.leftHeadingTag;
 			}
 			if (settings.imgInput) {
 				updated.img = settings.imgInput.value.trim();
@@ -8702,7 +8865,7 @@ function serializeStyledAccordion(block, ctx) {
 			const h = node.querySelector("h1,h2,h3");
 			return {
 				type: "std-container",
-				summary: h?.textContent?.trim() || "Container",
+				summary: h?.textContent?.trim() || "Standard container",
 			};
 		}
 
