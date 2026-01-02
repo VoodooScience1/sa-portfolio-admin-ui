@@ -4068,6 +4068,26 @@ function serializeSquareGridRow(block, ctx) {
 					"button",
 					{
 						type: "button",
+						"data-cmd": "align-left",
+						"data-tooltip": "Align left",
+						"aria-label": "Align left",
+					},
+					[toolbarIcon("format_align_left")],
+				),
+				el(
+					"button",
+					{
+						type: "button",
+						"data-cmd": "align-center",
+						"data-tooltip": "Align center",
+						"aria-label": "Align center",
+					},
+					[toolbarIcon("format_align_center")],
+				),
+				el(
+					"button",
+					{
+						type: "button",
 						"data-cmd": "h2",
 						"data-tooltip": "Header 2",
 						"aria-label": "Header 2",
@@ -5953,6 +5973,8 @@ function serializeSquareGridRow(block, ctx) {
 			if (cmd === "bold") document.execCommand("bold");
 			else if (cmd === "italic") document.execCommand("italic");
 			else if (cmd === "underline") document.execCommand("underline");
+			else if (cmd === "align-left") document.execCommand("justifyLeft");
+			else if (cmd === "align-center") document.execCommand("justifyCenter");
 			else if (cmd === "h2") document.execCommand("formatBlock", false, "H2");
 			else if (cmd === "h3") document.execCommand("formatBlock", false, "H3");
 			else if (cmd === "quote")
