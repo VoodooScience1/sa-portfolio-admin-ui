@@ -61,11 +61,6 @@
 			partial: "/admin-assets/partials/CloudFlareCMS/square-grid.html",
 		},
 		{
-			id: "accordion",
-			label: "Accordion (simple)",
-			partial: "/admin-assets/partials/CloudFlareCMS/std-accordion.html",
-		},
-		{
 			id: "accordion-styled",
 			label: "Accordion (styled)",
 			partial: "/admin-assets/partials/CloudFlareCMS/styled-accordion.html",
@@ -74,11 +69,6 @@
 			id: "divider",
 			label: "Divider",
 			partial: "/admin-assets/partials/CloudFlareCMS/divider.html",
-		},
-		{
-			id: "doc-card",
-			label: "Document card",
-			partial: "/admin-assets/partials/CloudFlareCMS/doc-card.html",
 		},
 		{
 			id: "empty-block",
@@ -1035,6 +1025,36 @@
 			}
 		}
 
+		if (cls.contains("flex-accordion-wrapper")) {
+			const box =
+				cleanNode.querySelector(".flex-accordion-box") || cleanNode;
+			const titleEl = box.querySelector("h1,h2,h3");
+			const titleTag = titleEl ? titleEl.tagName.toLowerCase() : "h2";
+			const safeTitleTag = titleTag === "h1" ? "h2" : titleTag;
+			let intro = "";
+			Array.from(box.children).some((child) => {
+				if (child.classList?.contains("tab")) return true;
+				if (child.tagName?.toLowerCase() === "p") {
+					intro = child.textContent?.trim() || "";
+					return true;
+				}
+				return false;
+			});
+			const items = Array.from(box.querySelectorAll(".tab")).map((tab) => {
+				const label = tab.querySelector(".tab-label")?.textContent?.trim() || "";
+				const body = tab.querySelector(".tab-content")?.innerHTML || "";
+				return { label, body };
+			});
+			return {
+				type: "styledAccordion",
+				cmsId,
+				title: titleEl?.textContent?.trim() || "",
+				titleTag: safeTitleTag,
+				intro,
+				items,
+			};
+		}
+
 		return { type: "legacy", cmsId, raw: cleanNode.outerHTML };
 	}
 
@@ -1209,6 +1229,48 @@ function serializeSquareGridRow(block, ctx) {
 		return lines.join("\n");
 	}
 
+function serializeStyledAccordion(block, ctx) {
+		const cmsId = getBlockCmsId(block, ctx?.index ?? 0, ctx);
+		const titleText = String(block.title || "").trim();
+		const titleTag = (block.titleTag || "h2").toLowerCase();
+		const safeTitleTag = titleTag === "h1" ? "h2" : titleTag;
+		const introText = String(block.intro || "").trim();
+		const pageHash = ctx?.pageHash || hashText(ctx?.path || "");
+		const blockShort =
+			ctx?.blockIdShort || hashText(ctx?.blockId || "block");
+		const items = Array.isArray(block.items) ? block.items : [];
+		const lines = [
+			`<div class="flex-accordion-wrapper" data-cms-id="${escapeAttr(
+				cmsId,
+			)}">`,
+			`\t<div class="flex-accordion-box">`,
+		];
+		if (titleText) {
+			lines.push(`\t\t<${safeTitleTag}>${escapeHtml(titleText)}</${safeTitleTag}>`);
+		}
+		if (introText) {
+			lines.push(`\t\t<p>${escapeHtml(introText)}</p>`);
+		}
+		items.forEach((item, idx) => {
+			const id = `acc-${pageHash}-${blockShort}-${idx + 1}`;
+			const labelText = String(item?.label || "").trim() || `Item ${idx + 1}`;
+			const body = sanitizeRteHtml(item?.body || "", ctx);
+			lines.push(
+				`\t\t<div class="tab">`,
+				`\t\t\t<input type="checkbox" id="${escapeAttr(id)}" />`,
+				`\t\t\t<label class="tab-label" for="${escapeAttr(id)}">${escapeHtml(
+					labelText,
+				)}</label>`,
+				`\t\t\t<div class="tab-content">`,
+				body ? indentLines(body, 3) : "",
+				`\t\t\t</div>`,
+				`\t\t</div>`,
+			);
+		});
+		lines.push(`\t</div>`, `</div>`);
+		return lines.filter(Boolean).join("\n");
+	}
+
 	function serializeMainBlocks(blocks, ctx) {
 		const list = blocks || [];
 		const occMap = new Map();
@@ -1244,6 +1306,8 @@ function serializeSquareGridRow(block, ctx) {
 					return serializeHoverCardRow(block, blockCtx);
 				if (block.type === "squareGridRow")
 					return serializeSquareGridRow(block, blockCtx);
+				if (block.type === "styledAccordion")
+					return serializeStyledAccordion(block, blockCtx);
 				if (block.raw || block.html) {
 					try {
 						const doc = new DOMParser().parseFromString(
@@ -6413,6 +6477,972 @@ function serializeSquareGridRow(block, ctx) {
 		return el("div", { class: "cms-field" }, nodes);
 	}
 
+	function buildBlockNoopSignature(html) {
+		const doc = new DOMParser().parseFromString(
+			`<div id="__wrap__">${String(html || "")}</div>`,
+			"text/html",
+		);
+		const wrap = doc.querySelector("#__wrap__");
+		if (!wrap) return "";
+		const stripHighlightMarkup = (root) => {
+			root.querySelectorAll("pre code").forEach((code) => {
+				code.classList.remove("hljs");
+				code.removeAttribute("data-highlighted");
+				code.textContent = code.textContent || "";
+			});
+			root.querySelectorAll("span").forEach((span) => {
+				const cls = span.getAttribute("class") || "";
+				const isHljs = cls
+					.split(/\s+/)
+					.some((c) => c === "hljs" || c.startsWith("hljs-"));
+				if (!isHljs) return;
+				span.replaceWith(document.createTextNode(span.textContent || ""));
+			});
+		};
+		const normalizeNode = (node, inPre) => {
+			if (node.nodeType === Node.TEXT_NODE) {
+				if (inPre) return;
+				const cleaned = String(node.textContent || "")
+					.replace(/\s+/g, " ")
+					.trim();
+				if (!cleaned) {
+					node.remove();
+					return;
+				}
+				node.textContent = cleaned;
+				return;
+			}
+			if (node.nodeType !== Node.ELEMENT_NODE) return;
+			const tag = (node.tagName || "").toLowerCase();
+			const nextInPre = inPre || tag === "pre" || tag === "code";
+			if (node.classList?.contains("hljs")) node.classList.remove("hljs");
+			if (node.hasAttribute?.("data-highlighted"))
+				node.removeAttribute("data-highlighted");
+			if (tag === "code") {
+				node.classList?.remove("hljs");
+				node.removeAttribute?.("data-highlighted");
+			}
+			if (node.classList && node.classList.length) {
+				Array.from(node.classList).forEach((cls) => {
+					if (cls.startsWith("cms-")) node.classList.remove(cls);
+				});
+			}
+			if (node.hasAttribute("data-cms-id")) node.removeAttribute("data-cms-id");
+			Array.from(node.childNodes).forEach((child) =>
+				normalizeNode(child, nextInPre),
+			);
+			const attrs = Array.from(node.attributes).sort((a, b) =>
+				a.name.localeCompare(b.name),
+			);
+			attrs.forEach((attr) => node.removeAttribute(attr.name));
+			attrs.forEach((attr) => node.setAttribute(attr.name, attr.value));
+		};
+
+		const parts = [];
+		Array.from(wrap.childNodes).forEach((child) => {
+			if (child.nodeType === Node.ELEMENT_NODE) {
+				const clone = child.cloneNode(true);
+				stripHighlightMarkup(clone);
+				normalizeNode(clone, false);
+				parts.push(clone.outerHTML);
+				return;
+			}
+			if (child.nodeType === Node.TEXT_NODE) {
+				const text = String(child.textContent || "")
+					.replace(/\s+/g, " ")
+					.trim();
+				if (text) parts.push(`#text:${text}`);
+			}
+		});
+		return parts.join("\n");
+	}
+
+	function getBlockRootElement(wrapper) {
+		if (!(wrapper instanceof HTMLElement)) return null;
+		return Array.from(wrapper.children).find(
+			(child) =>
+				!child.classList.contains("cms-block__controls") &&
+				!child.classList.contains("cms-block__badge") &&
+				!child.classList.contains("cms-block__overlay"),
+		);
+	}
+
+	function applyBlockHtmlUpdate({
+		origin,
+		localId,
+		anchorBase,
+		currentLocal,
+		updatedHtml,
+	}) {
+		if (!updatedHtml) return;
+		const local = normalizeLocalBlocks(currentLocal || []);
+		if (origin === "local" && localId) {
+			const nextLocal = local.map((item) =>
+				item.id === localId
+					? { ...item, html: updatedHtml, kind: "edited" }
+					: item,
+			);
+			updateLocalBlocksAndRender(state.path, nextLocal);
+			return;
+		}
+		if (origin === "base" && anchorBase?.id) {
+			const anchor = {
+				id: anchorBase.id,
+				sig: anchorBase.sig,
+				occ: anchorBase.occ,
+			};
+			const cleaned = stripEditEntriesForBase(local, anchor);
+			const editedInsert = {
+				id: makeLocalId(),
+				html: updatedHtml,
+				anchor,
+				placement: "after",
+				status: "staged",
+				kind: "edited",
+				action: "insert",
+				baseId: anchor.id,
+				sourceKey: `id:${anchor.id}`,
+			};
+			const removeBase = {
+				id: makeLocalId(),
+				html: "",
+				anchor,
+				placement: "after",
+				status: "staged",
+				kind: "edited",
+				action: "remove",
+				baseId: anchor.id,
+			};
+			updateLocalBlocksAndRender(state.path, [
+				...cleaned,
+				removeBase,
+				editedInsert,
+			]);
+		}
+	}
+
+	function openGridLimitWarning(limit) {
+		const closeBtn = el(
+			"button",
+			{
+				class: "cms-btn cms-modal__action",
+				type: "button",
+				"data-close": "true",
+			},
+			["Close"],
+		);
+		const warning = el("div", { class: "cms-modal__note cms-note--warning" }, [
+			`\u26a0 Max of ${limit} items per row. Remove one to add another. \u26a0`,
+		]);
+		openModal({
+			title: "Limit reached",
+			bodyNodes: [warning],
+			footerNodes: [closeBtn],
+		});
+	}
+
+	function confirmDeleteItem(onConfirm) {
+		const root = qs("#cms-modal");
+		const hadModal = Boolean(root && root.classList.contains("is-open"));
+		if (hadModal && root) {
+			const existing = root.querySelector(".cms-modal__confirm");
+			if (existing) existing.remove();
+			let overlay = null;
+			const closeConfirm = () => {
+				if (overlay) overlay.remove();
+			};
+			const cancel = el(
+				"button",
+				{
+					class: "cms-btn cms-btn--move cms-modal__action",
+					type: "button",
+				},
+				["Cancel"],
+			);
+			const confirm = el(
+				"button",
+				{
+					class: "cms-btn cms-btn--danger cms-modal__action",
+					type: "button",
+				},
+				["Delete"],
+			);
+			cancel.addEventListener("click", (event) => {
+				event.preventDefault();
+				closeConfirm();
+			});
+			confirm.addEventListener("click", (event) => {
+				event.preventDefault();
+				closeConfirm();
+				if (typeof onConfirm === "function") onConfirm();
+			});
+			const panel = el("div", { class: "cms-modal__confirm-panel" }, [
+				el("h3", { class: "cms-modal__confirm-title" }, ["Delete item"]),
+				el("p", { class: "cms-modal__text" }, [
+					"Delete this item? Unsaved changes will be lost if you continue.",
+				]),
+				el("div", { class: "cms-modal__confirm-actions" }, [cancel, confirm]),
+			]);
+			overlay = el("div", { class: "cms-modal__confirm" }, [panel]);
+			overlay.addEventListener("click", (event) => {
+				if (event.target !== overlay) return;
+				closeConfirm();
+			});
+			root.appendChild(overlay);
+			return;
+		}
+
+		const cancel = el(
+			"button",
+			{
+				class: "cms-btn cms-btn--move cms-modal__action",
+				type: "button",
+				"data-close": "true",
+			},
+			["Cancel"],
+		);
+		const confirm = el(
+			"button",
+			{
+				class: "cms-btn cms-btn--danger cms-modal__action",
+				type: "button",
+			},
+			["Delete"],
+		);
+		confirm.addEventListener("click", () => {
+			closeModal();
+			if (typeof onConfirm === "function") onConfirm();
+		});
+		openModal({
+			title: "Delete item",
+			bodyNodes: [
+				el("p", { class: "cms-modal__text" }, [
+					"Delete this item? Unsaved changes will be lost if you continue.",
+				]),
+			],
+			footerNodes: [cancel, confirm],
+		});
+	}
+
+	function openGridItemModal({
+		type,
+		item = {},
+		isNew = false,
+		onSave,
+		onDelete,
+	}) {
+		const isHover = type === "hover";
+		const itemLabel = isHover ? "card" : "image";
+		const imgInput = el("input", {
+			type: "text",
+			class: "cms-field__input",
+			value: item.src || "",
+			placeholder: "/assets/img/...",
+		});
+		const altInput = el("input", {
+			type: "text",
+			class: "cms-field__input",
+			value: item.alt || "",
+			placeholder: "Alt text (optional)",
+		});
+		const overlayTitleInput = el("input", {
+			type: "text",
+			class: "cms-field__input",
+			value: item.overlayTitle || "",
+			placeholder: "Overlay title (optional)",
+		});
+		const overlayTextInput = el("input", {
+			type: "text",
+			class: "cms-field__input",
+			value: item.overlayText || "",
+			placeholder: "Overlay text (optional)",
+		});
+		const lightboxInput = el("input", {
+			type: "checkbox",
+			class: "cms-field__checkbox",
+		});
+		lightboxInput.checked = Boolean(item.lightbox);
+		const imageModeSelect = el("select", { class: "cms-field__select" }, [
+			el("option", { value: "existing" }, ["Use existing"]),
+			el("option", { value: "upload" }, ["Upload new"]),
+		]);
+		imageModeSelect.value = "existing";
+		const imageLibrarySelect = el("select", { class: "cms-field__select" }, [
+			el("option", { value: "" }, ["Select an existing image"]),
+		]);
+		const imagePickBtn = el(
+			"button",
+			{
+				class: "cms-btn cms-btn--primary cms-btn--inline",
+				type: "button",
+			},
+			["Choose image"],
+		);
+		const uploadFileInput = el("input", {
+			type: "file",
+			class: "cms-field__input",
+		});
+		uploadFileInput.hidden = true;
+		const uploadNameInput = el("input", {
+			type: "text",
+			class: "cms-field__input",
+			placeholder: "Filename (e.g. hero.jpg or sub/hero.jpg)",
+		});
+		uploadNameInput.hidden = true;
+		const uploadWarning = el("div", { class: "cms-modal__note cms-note--warning" }, [
+			"\u26a0 Please note: Uploaded images are only stored in local memory until comitted and could be lost \u26a0",
+		]);
+		uploadWarning.hidden = true;
+		let currentUploadFile = null;
+		let currentUploadBase64 = "";
+		let currentUploadMime = "";
+		let currentUploadPath = "";
+		let currentUploadExt = "";
+		const getFileExtension = (name) => {
+			const match = String(name || "")
+				.trim()
+				.match(/(\.[A-Za-z0-9]+)$/);
+			return match ? match[1] : "";
+		};
+		const normalizeUploadName = (rawName) => {
+			const raw = String(rawName || "").trim();
+			if (!raw) {
+				if (currentUploadExt)
+					return { name: currentUploadExt, caret: 0, empty: true };
+				return { name: "", caret: 0, empty: true };
+			}
+			if (!currentUploadExt) return { name: raw, caret: raw.length };
+			const lowerRaw = raw.toLowerCase();
+			const lowerExt = currentUploadExt.toLowerCase();
+			let base = raw;
+			if (lowerRaw.endsWith(lowerExt)) {
+				base = raw.slice(0, -currentUploadExt.length);
+			}
+			if (base.endsWith(".")) base = base.slice(0, -1);
+			return {
+				name: `${base}${currentUploadExt}`,
+				caret: base.length,
+				empty: !base,
+			};
+		};
+		const syncUploadName = (rawName, { normalize = false } = {}) => {
+			const normalized = normalizeUploadName(rawName);
+			if (!normalized.name) return;
+			if (normalized.empty && currentUploadExt) {
+				if (normalize && uploadNameInput) {
+					uploadNameInput.value = currentUploadExt;
+					if (document.activeElement === uploadNameInput) {
+						uploadNameInput.setSelectionRange(0, 0);
+					}
+				}
+				return;
+			}
+			const safePath = sanitizeImagePath(
+				normalized.name,
+				currentUploadFile?.name || "",
+			);
+			if (!safePath) return;
+			const safeName = safePath.replace(/^assets\/img\//, "");
+			if (normalize && uploadNameInput) {
+				uploadNameInput.value = safeName;
+				if (currentUploadExt && document.activeElement === uploadNameInput) {
+					const caret = Math.max(0, safeName.length - currentUploadExt.length);
+					uploadNameInput.setSelectionRange(caret, caret);
+				}
+			}
+			imgInput.value = `/${safePath}`;
+			if (currentUploadBase64) {
+				if (currentUploadPath && currentUploadPath !== safePath) {
+					state.assetUploads = (state.assetUploads || []).filter(
+						(item) => item.path !== currentUploadPath,
+					);
+				}
+				addAssetUpload({
+					name: safeName,
+					content: currentUploadBase64,
+					path: safePath,
+					mime: currentUploadMime || "",
+				});
+				currentUploadPath = safePath;
+			}
+			updateImagePreview();
+		};
+		const stageUpload = (file, filename) => {
+			if (!file) return;
+			const safePath = sanitizeImagePath(filename, file.name || "");
+			if (!safePath) return;
+			const safeName = safePath.replace(/^assets\/img\//, "");
+			if (uploadNameInput) uploadNameInput.value = safeName;
+			const reader = new FileReader();
+			reader.onload = () => {
+				const dataUrl = String(reader.result || "");
+				const base64 = dataUrl.split(",")[1] || "";
+				currentUploadBase64 = base64;
+				currentUploadMime = file.type || "";
+				syncUploadName(uploadNameInput?.value.trim() || safeName, {
+					normalize: true,
+				});
+			};
+			reader.readAsDataURL(file);
+		};
+		imagePickBtn.addEventListener("click", () => {
+			uploadFileInput?.click();
+		});
+		uploadFileInput.addEventListener("change", () => {
+			const file = uploadFileInput.files?.[0];
+			if (!file) return;
+			currentUploadFile = file;
+			currentUploadExt = getFileExtension(file.name || "");
+			if (uploadNameInput && !uploadNameInput.value.trim()) {
+				uploadNameInput.value = file.name || "";
+			}
+			stageUpload(file, uploadNameInput?.value.trim() || "");
+		});
+		uploadNameInput.addEventListener("input", () => {
+			syncUploadName(uploadNameInput.value.trim(), { normalize: true });
+		});
+		uploadNameInput.addEventListener("blur", () => {
+			if (!currentUploadFile) return;
+			if (currentUploadBase64) {
+				syncUploadName(uploadNameInput.value.trim(), { normalize: true });
+				return;
+			}
+			stageUpload(currentUploadFile, uploadNameInput.value.trim());
+		});
+		const imagePreviewImg = el("img", {
+			class: "cms-image-preview__img cms-image-preview__img--block",
+			alt: "Preview",
+		});
+		const imagePreviewWrap = el(
+			"div",
+			{ class: "cms-image-preview cms-image-preview--inline content content--full" },
+			[imagePreviewImg],
+		);
+		const overlayLayer = el("div", { class: "content-overlay" });
+		const overlayTitlePreview = el("h3", { class: "content-title" });
+		const overlayTextPreview = el("p", { class: "content-text" });
+		const overlayDetails = el("div", { class: "content-details fadeIn-bottom" }, [
+			overlayTitlePreview,
+			overlayTextPreview,
+		]);
+		imagePreviewWrap.appendChild(overlayLayer);
+		imagePreviewWrap.appendChild(overlayDetails);
+		const updateOverlayPreview = () => {
+			if (!isHover || imagePreviewWrap.hidden) {
+				overlayLayer.hidden = true;
+				overlayDetails.hidden = true;
+				return;
+			}
+			const title = overlayTitleInput.value.trim();
+			const text = overlayTextInput.value.trim();
+			const fallback =
+				!title && !text && lightboxInput.checked ? "Click to view" : text;
+			const show = Boolean(title || fallback);
+			overlayLayer.hidden = !show;
+			overlayDetails.hidden = !show;
+			overlayTitlePreview.textContent = title;
+			overlayTextPreview.textContent = fallback;
+			overlayTitlePreview.hidden = !title;
+			overlayTextPreview.hidden = !fallback;
+		};
+		const updateImagePreview = () => {
+			const raw = imgInput.value.trim();
+			let src = raw ? normalizeImageSource(raw) : "";
+			if (src && !src.startsWith("data:")) {
+				const local = getLocalAssetPath(src);
+				const cached = local ? getCachedAssetDataUrl(local) : "";
+				if (cached) src = cached;
+			}
+			if (!src) {
+				imagePreviewWrap.hidden = true;
+				imagePreviewImg.removeAttribute("src");
+				updateOverlayPreview();
+				return;
+			}
+			imagePreviewWrap.hidden = false;
+			imagePreviewImg.src = src;
+			if (imageLibrarySelect && !imageLibrarySelect.hidden) {
+				const local = getLocalAssetPath(raw);
+				if (local) imageLibrarySelect.value = local;
+			}
+			updateOverlayPreview();
+		};
+		const setImageMode = (mode) => {
+			const useUpload = mode === "upload";
+			imageLibrarySelect.hidden = useUpload;
+			imagePickBtn.hidden = !useUpload;
+			uploadNameInput.hidden = !useUpload;
+			if (uploadNameLabel) uploadNameLabel.hidden = !useUpload;
+			if (uploadNameRow) uploadNameRow.hidden = !useUpload;
+			if (imgInput) {
+				imgInput.disabled = useUpload;
+				imgInput.classList.toggle("cms-field__input--muted", useUpload);
+			}
+			uploadWarning.hidden = !useUpload;
+			if (!useUpload) {
+				loadImageLibraryIntoSelect(imageLibrarySelect)
+					.then(() => {
+						const local = getLocalAssetPath(imgInput.value || "");
+						if (local) imageLibrarySelect.value = local;
+					})
+					.catch((err) => console.error(err));
+			}
+			updateImagePreview();
+		};
+		imageModeSelect.addEventListener("change", () => {
+			setImageMode(imageModeSelect.value);
+		});
+		imageLibrarySelect.addEventListener("change", () => {
+			const path = imageLibrarySelect.value;
+			if (!path) return;
+			const safePath = sanitizeImagePath(path, "");
+			if (!safePath) return;
+			imgInput.value = `/${safePath}`;
+			updateImagePreview();
+		});
+		imgInput.addEventListener("input", updateImagePreview);
+		imgInput.addEventListener("input", () => {
+			imgInput.classList.remove("cms-field__input--invalid");
+		});
+		imgInput.addEventListener("blur", () => {
+			const normalized = normalizeImageSource(imgInput.value);
+			if (normalized) imgInput.value = normalized;
+			updateImagePreview();
+		});
+		lightboxInput.addEventListener("change", updateOverlayPreview);
+		if (isHover) {
+			overlayTitleInput.addEventListener("input", updateOverlayPreview);
+			overlayTextInput.addEventListener("input", updateOverlayPreview);
+		}
+
+		const localPath = getLocalAssetPath(item.src || "");
+		const uploadItem =
+			localPath &&
+			(state.assetUploads || []).find((entry) => entry.path === localPath);
+		if (uploadItem) {
+			imageModeSelect.value = "upload";
+			currentUploadBase64 = uploadItem.content || "";
+			currentUploadMime = uploadItem.mime || "";
+			currentUploadPath = uploadItem.path || "";
+			currentUploadExt = getFileExtension(uploadItem.path || "");
+			uploadNameInput.value = uploadItem.path.replace(/^assets\/img\//, "");
+		}
+
+		let uploadNameLabel = null;
+		let uploadNameRow = null;
+		const imageRow = el("div", { class: "cms-field__row" }, [
+			imgInput,
+			imageModeSelect,
+			imageLibrarySelect,
+			imagePickBtn,
+			uploadFileInput,
+		]);
+		let imageInput = imageRow;
+		if (uploadNameInput) {
+			uploadNameLabel = el("div", { class: "cms-field__label" }, ["Filename"]);
+			uploadNameRow = el("div", { class: "cms-field__row" }, [uploadNameInput]);
+			uploadNameRow.hidden = uploadNameInput.hidden;
+			uploadNameLabel.hidden = uploadNameInput.hidden;
+			imageInput = el("div", { class: "cms-field__stack" }, [
+				imageRow,
+				uploadNameLabel,
+				uploadNameRow,
+			]);
+		}
+
+		const displayRow = el("div", { class: "cms-field__row" }, [
+			el("label", { class: "cms-field__toggle" }, [
+				lightboxInput,
+				el("span", { class: "cms-field__toggle-text" }, ["Lightbox"]),
+			]),
+		]);
+		const displayField = buildField({ label: "Display", input: displayRow });
+		const controls = [displayField, buildField({ label: "Alt text", input: altInput })];
+		if (isHover) {
+			const overlayInputs = el("div", { class: "cms-field__stack" }, [
+				overlayTitleInput,
+				overlayTextInput,
+			]);
+			controls.push(buildField({ label: "Overlay", input: overlayInputs }));
+		}
+		const controlsWrap = el(
+			"div",
+			{ class: "cms-image-settings__controls" },
+			controls,
+		);
+		const settingsRow = el("div", { class: "cms-image-settings" }, [
+			el("div", { class: "cms-image-settings__preview" }, [imagePreviewWrap]),
+			controlsWrap,
+		]);
+
+		const cancelBtn = el(
+			"button",
+			{
+				class: "cms-btn cms-modal__action",
+				type: "button",
+				"data-close": "true",
+			},
+			["Cancel"],
+		);
+		const saveBtn = el(
+			"button",
+			{
+				class: "cms-btn cms-btn--success cms-modal__action",
+				type: "button",
+			},
+			[isNew ? `Add ${itemLabel}` : `Update ${itemLabel}`],
+		);
+		const deleteBtn = el(
+			"button",
+			{
+				class: "cms-btn cms-btn--danger cms-modal__action",
+				type: "button",
+			},
+			["Delete"],
+		);
+
+		saveBtn.addEventListener("click", () => {
+			const src = normalizeImageSource(imgInput.value.trim());
+			if (!src) {
+				imgInput.classList.add("cms-field__input--invalid");
+				imgInput.focus();
+				return;
+			}
+			const alt = altInput.value.trim();
+			const lightbox = lightboxInput.checked;
+			const overlayTitle = isHover ? overlayTitleInput.value.trim() : "";
+			let overlayText = isHover ? overlayTextInput.value.trim() : "";
+			if (isHover && !overlayTitle && !overlayText && lightbox) {
+				overlayText = "Click to view";
+			}
+			const payload = {
+				src,
+				alt,
+				lightbox,
+				overlayTitle,
+				overlayText,
+			};
+			if (typeof onSave === "function") onSave(payload);
+			closeModal();
+		});
+
+		if (onDelete) {
+			deleteBtn.addEventListener("click", () => {
+				confirmDeleteItem(() => {
+					onDelete();
+				});
+			});
+		}
+
+		setImageMode(imageModeSelect.value);
+		loadImageLibraryIntoSelect(imageLibrarySelect).catch((err) =>
+			console.error(err),
+		);
+		updateImagePreview();
+
+		openModal({
+			title: isNew ? `Add ${itemLabel}` : `Edit ${itemLabel}`,
+			bodyNodes: [
+				buildField({ label: "Image source", input: imageInput }),
+				uploadWarning,
+				buildField({ label: "Image settings", input: settingsRow }),
+			],
+			footerNodes: onDelete ? [cancelBtn, deleteBtn, saveBtn] : [cancelBtn, saveBtn],
+		});
+	}
+
+	function attachGridRowControls({
+		wrapper,
+		type,
+		origin,
+		localId,
+		anchorBase,
+	}) {
+		if (!(wrapper instanceof HTMLElement)) return;
+		const root = getBlockRootElement(wrapper);
+		if (!root) return;
+		const isHover = type === "hoverCardRow";
+		const isSquare = type === "squareGridRow";
+		if (!isHover && !isSquare) return;
+		const buildAction = (iconName, label, className = "") =>
+			el(
+				"button",
+				{
+					type: "button",
+					class: ["cms-grid-action", className].filter(Boolean).join(" "),
+					title: label,
+					"aria-label": label,
+				},
+				[
+					el(
+						"span",
+						{ class: "material-icons cms-grid__icon", "aria-hidden": "true" },
+						[iconName],
+					),
+				],
+			);
+		const maxCards = 5;
+		const updateCards = (updateFn) => {
+			const blockRoot = getBlockRootElement(wrapper);
+			if (!blockRoot) return;
+			const parsed = parseMainBlockNode(blockRoot);
+			if (!parsed || (parsed.type !== "hoverCardRow" && parsed.type !== "squareGridRow"))
+				return;
+			const nextModel = updateFn(parsed);
+			if (!nextModel) return;
+			const updatedHtml = serializeMainBlocks([nextModel], {
+				path: state.path,
+			}).trim();
+			if (!updatedHtml) return;
+			if (origin === "base" && anchorBase?.id) {
+				const baseBlocks = buildBaseBlocksWithOcc(state.originalHtml || "");
+				const baseBlock = baseBlocks.find((b) => b.id === anchorBase.id);
+				const baseSig = buildBlockNoopSignature(baseBlock?.html || "");
+				const updatedSig = buildBlockNoopSignature(updatedHtml);
+				if (baseSig && updatedSig && baseSig === updatedSig) return;
+			}
+			const baseHtml = state.originalHtml || "";
+			const currentLocal = getHydratedLocalBlocks(
+				baseHtml,
+				state.dirtyPages[state.path]?.localBlocks || [],
+			);
+			applyBlockHtmlUpdate({
+				origin,
+				localId,
+				anchorBase,
+				currentLocal,
+				updatedHtml,
+			});
+		};
+
+		if (isHover) {
+			const cards = Array.from(root.querySelectorAll(".content.box.box-img"));
+			cards.forEach((card, idx) => {
+				if (!(card instanceof HTMLElement)) return;
+				card.classList.add("cms-grid-card");
+				if (card.querySelector(".cms-grid-actions")) return;
+				const actions = el("div", { class: "cms-grid-actions" }, []);
+				const editBtn = buildAction("edit", "Edit card");
+				const leftBtn = buildAction("chevron_left", "Move left");
+				const rightBtn = buildAction("chevron_right", "Move right");
+				const addBtn = buildAction("add", "Add card");
+				const deleteBtn = buildAction("delete", "Delete card", "cms-grid-action--danger");
+
+				editBtn.addEventListener("click", (event) => {
+					event.preventDefault();
+					event.stopPropagation();
+					const parsed = parseMainBlockNode(getBlockRootElement(wrapper));
+					const current = parsed?.cards?.[idx] || {};
+					openGridItemModal({
+						type: "hover",
+						item: current,
+						isNew: false,
+						onSave: (next) => {
+							updateCards((model) => {
+								const nextCards = [...(model.cards || [])];
+								nextCards[idx] = {
+									src: next.src,
+									alt: next.alt,
+									lightbox: next.lightbox,
+									overlayTitle: next.overlayTitle,
+									overlayText: next.overlayText,
+								};
+								return { ...model, cards: nextCards };
+							});
+						},
+						onDelete: () => {
+							updateCards((model) => {
+								const nextCards = [...(model.cards || [])];
+								nextCards.splice(idx, 1);
+								return { ...model, cards: nextCards };
+							});
+						},
+					});
+				});
+				leftBtn.addEventListener("click", (event) => {
+					event.preventDefault();
+					event.stopPropagation();
+					updateCards((model) => {
+						const nextCards = [...(model.cards || [])];
+						if (idx <= 0 || idx >= nextCards.length) return model;
+						const [moving] = nextCards.splice(idx, 1);
+						nextCards.splice(idx - 1, 0, moving);
+						return { ...model, cards: nextCards };
+					});
+				});
+				rightBtn.addEventListener("click", (event) => {
+					event.preventDefault();
+					event.stopPropagation();
+					updateCards((model) => {
+						const nextCards = [...(model.cards || [])];
+						if (idx < 0 || idx >= nextCards.length - 1) return model;
+						const [moving] = nextCards.splice(idx, 1);
+						nextCards.splice(idx + 1, 0, moving);
+						return { ...model, cards: nextCards };
+					});
+				});
+				addBtn.addEventListener("click", (event) => {
+					event.preventDefault();
+					event.stopPropagation();
+					const parsed = parseMainBlockNode(getBlockRootElement(wrapper));
+					const currentCount = parsed?.cards?.length || 0;
+					if (currentCount >= maxCards) {
+						openGridLimitWarning(maxCards);
+						return;
+					}
+					openGridItemModal({
+						type: "hover",
+						item: { lightbox: true },
+						isNew: true,
+						onSave: (next) => {
+							updateCards((model) => {
+								const nextCards = [...(model.cards || [])];
+								nextCards.splice(idx + 1, 0, {
+									src: next.src,
+									alt: next.alt,
+									lightbox: next.lightbox,
+									overlayTitle: next.overlayTitle,
+									overlayText: next.overlayText,
+								});
+								return { ...model, cards: nextCards };
+							});
+						},
+					});
+				});
+				deleteBtn.addEventListener("click", (event) => {
+					event.preventDefault();
+					event.stopPropagation();
+					confirmDeleteItem(() => {
+						updateCards((model) => {
+							const nextCards = [...(model.cards || [])];
+							nextCards.splice(idx, 1);
+							return { ...model, cards: nextCards };
+						});
+					});
+				});
+
+				actions.appendChild(editBtn);
+				actions.appendChild(leftBtn);
+				actions.appendChild(rightBtn);
+				actions.appendChild(addBtn);
+				actions.appendChild(deleteBtn);
+				card.appendChild(actions);
+			});
+			return;
+		}
+
+		if (isSquare) {
+			const items = Array.from(root.querySelectorAll(".box"));
+			items.forEach((box, idx) => {
+				if (!(box instanceof HTMLElement)) return;
+				box.classList.add("cms-grid-card", "cms-grid-card--square");
+				if (box.querySelector(".cms-grid-actions")) return;
+				const actions = el("div", { class: "cms-grid-actions" }, []);
+				const editBtn = buildAction("edit", "Edit image");
+				const leftBtn = buildAction("chevron_left", "Move left");
+				const rightBtn = buildAction("chevron_right", "Move right");
+				const addBtn = buildAction("add", "Add image");
+				const deleteBtn = buildAction("delete", "Delete image", "cms-grid-action--danger");
+
+				editBtn.addEventListener("click", (event) => {
+					event.preventDefault();
+					event.stopPropagation();
+					const parsed = parseMainBlockNode(getBlockRootElement(wrapper));
+					const current = parsed?.items?.[idx] || {};
+					openGridItemModal({
+						type: "square",
+						item: current,
+						isNew: false,
+						onSave: (next) => {
+							updateCards((model) => {
+								const nextItems = [...(model.items || [])];
+								nextItems[idx] = {
+									src: next.src,
+									alt: next.alt,
+									lightbox: next.lightbox,
+								};
+								return { ...model, items: nextItems };
+							});
+						},
+						onDelete: () => {
+							updateCards((model) => {
+								const nextItems = [...(model.items || [])];
+								nextItems.splice(idx, 1);
+								return { ...model, items: nextItems };
+							});
+						},
+					});
+				});
+				leftBtn.addEventListener("click", (event) => {
+					event.preventDefault();
+					event.stopPropagation();
+					updateCards((model) => {
+						const nextItems = [...(model.items || [])];
+						if (idx <= 0 || idx >= nextItems.length) return model;
+						const [moving] = nextItems.splice(idx, 1);
+						nextItems.splice(idx - 1, 0, moving);
+						return { ...model, items: nextItems };
+					});
+				});
+				rightBtn.addEventListener("click", (event) => {
+					event.preventDefault();
+					event.stopPropagation();
+					updateCards((model) => {
+						const nextItems = [...(model.items || [])];
+						if (idx < 0 || idx >= nextItems.length - 1) return model;
+						const [moving] = nextItems.splice(idx, 1);
+						nextItems.splice(idx + 1, 0, moving);
+						return { ...model, items: nextItems };
+					});
+				});
+				addBtn.addEventListener("click", (event) => {
+					event.preventDefault();
+					event.stopPropagation();
+					const parsed = parseMainBlockNode(getBlockRootElement(wrapper));
+					const currentCount = parsed?.items?.length || 0;
+					if (currentCount >= maxCards) {
+						openGridLimitWarning(maxCards);
+						return;
+					}
+					openGridItemModal({
+						type: "square",
+						item: { lightbox: true },
+						isNew: true,
+						onSave: (next) => {
+							updateCards((model) => {
+								const nextItems = [...(model.items || [])];
+								nextItems.splice(idx + 1, 0, {
+									src: next.src,
+									alt: next.alt,
+									lightbox: next.lightbox,
+								});
+								return { ...model, items: nextItems };
+							});
+						},
+					});
+				});
+				deleteBtn.addEventListener("click", (event) => {
+					event.preventDefault();
+					event.stopPropagation();
+					confirmDeleteItem(() => {
+						updateCards((model) => {
+							const nextItems = [...(model.items || [])];
+							nextItems.splice(idx, 1);
+							return { ...model, items: nextItems };
+						});
+					});
+				});
+
+				actions.appendChild(editBtn);
+				actions.appendChild(leftBtn);
+				actions.appendChild(rightBtn);
+				actions.appendChild(addBtn);
+				actions.appendChild(deleteBtn);
+				box.appendChild(actions);
+			});
+		}
+	}
+
 	function openBlockEditor({ blockHtml, origin, localId, anchorBase, currentLocal }) {
 		const doc = new DOMParser().parseFromString(
 			`<div id="__wrap__">${String(blockHtml || "")}</div>`,
@@ -6685,7 +7715,177 @@ function serializeSquareGridRow(block, ctx) {
 
 		let editors = [];
 		let settings = {};
-		if (parsed.type === "twoCol") {
+		if (parsed.type === "styledAccordion") {
+			const titleInput = el("input", {
+				type: "text",
+				class: "cms-field__input",
+				value: parsed.title || "",
+				placeholder: "Accordion title",
+			});
+			const introInput = el("textarea", {
+				class: "cms-field__input cms-field__textarea",
+				placeholder: "Optional intro text",
+			});
+			introInput.value = parsed.intro || "";
+			const itemsWrap = el("div", { class: "cms-modal__subgroup" }, []);
+			const accordionItems = [];
+			const syncItems = () => {
+				itemsWrap.innerHTML = "";
+				accordionItems.forEach((item, idx) => {
+					item.titleEl.textContent = `Item ${idx + 1}`;
+					item.upBtn.disabled = idx === 0;
+					item.downBtn.disabled = idx === accordionItems.length - 1;
+					item.removeBtn.disabled = accordionItems.length <= 1;
+					item.removeBtn.classList.toggle(
+						"is-disabled",
+						accordionItems.length <= 1,
+					);
+					itemsWrap.appendChild(item.wrap);
+				});
+			};
+			const buildItem = ({ label, body }) => {
+				const titleEl = el("div", { class: "cms-modal__group-title" }, ["Item"]);
+				const labelInput = el("input", {
+					type: "text",
+					class: "cms-field__input",
+					value: label || "",
+					placeholder: "Row title",
+				});
+				const editor = buildRteEditor({
+					label: "Row content",
+					initialHtml: body || "<ul><li>Point A</li><li>Point B</li></ul>",
+				});
+				const upBtn = el(
+					"button",
+					{
+						type: "button",
+						class: "cms-btn cms-btn--move",
+					},
+					["Move up"],
+				);
+				const downBtn = el(
+					"button",
+					{
+						type: "button",
+						class: "cms-btn cms-btn--move",
+					},
+					["Move down"],
+				);
+				const removeBtn = el(
+					"button",
+					{
+						type: "button",
+						class: "cms-btn cms-btn--danger",
+					},
+					["Remove row"],
+				);
+				const actionRow = el("div", { class: "cms-field__row" }, [
+					upBtn,
+					downBtn,
+					removeBtn,
+				]);
+				const wrap = el("div", { class: "cms-modal__group cms-modal__group--settings" }, [
+					titleEl,
+					buildField({ label: "Row title", input: labelInput }),
+					editor.wrap,
+					actionRow,
+				]);
+				const item = { wrap, titleEl, labelInput, editor, upBtn, downBtn, removeBtn };
+				upBtn.addEventListener("click", () => {
+					const index = accordionItems.indexOf(item);
+					if (index <= 0) return;
+					const prev = accordionItems[index - 1];
+					accordionItems[index - 1] = item;
+					accordionItems[index] = prev;
+					syncItems();
+				});
+				downBtn.addEventListener("click", () => {
+					const index = accordionItems.indexOf(item);
+					if (index < 0 || index >= accordionItems.length - 1) return;
+					const next = accordionItems[index + 1];
+					accordionItems[index + 1] = item;
+					accordionItems[index] = next;
+					syncItems();
+				});
+				removeBtn.addEventListener("click", () => {
+					if (accordionItems.length <= 1) return;
+					const index = accordionItems.indexOf(item);
+					if (index < 0) return;
+					accordionItems.splice(index, 1);
+					syncItems();
+				});
+				return item;
+			};
+			(parsed.items || []).forEach((item) => {
+				accordionItems.push(buildItem({ label: item.label, body: item.body }));
+			});
+			if (!accordionItems.length) {
+				accordionItems.push(buildItem({ label: "Item 1", body: "" }));
+			}
+			syncItems();
+			const addBtn = el(
+				"button",
+				{
+					type: "button",
+					class: "cms-btn cms-btn--primary",
+				},
+				["Add row"],
+			);
+			addBtn.addEventListener("click", () => {
+				accordionItems.push(buildItem({ label: "", body: "" }));
+				syncItems();
+			});
+
+			openModal({
+				title: "Edit block",
+				bodyNodes: [
+					buildField({
+						label: "Title",
+						input: titleInput,
+					}),
+					buildField({
+						label: "Intro",
+						input: introInput,
+						note: "Optional intro text above the accordion rows.",
+					}),
+					el("div", { class: "cms-modal__group cms-modal__group--settings" }, [
+						el("div", { class: "cms-modal__group-title" }, [
+							"Accordion rows",
+						]),
+						itemsWrap,
+						addBtn,
+					]),
+				],
+				footerNodes: [
+					el(
+						"button",
+						{
+							class: "cms-btn cms-modal__action cms-btn--danger",
+							type: "button",
+							"data-close": "true",
+						},
+						["Stop Editing Block"],
+					),
+					el(
+						"button",
+						{
+							class: "cms-btn cms-modal__action cms-btn--success",
+							type: "button",
+							"data-action": "save-block",
+						},
+						["Save"],
+					),
+				],
+				pruneAssets: true,
+				onClose: openExitConfirm,
+			});
+
+			settings = {
+				accordionTitleInput: titleInput,
+				accordionIntroInput: introInput,
+				accordionItems,
+			};
+		} else if (parsed.type === "twoCol") {
 			const headingInput = el("input", {
 				type: "text",
 				class: "cms-field__input",
@@ -7246,6 +8446,16 @@ function serializeSquareGridRow(block, ctx) {
 
 		saveBtn.addEventListener("click", async () => {
 			const updated = { ...parsed };
+			if (settings.accordionItems) {
+				updated.title = settings.accordionTitleInput?.value.trim() || "";
+				updated.titleTag = parsed.titleTag || "h2";
+				updated.intro = settings.accordionIntroInput?.value.trim() || "";
+				updated.items = settings.accordionItems.map((item, idx) => ({
+					label:
+						item.labelInput?.value.trim() || `Item ${idx + 1}`,
+					body: sanitizeRteHtml(item.editor?.editor.innerHTML || "", ctx),
+				}));
+			}
 			if (settings.headingInput) {
 				updated.heading = settings.headingInput.value.trim();
 				updated.headingTag = parsed.headingTag || "h2";
@@ -7463,6 +8673,14 @@ function serializeSquareGridRow(block, ctx) {
 				};
 			}
 			return { type: "grid-wrapper-row", summary: "Grid row" };
+		}
+
+		if (cls.contains("flex-accordion-wrapper")) {
+			const title = node.querySelector("h1,h2,h3")?.textContent?.trim() || "";
+			return {
+				type: "styled-accordion",
+				summary: title || "Styled accordion",
+			};
 		}
 
 		if (cls.contains("grid-wrapper")) {
@@ -7990,6 +9208,11 @@ function serializeSquareGridRow(block, ctx) {
 
 		mergedRender.forEach((b, idx) => {
 			const frag = new DOMParser().parseFromString(b.html, "text/html").body;
+			const blockRoot = frag.firstElementChild || frag.children[0] || null;
+			const parsedBlock = blockRoot ? parseMainBlockNode(blockRoot) : null;
+			const blockType = parsedBlock?.type || "";
+			const isGridRow =
+				blockType === "hoverCardRow" || blockType === "squareGridRow";
 			const html = (b.html || "").trim();
 			const localItem = b._local || null;
 			const isPending = localItem?.status === "pending";
@@ -8061,6 +9284,7 @@ function serializeSquareGridRow(block, ctx) {
 			if (status === "pending") classes.push("cms-block--pending");
 			else classes.push(`cms-block--${status}`);
 			const wrapper = el("div", { class: classes.join(" ") });
+			if (isGridRow) wrapper.classList.add("cms-block--dark-controls");
 			if (isBase) {
 				if (b.id) wrapper.setAttribute("data-base-id", b.id);
 				if (b.sig) wrapper.setAttribute("data-base-sig", b.sig);
@@ -8069,20 +9293,25 @@ function serializeSquareGridRow(block, ctx) {
 			}
 			Array.from(frag.children).forEach((n) => wrapper.appendChild(n));
 			if (localItem && !isPending) {
-				const controls = el("div", { class: "cms-block__controls" }, [
-					el(
-						"button",
-						{
-							type: "button",
-							class: "cms-block__btn cms-block__btn--edit",
-							"data-action": "edit",
-							"data-id": localItem.id || "",
-							"data-index": String(idx),
-							"data-origin": "local",
-							title: "Edit block",
-						},
-						[buildPenIcon(), "Edit"],
-					),
+				const controls = el("div", { class: "cms-block__controls" }, []);
+				if (!isGridRow) {
+					controls.appendChild(
+						el(
+							"button",
+							{
+								type: "button",
+								class: "cms-block__btn cms-block__btn--edit",
+								"data-action": "edit",
+								"data-id": localItem.id || "",
+								"data-index": String(idx),
+								"data-origin": "local",
+								title: "Edit block",
+							},
+							[buildPenIcon(), "Edit"],
+						),
+					);
+				}
+				controls.appendChild(
 					el(
 						"button",
 						{
@@ -8096,6 +9325,8 @@ function serializeSquareGridRow(block, ctx) {
 						},
 						["↑"],
 					),
+				);
+				controls.appendChild(
 					el(
 						"button",
 						{
@@ -8109,6 +9340,8 @@ function serializeSquareGridRow(block, ctx) {
 						},
 						["↓"],
 					),
+				);
+				controls.appendChild(
 					el(
 						"button",
 						{
@@ -8122,24 +9355,29 @@ function serializeSquareGridRow(block, ctx) {
 						},
 						[buildTrashIcon(), "Delete"],
 					),
-				]);
+				);
 				wrapper.appendChild(controls);
 			}
 			if (!localItem && !isPending && isBase) {
 				const isUndo = isMarkedRemove;
-				const controls = el("div", { class: "cms-block__controls" }, [
-					el(
-						"button",
-						{
-							type: "button",
-							class: "cms-block__btn cms-block__btn--edit",
-							"data-action": "edit",
-							"data-index": String(idx),
-							"data-origin": "base",
-							title: "Edit block",
-						},
-						[buildPenIcon(), "Edit"],
-					),
+				const controls = el("div", { class: "cms-block__controls" }, []);
+				if (!isGridRow) {
+					controls.appendChild(
+						el(
+							"button",
+							{
+								type: "button",
+								class: "cms-block__btn cms-block__btn--edit",
+								"data-action": "edit",
+								"data-index": String(idx),
+								"data-origin": "base",
+								title: "Edit block",
+							},
+							[buildPenIcon(), "Edit"],
+						),
+					);
+				}
+				controls.appendChild(
 					el(
 						"button",
 						{
@@ -8152,6 +9390,8 @@ function serializeSquareGridRow(block, ctx) {
 						},
 						["↑"],
 					),
+				);
+				controls.appendChild(
 					el(
 						"button",
 						{
@@ -8164,6 +9404,8 @@ function serializeSquareGridRow(block, ctx) {
 						},
 						["↓"],
 					),
+				);
+				controls.appendChild(
 					el(
 						"button",
 						{
@@ -8177,7 +9419,7 @@ function serializeSquareGridRow(block, ctx) {
 						},
 						[buildTrashIcon(), isUndo ? "Undo" : "Delete"],
 					),
-				]);
+				);
 				wrapper.appendChild(controls);
 			}
 			if (status !== "pending") {
@@ -8215,6 +9457,17 @@ function serializeSquareGridRow(block, ctx) {
 				);
 			}
 			mainWrap.appendChild(wrapper);
+			if (!isPending && !isMarkedRemove && isGridRow) {
+				attachGridRowControls({
+					wrapper,
+					type: blockType,
+					origin: localItem ? "local" : "base",
+					localId: localItem?.id || "",
+					anchorBase: isBase
+						? { id: b.id, sig: b.sig, occ: b.occ }
+						: null,
+				});
+			}
 			mainWrap.appendChild(
 				insertDivider(idx + 1, "Insert block", anchorForIndex(idx + 1)),
 			);
