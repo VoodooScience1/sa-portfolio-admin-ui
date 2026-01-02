@@ -746,8 +746,13 @@
 					cls.includes("flex-accordion-wrapper") ||
 					cls.includes("flex-accordion-box")
 				) {
+					const cleanCls = cls
+						.split(/\s+/)
+						.filter((name) => name && !name.startsWith("cms-"))
+						.join(" ");
 					const inner = serializeChildren(node);
-					return `<div class="${escapeAttr(cls)}">${inner}</div>`;
+					const classAttr = cleanCls ? ` class="${escapeAttr(cleanCls)}"` : "";
+					return `<div${classAttr}>${inner}</div>`;
 				}
 				if (cls.includes("video-stub")) {
 					return serializeVideoStub({
@@ -1346,29 +1351,6 @@ function serializeSquareGridRow(block, ctx) {
 			console.warn("[cms-portal] canonicalize failed", err);
 			return html;
 		}
-	}
-
-	function buildDiffSummary(baseHtml, dirtyHtml) {
-		const baseMain = extractRegion(baseHtml, "main");
-		const dirtyMain = extractRegion(dirtyHtml, "main");
-		if (!dirtyMain.found) return [];
-
-		const baseBlocks = baseMain.found ? parseBlocks(baseMain.inner) : [];
-		const dirtyBlocks = parseBlocks(dirtyMain.inner);
-
-		const baseHtmlList = baseBlocks.map((b) => (b.html || "").trim());
-		const added = [];
-		const modified = [];
-
-		dirtyBlocks.forEach((block) => {
-			const html = (block.html || "").trim();
-			const idx = baseHtmlList.indexOf(html);
-			if (idx >= 0) baseHtmlList.splice(idx, 1);
-			else added.push(block.summary || block.type || "Block");
-		});
-
-		// Modified detection is pending; return an empty list for now.
-		return { added, modified };
 	}
 
 	function ensureModalRoot() {
@@ -2326,7 +2308,10 @@ function serializeSquareGridRow(block, ctx) {
 			refreshUiStateForDirty();
 			return;
 		}
-		if (!updatedHtml || (!hasLocal && updatedHtml.trim() === baseHtml.trim())) {
+		const matchesBase =
+			normalizeForDirtyCompare(updatedHtml || "", path) ===
+			normalizeForDirtyCompare(baseHtml || "", path);
+		if (!updatedHtml || (!hasLocal && matchesBase)) {
 			clearDirtyPage(path);
 		} else {
 			const anchoredLocal = assignAnchorsFromHtml(
@@ -3013,24 +2998,6 @@ function serializeSquareGridRow(block, ctx) {
 			});
 			return canonicalizeFullHtml(result, entry?.path || state.path);
 		}
-		const remainingLocal = localBlocks.filter(
-			(item) => !selectedLocalIds.has(item.id),
-		);
-		const result = mergeDirtyWithBase(baseHtml, baseHtml, remainingLocal, {
-			respectRemovals: hasRemovalActions(remainingLocal),
-			path: entry?.path || state.path,
-		});
-		return canonicalizeFullHtml(result, entry?.path || state.path);
-	}
-
-	// Remove only the selected blocks from the current dirty HTML (keep everything else).
-	function buildDirtyAfterSelection(entry, selectedIds) {
-		const baseHtml = entry?.baseHtml || entry?.dirtyHtml || "";
-		if (!baseHtml) return "";
-		if (!selectedIds || !selectedIds.size)
-			return canonicalizeFullHtml(entry?.dirtyHtml || baseHtml, entry?.path);
-		const localBlocks = normalizeLocalBlocks(entry?.localBlocks || []);
-		const selectedLocalIds = getSelectedLocalIds(entry, selectedIds);
 		const remainingLocal = localBlocks.filter(
 			(item) => !selectedLocalIds.has(item.id),
 		);
@@ -7560,6 +7527,10 @@ function serializeSquareGridRow(block, ctx) {
 				assignAnchorsFromHtml(baseHtml, mergedHtml, locals),
 		};
 	}
+	window.__CMS_DEBUG_ENABLE__ = (val = true) => {
+		setDebugEnabled(Boolean(val));
+		return state.debug;
+	};
 
 	function stopPrPolling() {
 		if (prPollTimer) {
@@ -7596,9 +7567,24 @@ function serializeSquareGridRow(block, ctx) {
 		if (path === state.path) {
 			updateLocalBlocksAndRender(path, remaining);
 		} else {
-			entry.localBlocks = remaining;
-			entry.updatedAt = Date.now();
-			saveDirtyPagesToStorage();
+			const baseHtml = entry.baseHtml || entry.dirtyHtml || state.originalHtml || "";
+			const updatedHtml = mergeDirtyWithBase(baseHtml, baseHtml, remaining, {
+				respectRemovals: hasRemovalActions(remaining),
+				path,
+			});
+			const remappedLocal = assignAnchorsFromHtml(
+				baseHtml,
+				updatedHtml,
+				remaining,
+			);
+			if (
+				normalizeForDirtyCompare(updatedHtml, path) ===
+				normalizeForDirtyCompare(baseHtml, path)
+			) {
+				clearDirtyPage(path);
+			} else {
+				setDirtyPage(path, updatedHtml, baseHtml, remappedLocal);
+			}
 		}
 	}
 
@@ -8868,7 +8854,7 @@ function serializeSquareGridRow(block, ctx) {
 		const data = await res.json();
 		state.originalHtml = data.text || state.originalHtml;
 		bumpUpdatePill();
-		const dirtyEntry = state.dirtyPages[path] || {};
+		let dirtyEntry = state.dirtyPages[path] || {};
 		if (dirtyEntry.localBlocks?.length) {
 			const cleanedLocal = filterLocalBlocksAgainstBase(
 				state.originalHtml,
@@ -8886,6 +8872,7 @@ function serializeSquareGridRow(block, ctx) {
 					);
 			}
 		}
+		dirtyEntry = state.dirtyPages[path] || {};
 		const workingHtml = dirtyEntry.html || state.originalHtml;
 		const hero = extractRegion(workingHtml, "hero");
 		const main = extractRegion(workingHtml, "main");
@@ -9029,9 +9016,7 @@ function serializeSquareGridRow(block, ctx) {
 		}
 		purgeCleanDirtyPages();
 		if (!dirtyCount()) {
-			qs("#cms-modal").classList.remove("is-open");
-			document.documentElement.classList.remove("cms-lock");
-			document.body.classList.remove("cms-lock");
+			closeModal();
 			return;
 		}
 
@@ -9241,9 +9226,7 @@ function serializeSquareGridRow(block, ctx) {
 				}
 			});
 			purgeCleanDirtyPages();
-			qs("#cms-modal").classList.remove("is-open");
-			document.documentElement.classList.remove("cms-lock");
-			document.body.classList.remove("cms-lock");
+			closeModal();
 			refreshUiStateForDirty();
 			renderPageSurface();
 		});
@@ -9348,12 +9331,34 @@ function serializeSquareGridRow(block, ctx) {
 	async function openPrModal() {
 		// Guard against multiple active PRs for this session.
 		if (state.prList?.length) {
+			const note = el("p", { class: "cms-modal__text" }, [
+				"If the PR was merged or closed and the status didn't update, you can clear PR state without losing edits.",
+			]);
+			const clearBtn = el(
+				"button",
+				{
+					class: "cms-btn cms-modal__action cms-btn--move",
+					type: "button",
+				},
+				["Clear PR State (keep edits)"],
+			);
+			clearBtn.addEventListener("click", () => {
+				state.prList = [];
+				savePrState();
+				syncActivePrState();
+				resetPendingBlocksIfNoPr();
+				stopPrPolling();
+				refreshUiStateForDirty();
+				renderPageSurface();
+				closeModal();
+			});
 			openModal({
 				title: "PR already open",
 				bodyNodes: [
 					el("p", {}, [
 						"A pull request is already open for this session. Merge or close it before creating another.",
 					]),
+					note,
 				],
 				footerNodes: [
 					el(
@@ -9366,6 +9371,7 @@ function serializeSquareGridRow(block, ctx) {
 						},
 						["View PR"],
 					),
+					clearBtn,
 				],
 			});
 			return;
@@ -9390,9 +9396,7 @@ function serializeSquareGridRow(block, ctx) {
 			dirtyPaths = Object.keys(state.dirtyPages || {});
 		}
 		if (!dirtyPaths.length) {
-			qs("#cms-modal").classList.remove("is-open");
-			document.documentElement.classList.remove("cms-lock");
-			document.body.classList.remove("cms-lock");
+			closeModal();
 			return;
 		}
 
@@ -9634,9 +9638,7 @@ function serializeSquareGridRow(block, ctx) {
 				}
 			});
 
-			qs("#cms-modal").classList.remove("is-open");
-			document.documentElement.classList.remove("cms-lock");
-			document.body.classList.remove("cms-lock");
+			closeModal();
 
 			if (!payloads.length) return;
 			const pr = await submitPr(
