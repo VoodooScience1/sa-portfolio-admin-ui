@@ -6474,7 +6474,15 @@ function serializeSquareGridRow(block, ctx) {
 			);
 			return signatureForHtml(wrap.innerHTML);
 		};
-		const baseSig = buildNoopSignature(blockHtml || "");
+		const baseCanonicalHtml = (() => {
+			try {
+				return serializeMainBlocks([parsed], { path: state.path }).trim();
+			} catch (err) {
+				console.warn("[cms-portal] base canonical failed", err);
+				return "";
+			}
+		})();
+		const baseSig = buildNoopSignature(baseCanonicalHtml || blockHtml || "");
 		const escapeSelector = (value) => {
 			if (!value) return "";
 			if (window.CSS && typeof window.CSS.escape === "function")
