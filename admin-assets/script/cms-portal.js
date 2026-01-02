@@ -9177,7 +9177,7 @@ function serializeSquareGridRow(block, ctx) {
 		codeInput.addEventListener("input", updateAction);
 		updateAction();
 
-		action.addEventListener("click", () => {
+			action.addEventListener("click", () => {
 			const pathsToProcess = Array.from(selectedPages);
 			if (!pathsToProcess.length) return;
 			pathsToProcess.forEach((path) => {
@@ -9209,9 +9209,19 @@ function serializeSquareGridRow(block, ctx) {
 					}
 					return true;
 				});
+				const baseHtml = entry.baseHtml || entry.dirtyHtml || "";
+				if (!remainingLocal.length) {
+					clearDirtyPage(path);
+					if (path === state.path) {
+						state.lastReorderLocal = null;
+						applyHtmlToCurrentPage(baseHtml || state.originalHtml || "");
+						renderPageSurface();
+					}
+					return;
+				}
 				const updatedHtml = mergeDirtyWithBase(
-					entry.baseHtml || entry.dirtyHtml || "",
-					entry.baseHtml || entry.dirtyHtml || "",
+					baseHtml,
+					baseHtml,
 					remainingLocal,
 					{
 						respectRemovals: hasRemovalActions(remainingLocal),
@@ -9219,7 +9229,7 @@ function serializeSquareGridRow(block, ctx) {
 					},
 				);
 				const remappedLocal = assignAnchorsFromHtml(
-					entry.baseHtml || entry.dirtyHtml || "",
+					baseHtml,
 					updatedHtml,
 					remainingLocal,
 				);
