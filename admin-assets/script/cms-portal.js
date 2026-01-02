@@ -811,7 +811,11 @@
 
 		if (tag === "table") {
 			const inner = serializeChildren(node);
-			return `<table>${inner}</table>`;
+			const cls = node.getAttribute("class") || "";
+			const isBorderless = cls.split(/\s+/).includes("table-borderless");
+			return isBorderless
+				? `<table class="table-borderless">${inner}</table>`
+				: `<table>${inner}</table>`;
 		}
 
 		if (tag === "thead" || tag === "tbody") {
@@ -4151,6 +4155,16 @@ function serializeSquareGridRow(block, ctx) {
 					"button",
 					{
 						type: "button",
+						"data-cmd": "table-borderless",
+						"data-tooltip": "Borderless table",
+						"aria-label": "Borderless table",
+					},
+					[toolbarIcon("border_clear")],
+				),
+				el(
+					"button",
+					{
+						type: "button",
 						"data-cmd": "table-row",
 						"data-tooltip": "Add row",
 						"aria-label": "Add row",
@@ -5993,6 +6007,26 @@ function serializeSquareGridRow(block, ctx) {
 					"</table>",
 				].join("\n");
 				insertHtmlAtCursor(editor, tableHtml);
+			} else if (cmd === "table-borderless") {
+				const selection = window.getSelection();
+				let node = selection?.anchorNode || null;
+				if (node && node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+				const table = node?.closest ? node.closest("table") : null;
+				if (table) {
+					table.classList.add("table-borderless");
+				} else {
+					const tableHtml = [
+						'<table class="table-borderless">',
+						"\t<thead>",
+						"\t\t<tr><th>Header</th><th>Header</th></tr>",
+						"\t</thead>",
+						"\t<tbody>",
+						"\t\t<tr><td>Cell</td><td>Cell</td></tr>",
+						"\t</tbody>",
+						"</table>",
+					].join("\n");
+					insertHtmlAtCursor(editor, tableHtml);
+				}
 			} else if (cmd === "table-row") {
 				addTableRowAfterCell();
 			} else if (cmd === "table-col") {
