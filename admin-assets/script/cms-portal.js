@@ -6450,7 +6450,31 @@ function serializeSquareGridRow(block, ctx) {
 			blockId,
 			blockIdShort: hashText(String(blockId || "block")).slice(0, 4),
 		};
-		const baseSig = signatureForHtml(blockHtml || "");
+		const buildNoopSignature = (html) => {
+			const doc = new DOMParser().parseFromString(
+				`<div id="__wrap__">${String(html || "")}</div>`,
+				"text/html",
+			);
+			const wrap = doc.querySelector("#__wrap__");
+			if (!wrap) return "";
+			const pruneWhitespace = (node, inPre) => {
+				if (node.nodeType === Node.TEXT_NODE) {
+					if (!inPre && !(node.textContent || "").trim()) node.remove();
+					return;
+				}
+				if (node.nodeType !== Node.ELEMENT_NODE) return;
+				const tag = (node.tagName || "").toLowerCase();
+				const nextInPre = inPre || tag === "pre" || tag === "code";
+				Array.from(node.childNodes).forEach((child) =>
+					pruneWhitespace(child, nextInPre),
+				);
+			};
+			Array.from(wrap.childNodes).forEach((child) =>
+				pruneWhitespace(child, false),
+			);
+			return signatureForHtml(wrap.innerHTML);
+		};
+		const baseSig = buildNoopSignature(blockHtml || "");
 		const escapeSelector = (value) => {
 			if (!value) return "";
 			if (window.CSS && typeof window.CSS.escape === "function")
@@ -7210,7 +7234,7 @@ function serializeSquareGridRow(block, ctx) {
 				path: state.path,
 			}).trim();
 			if (!updatedHtml) return;
-			const updatedSig = signatureForHtml(updatedHtml);
+			const updatedSig = buildNoopSignature(updatedHtml);
 			if (updatedSig === baseSig) {
 				closeModal();
 				return;
