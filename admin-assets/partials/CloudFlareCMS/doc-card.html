@@ -1,20 +1,46 @@
-<!-- A container for adding a document into as an inline item -->
-<div class="div-wrapper">
-	<div class="default-div-wrapper">
-		<div class="doc-card">
-			<a
-				class="doc-card__link"
-				href="/assets/docs/FILE.pdf"
-				target="_blank"
-				rel="noopener noreferrer"
+<!-- Doc card (inline or block) -->
+<div class="doc-card">
+	<a
+		class="doc-card__link"
+		href="/assets/docs/FILE.pdf"
+		target="_blank"
+		rel="noopener noreferrer"
+		data-doc-open
+	>
+		<div class="doc-card__header">
+			<div class="doc-card__title">CMS Doc Partial</div>
+			<span class="material-icons doc-card__type-icon" aria-hidden="true"
+				>insert_drive_file</span
 			>
-				<div class="doc-card__meta">
-					<div class="doc-card__title">CMS Doc Partial</div>
-					<div class="doc-card__desc">
-						Authoring contract and block inventory baseline.
-					</div>
-				</div>
-			</a>
 		</div>
-	</div>
+		<div class="doc-card__desc">
+			Authoring contract and block inventory baseline.
+		</div>
+		<div class="doc-card__apps" aria-hidden="true">
+			<span class="material-icons doc-card__app" data-doc-ext="pdf"
+				>picture_as_pdf</span
+			>
+			<span class="material-icons doc-card__app" data-doc-ext="doc,docx"
+				>description</span
+			>
+			<span class="material-icons doc-card__app" data-doc-ext="xls,xlsx,csv"
+				>table_chart</span
+			>
+			<span class="material-icons doc-card__app" data-doc-ext="ppt,pptx"
+				>slideshow</span
+			>
+			<span class="material-icons doc-card__app" data-doc-ext="md,txt,rtf"
+				>code</span
+			>
+			<span class="material-icons doc-card__app" data-doc-ext="zip,rar,7z"
+				>archive</span
+			>
+		</div>
+		<div class="doc-card__overlay">
+			<div class="doc-card__overlay-content">
+				<span class="material-icons" aria-hidden="true">open_in_new</span>
+				<span class="doc-card__overlay-label">Open document</span>
+			</div>
+		</div>
+	</a>
 </div>

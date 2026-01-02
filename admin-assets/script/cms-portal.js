@@ -667,20 +667,44 @@
 			const target =
 				link?.getAttribute("target") === "_blank" ? "_blank" : "_blank";
 			const rel = target === "_blank" ? "noopener noreferrer" : "";
+			const apps = [
+				{ exts: "pdf", icon: "picture_as_pdf" },
+				{ exts: "doc,docx", icon: "description" },
+				{ exts: "xls,xlsx,csv", icon: "table_chart" },
+				{ exts: "ppt,pptx", icon: "slideshow" },
+				{ exts: "md,txt,rtf", icon: "code" },
+				{ exts: "zip,rar,7z", icon: "archive" },
+			];
 			const lines = [
 				`<div class="doc-card">`,
 				`\t<a class="doc-card__link" href="${escapeAttr(
 					href,
-				)}" target="${target}" rel="${rel}">`,
-				`\t\t<div class="doc-card__meta">`,
+				)}" target="${target}" rel="${rel}" data-doc-open>`,
+				`\t\t<div class="doc-card__header">`,
 				`\t\t\t<div class="doc-card__title">${escapeHtml(title)}</div>`,
+				`\t\t\t<span class="material-icons doc-card__type-icon" aria-hidden="true">insert_drive_file</span>`,
+				`\t\t</div>`,
 			];
-			if (desc) {
+			if (desc) lines.push(`\t\t<div class="doc-card__desc">${escapeHtml(desc)}</div>`);
+			lines.push(`\t\t<div class="doc-card__apps" aria-hidden="true">`);
+			apps.forEach((entry) => {
 				lines.push(
-					`\t\t\t<div class="doc-card__desc">${escapeHtml(desc)}</div>`,
+					`\t\t\t<span class="material-icons doc-card__app" data-doc-ext="${escapeAttr(
+						entry.exts,
+					)}" aria-hidden="true">${entry.icon}</span>`,
 				);
-			}
-			lines.push("\t\t</div>", "\t</a>", "</div>");
+			});
+			lines.push(
+				`\t\t</div>`,
+				`\t\t<div class="doc-card__overlay">`,
+				`\t\t\t<div class="doc-card__overlay-content">`,
+				`\t\t\t\t<span class="material-icons" aria-hidden="true">open_in_new</span>`,
+				`\t\t\t\t<span class="doc-card__overlay-label">Open document</span>`,
+				`\t\t\t</div>`,
+				`\t\t</div>`,
+				`\t</a>`,
+				`</div>`,
+			);
 			return lines.join("\n");
 		};
 
@@ -4853,15 +4877,55 @@ function serializeSquareGridRow(block, ctx) {
 			class: "cms-field__input",
 			placeholder: "Optional description",
 		});
+		const docAppIcons = [
+			{ exts: "pdf", icon: "picture_as_pdf" },
+			{ exts: "doc,docx", icon: "description" },
+			{ exts: "xls,xlsx,csv", icon: "table_chart" },
+			{ exts: "ppt,pptx", icon: "slideshow" },
+			{ exts: "md,txt,rtf", icon: "code" },
+			{ exts: "zip,rar,7z", icon: "archive" },
+		];
+		const buildDocAppsNodes = () =>
+			el(
+				"div",
+				{ class: "doc-card__apps", "aria-hidden": "true" },
+				docAppIcons.map((entry) =>
+					el(
+						"span",
+						{
+							class: "material-icons doc-card__app",
+							"data-doc-ext": entry.exts,
+							"aria-hidden": "true",
+						},
+						[entry.icon],
+					),
+				),
+			);
 		const docPreviewTitle = el("div", { class: "doc-card__title" }, [
 			"Document title",
 		]);
 		const docPreviewDesc = el("div", { class: "doc-card__desc" }, [
 			"Document description.",
 		]);
-		const docPreviewMeta = el("div", { class: "doc-card__meta" }, [
+		const docPreviewHeader = el("div", { class: "doc-card__header" }, [
 			docPreviewTitle,
-			docPreviewDesc,
+			el(
+				"span",
+				{
+					class: "material-icons doc-card__type-icon",
+					"aria-hidden": "true",
+				},
+				["insert_drive_file"],
+			),
+		]);
+		const docPreviewApps = buildDocAppsNodes();
+		const docPreviewOverlay = el("div", { class: "doc-card__overlay" }, [
+			el("div", { class: "doc-card__overlay-content" }, [
+				el("span", { class: "material-icons", "aria-hidden": "true" }, [
+					"open_in_new",
+				]),
+				el("span", { class: "doc-card__overlay-label" }, ["Open document"]),
+			]),
 		]);
 		const docPreviewLink = el(
 			"a",
@@ -4870,8 +4934,9 @@ function serializeSquareGridRow(block, ctx) {
 				href: "#",
 				target: "_blank",
 				rel: "noopener noreferrer",
+				"data-doc-open": "true",
 			},
-			[docPreviewMeta],
+			[docPreviewHeader, docPreviewDesc, docPreviewApps, docPreviewOverlay],
 		);
 		docPreviewLink.addEventListener("click", (event) => event.preventDefault());
 		const docPreviewCard = el("div", { class: "doc-card cms-doc-preview" }, [
@@ -5461,16 +5526,42 @@ function serializeSquareGridRow(block, ctx) {
 			const title = escapeHtml(attrs.title || "Document");
 			const desc = escapeHtml(attrs.desc || "");
 			const href = escapeAttr(attrs.href || "");
+			const apps = [
+				{ exts: "pdf", icon: "picture_as_pdf" },
+				{ exts: "doc,docx", icon: "description" },
+				{ exts: "xls,xlsx,csv", icon: "table_chart" },
+				{ exts: "ppt,pptx", icon: "slideshow" },
+				{ exts: "md,txt,rtf", icon: "code" },
+				{ exts: "zip,rar,7z", icon: "archive" },
+			];
 			const lines = [
 				`<div class="doc-card">`,
-				`\t<a class="doc-card__link" href="${href}" target="_blank" rel="noopener noreferrer">`,
-				`\t\t<div class="doc-card__meta">`,
+				`\t<a class="doc-card__link" href="${href}" target="_blank" rel="noopener noreferrer" data-doc-open>`,
+				`\t\t<div class="doc-card__header">`,
 				`\t\t\t<div class="doc-card__title">${title}</div>`,
+				`\t\t\t<span class="material-icons doc-card__type-icon" aria-hidden="true">insert_drive_file</span>`,
+				`\t\t</div>`,
 			];
-			if (desc) {
-				lines.push(`\t\t\t<div class="doc-card__desc">${desc}</div>`);
-			}
-			lines.push("\t\t</div>", "\t</a>", "</div>");
+			if (desc) lines.push(`\t\t<div class="doc-card__desc">${desc}</div>`);
+			lines.push(`\t\t<div class="doc-card__apps" aria-hidden="true">`);
+			apps.forEach((entry) => {
+				lines.push(
+					`\t\t\t<span class="material-icons doc-card__app" data-doc-ext="${escapeAttr(
+						entry.exts,
+					)}" aria-hidden="true">${entry.icon}</span>`,
+				);
+			});
+			lines.push(
+				`\t\t</div>`,
+				`\t\t<div class="doc-card__overlay">`,
+				`\t\t\t<div class="doc-card__overlay-content">`,
+				`\t\t\t\t<span class="material-icons" aria-hidden="true">open_in_new</span>`,
+				`\t\t\t\t<span class="doc-card__overlay-label">Open document</span>`,
+				`\t\t\t</div>`,
+				`\t\t</div>`,
+				`\t</a>`,
+				`</div>`,
+			);
 			return lines.join("\n");
 		};
 
@@ -5485,15 +5576,35 @@ function serializeSquareGridRow(block, ctx) {
 					href: attrs.href || "#",
 					target: "_blank",
 					rel: "noopener noreferrer",
+					"data-doc-open": "true",
 				},
 				[
-					el("div", { class: "doc-card__meta" }, [
+					el("div", { class: "doc-card__header" }, [
 						el("div", { class: "doc-card__title" }, [
 							attrs.title || "Document",
 						]),
-						...(attrs.desc
-							? [el("div", { class: "doc-card__desc" }, [attrs.desc])]
-							: []),
+						el(
+							"span",
+							{
+								class: "material-icons doc-card__type-icon",
+								"aria-hidden": "true",
+							},
+							["insert_drive_file"],
+						),
+					]),
+					...(attrs.desc
+						? [el("div", { class: "doc-card__desc" }, [attrs.desc])]
+						: []),
+					buildDocAppsNodes(),
+					el("div", { class: "doc-card__overlay" }, [
+						el("div", { class: "doc-card__overlay-content" }, [
+							el("span", { class: "material-icons", "aria-hidden": "true" }, [
+								"open_in_new",
+							]),
+							el("span", { class: "doc-card__overlay-label" }, [
+								"Open document",
+							]),
+						]),
 					]),
 				],
 			);
