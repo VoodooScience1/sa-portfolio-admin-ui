@@ -3939,8 +3939,6 @@ function serializeSquareGridRow(block, ctx) {
 				{ class: "material-icons cms-rte__icon", "aria-hidden": "true" },
 				[name],
 			);
-		const toolbarLabel = (text) =>
-			el("span", { class: "cms-rte__icon-label" }, [text]);
 		const buildAccordionMarkup = ({ styled }) => {
 			const baseId = `acc-${BUILD_TOKEN}-${makeLocalId()}`;
 			const items = [
@@ -4115,7 +4113,7 @@ function serializeSquareGridRow(block, ctx) {
 						"data-tooltip": "Inline code",
 						"aria-label": "Inline code",
 					},
-					[toolbarIcon("linear_scale")],
+					[toolbarIcon("settings_ethernet")],
 				),
 				el(
 					"button",
@@ -4178,7 +4176,17 @@ function serializeSquareGridRow(block, ctx) {
 						"data-tooltip": "Accordion (styled)",
 						"aria-label": "Accordion (styled)",
 					},
-					[toolbarIcon("view_list")],
+					[toolbarIcon("dvr")],
+				),
+				el(
+					"button",
+					{
+						type: "button",
+						"data-cmd": "doc",
+						"data-tooltip": "Attach document",
+						"aria-label": "Attach document",
+					},
+					[toolbarIcon("attach_file")],
 				),
 			]),
 		]);
@@ -4366,6 +4374,7 @@ function serializeSquareGridRow(block, ctx) {
 
 		let activeImageTarget = null;
 		let activeVideoTarget = null;
+		let activeDocTarget = null;
 		let modalCloseInterceptor = null;
 
 		let currentInlineSize = "sml";
@@ -4828,6 +4837,127 @@ function serializeSquareGridRow(block, ctx) {
 		);
 		videoPanel.hidden = true;
 
+		const docHrefInput = el("input", {
+			type: "text",
+			class: "cms-field__input",
+			placeholder: "/assets/docs/...",
+		});
+		const docTitleInput = el("input", {
+			type: "text",
+			class: "cms-field__input",
+			placeholder: "Document title (required)",
+		});
+		const docDescInput = el("input", {
+			type: "text",
+			class: "cms-field__input",
+			placeholder: "Optional description",
+		});
+		const docPreviewTitle = el("div", { class: "doc-card__title" }, [
+			"Document title",
+		]);
+		const docPreviewDesc = el("div", { class: "doc-card__desc" }, [
+			"Document description.",
+		]);
+		const docPreviewMeta = el("div", { class: "doc-card__meta" }, [
+			docPreviewTitle,
+			docPreviewDesc,
+		]);
+		const docPreviewLink = el(
+			"a",
+			{
+				class: "doc-card__link",
+				href: "#",
+				target: "_blank",
+				rel: "noopener noreferrer",
+			},
+			[docPreviewMeta],
+		);
+		docPreviewLink.addEventListener("click", (event) => event.preventDefault());
+		const docPreviewCard = el("div", { class: "doc-card cms-doc-preview" }, [
+			docPreviewLink,
+		]);
+		const docPreviewWrap = el(
+			"div",
+			{ class: "cms-image-settings__preview" },
+			[docPreviewCard],
+		);
+		const docSettingsWrap = el(
+			"div",
+			{ class: "cms-image-settings__controls" },
+			[
+				buildField({
+					label: "Link",
+					input: docHrefInput,
+					note: "Use /assets/docs/... or https://",
+				}),
+				buildField({ label: "Title", input: docTitleInput }),
+				buildField({ label: "Description", input: docDescInput }),
+			],
+		);
+		const docSettingsRow = el("div", { class: "cms-image-settings" }, [
+			docPreviewWrap,
+			docSettingsWrap,
+		]);
+		const docSaveBtn = el(
+			"button",
+			{ class: "cms-btn cms-btn--success", type: "button" },
+			["Insert document"],
+		);
+		const docDeleteBtn = el(
+			"button",
+			{ class: "cms-btn cms-btn--danger", type: "button" },
+			["Delete"],
+		);
+		const docPanel = el(
+			"div",
+			{ class: "cms-rte__panel cms-rte__panel--doc" },
+			[
+				buildField({ label: "Document", input: docSettingsRow }),
+				el("div", { class: "cms-rte__panel-actions" }, [
+					docDeleteBtn,
+					docSaveBtn,
+				]),
+			],
+		);
+		docPanel.hidden = true;
+
+		const normalizeDocHref = (value) => {
+			const raw = String(value || "").trim();
+			if (!raw) return "";
+			if (/^https?:\/\//i.test(raw)) return raw;
+			let path = raw.replace(/^\/+/, "");
+			if (path.startsWith("docs/")) path = `assets/${path}`;
+			else if (!path.startsWith("assets/")) path = `assets/docs/${path}`;
+			return `/${path}`;
+		};
+
+		const updateDocPreview = () => {
+			const title = docTitleInput.value.trim();
+			const desc = docDescInput.value.trim();
+			const href = normalizeDocHref(docHrefInput.value.trim());
+			const safeHref = sanitizeHref(href);
+			docPreviewTitle.textContent = title || "Document title";
+			docPreviewDesc.textContent = desc || "Document description.";
+			docPreviewDesc.hidden = !desc;
+			docPreviewLink.setAttribute("href", safeHref || "#");
+		};
+
+		docHrefInput.addEventListener("input", () => {
+			docHrefInput.classList.remove("cms-field__input--invalid");
+			updateDocPreview();
+		});
+		docHrefInput.addEventListener("blur", () => {
+			const normalized = normalizeDocHref(docHrefInput.value.trim());
+			if (normalized) docHrefInput.value = normalized;
+			updateDocPreview();
+		});
+		docTitleInput.addEventListener("input", () => {
+			docTitleInput.classList.remove("cms-field__input--invalid");
+			updateDocPreview();
+		});
+		docDescInput.addEventListener("input", updateDocPreview);
+		updateDocPreview();
+
 		const syncOverlayState = () => {
 			const enabled = overlayEnabledInput.checked;
 			overlayTitleInput.disabled = !enabled;
@@ -4865,17 +4995,19 @@ function serializeSquareGridRow(block, ctx) {
 			editor,
 			imagePanel,
 			videoPanel,
+			docPanel,
 		]);
 
 		const attachModalCloseInterceptor = () => {
 			const root = qs("#cms-modal");
 			if (!root || modalCloseInterceptor) return;
 			modalCloseInterceptor = (event) => {
-				if (imagePanel.hidden && videoPanel.hidden) return;
+				if (imagePanel.hidden && videoPanel.hidden && docPanel.hidden) return;
 				event.preventDefault();
 				event.stopImmediatePropagation();
 				if (!imagePanel.hidden) closeImagePanel();
 				if (!videoPanel.hidden) closeVideoPanel();
+				if (!docPanel.hidden) closeDocPanel();
 			};
 			root.querySelectorAll("[data-close='true']").forEach((btn) => {
 				btn.addEventListener("click", modalCloseInterceptor, true);
@@ -4907,7 +5039,7 @@ function serializeSquareGridRow(block, ctx) {
 			const restoreParentModal = () => {
 				if (!hadModal || !root || !prevBody || !prevFooter) {
 					closeModal();
-					if (!imagePanel.hidden || !videoPanel.hidden)
+					if (!imagePanel.hidden || !videoPanel.hidden || !docPanel.hidden)
 						attachModalCloseInterceptor();
 					return;
 				}
@@ -4920,7 +5052,7 @@ function serializeSquareGridRow(block, ctx) {
 				root.classList.add("is-open");
 				document.documentElement.classList.add("cms-lock");
 				document.body.classList.add("cms-lock");
-				if (!imagePanel.hidden || !videoPanel.hidden)
+				if (!imagePanel.hidden || !videoPanel.hidden || !docPanel.hidden)
 					attachModalCloseInterceptor();
 			};
 
@@ -5158,8 +5290,53 @@ function serializeSquareGridRow(block, ctx) {
 			});
 		};
 
+		const buildDocCardHtml = (attrs) => {
+			const title = escapeHtml(attrs.title || "Document");
+			const desc = escapeHtml(attrs.desc || "");
+			const href = escapeAttr(attrs.href || "");
+			const lines = [
+				`<div class="doc-card">`,
+				`\t<a class="doc-card__link" href="${href}" target="_blank" rel="noopener noreferrer">`,
+				`\t\t<div class="doc-card__meta">`,
+				`\t\t\t<div class="doc-card__title">${title}</div>`,
+			];
+			if (desc) {
+				lines.push(`\t\t\t<div class="doc-card__desc">${desc}</div>`);
+			}
+			lines.push("\t\t</div>", "\t</a>", "</div>");
+			return lines.join("\n");
+		};
+
+		const renderDocCard = (target, attrs) => {
+			if (!(target instanceof HTMLElement)) return;
+			target.className = "doc-card";
+			target.innerHTML = "";
+			const link = el(
+				"a",
+				{
+					class: "doc-card__link",
+					href: attrs.href || "#",
+					target: "_blank",
+					rel: "noopener noreferrer",
+				},
+				[
+					el("div", { class: "doc-card__meta" }, [
+						el("div", { class: "doc-card__title" }, [
+							attrs.title || "Document",
+						]),
+						...(attrs.desc
+							? [el("div", { class: "doc-card__desc" }, [attrs.desc])]
+							: []),
+					]),
+				],
+			);
+			link.addEventListener("click", (event) => event.preventDefault());
+			target.appendChild(link);
+		};
+
 		const openImagePanel = ({ targetStub = null } = {}) => {
 			if (!videoPanel.hidden) closeVideoPanel();
+			if (!docPanel.hidden) closeDocPanel();
 			activeImageTarget = targetStub;
 			currentUploadFile = null;
 			currentUploadBase64 = "";
@@ -5230,7 +5407,7 @@ function serializeSquareGridRow(block, ctx) {
 		const closeImagePanel = () => {
 			activeImageTarget = null;
 			imagePanel.hidden = true;
-			if (!videoPanel.hidden) return;
+			if (!videoPanel.hidden || !docPanel.hidden) return;
 			detachModalCloseInterceptor();
 		};
 
@@ -5302,6 +5479,7 @@ function serializeSquareGridRow(block, ctx) {
 
 		const openVideoPanel = ({ targetStub = null } = {}) => {
 			if (!imagePanel.hidden) closeImagePanel();
+			if (!docPanel.hidden) closeDocPanel();
 			activeVideoTarget = targetStub;
 			const attrs = targetStub
 				? {
@@ -5332,7 +5510,7 @@ function serializeSquareGridRow(block, ctx) {
 		const closeVideoPanel = () => {
 			activeVideoTarget = null;
 			videoPanel.hidden = true;
-			if (!imagePanel.hidden) return;
+			if (!imagePanel.hidden || !docPanel.hidden) return;
 			detachModalCloseInterceptor();
 		};
 
@@ -5381,6 +5559,75 @@ function serializeSquareGridRow(block, ctx) {
 				onConfirm: () => {
 					if (activeVideoTarget) activeVideoTarget.remove();
 					closeVideoPanel();
+				},
+			});
+		});
+
+		const openDocPanel = ({ targetCard = null } = {}) => {
+			if (!imagePanel.hidden) closeImagePanel();
+			if (!videoPanel.hidden) closeVideoPanel();
+			activeDocTarget = targetCard;
+			const link = targetCard?.querySelector(".doc-card__link") || null;
+			const titleEl = targetCard?.querySelector(".doc-card__title") || null;
+			const descEl = targetCard?.querySelector(".doc-card__desc") || null;
+			if (targetCard) {
+				docHrefInput.value = link?.getAttribute("href") || "";
+				docTitleInput.value = titleEl?.textContent?.trim() || "";
+				docDescInput.value = descEl?.textContent?.trim() || "";
+			} else {
+				docHrefInput.value = "";
+				docTitleInput.value = "";
+				docDescInput.value = "";
+			}
+			docHrefInput.classList.remove("cms-field__input--invalid");
+			docTitleInput.classList.remove("cms-field__input--invalid");
+			updateDocPreview();
+			docSaveBtn.textContent = targetCard ? "Update document" : "Insert document";
+			docDeleteBtn.disabled = !targetCard;
+			docPanel.hidden = false;
+			attachModalCloseInterceptor();
+			docPanel.scrollIntoView({ block: "center", behavior: "smooth" });
+		};
+
+		const closeDocPanel = () => {
+			activeDocTarget = null;
+			docPanel.hidden = true;
+			if (!imagePanel.hidden || !videoPanel.hidden) return;
+			detachModalCloseInterceptor();
+		};
+
+		docSaveBtn.addEventListener("click", () => {
+			const href = normalizeDocHref(docHrefInput.value.trim());
+			const safeHref = sanitizeHref(href);
+			const title = docTitleInput.value.trim();
+			const desc = docDescInput.value.trim();
+			if (!safeHref) {
+				docHrefInput.classList.add("cms-field__input--invalid");
+				docHrefInput.focus();
+				return;
+			}
+			if (!title) {
+				docTitleInput.classList.add("cms-field__input--invalid");
+				docTitleInput.focus();
+				return;
+			}
+			const attrs = { href: safeHref, title, desc };
+			if (activeDocTarget) {
+				renderDocCard(activeDocTarget, attrs);
+			} else {
+				const html = buildDocCardHtml(attrs);
+				restoreSelection();
+				insertHtmlAtCursor(editor, html);
+			}
+			closeDocPanel();
+		});
+
+		docDeleteBtn.addEventListener("click", () => {
+			if (!activeDocTarget) return;
+			openInlineDeleteConfirm({
+				onConfirm: () => {
+					if (activeDocTarget) activeDocTarget.remove();
+					closeDocPanel();
 				},
 			});
 		});
@@ -5497,6 +5744,8 @@ function serializeSquareGridRow(block, ctx) {
 			} else if (cmd === "accordion-styled") {
 				const html = buildAccordionMarkup({ styled: true });
 				insertHtmlAtCursor(editor, html);
+			} else if (cmd === "doc") {
+				openDocPanel();
 			}
 		});
 		editor.addEventListener("keydown", (event) => {
@@ -5591,6 +5840,14 @@ function serializeSquareGridRow(block, ctx) {
 			const stub = event.target.closest(".video-stub");
 			if (stub && editor.contains(stub)) {
 				openVideoPanel({ targetStub: stub });
+			}
+		});
+		editor.addEventListener("click", (event) => {
+			const card = event.target.closest(".doc-card");
+			if (card && editor.contains(card)) {
+				event.preventDefault();
+				event.stopPropagation();
+				openDocPanel({ targetCard: card });
 			}
 		});
 		renderInlineImageStubs();
