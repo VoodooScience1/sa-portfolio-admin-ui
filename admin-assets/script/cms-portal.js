@@ -5677,14 +5677,16 @@ function serializeSquareGridRow(block, ctx) {
 				if (!group.container) return;
 				openInlineDeleteConfirm({
 					onConfirm: () => {
-						if (group.type === "styled") {
-							const wrapper = group.container.closest(
-								".flex-accordion-wrapper",
-							);
-							(wrapper || group.container).remove();
-						} else {
-							group.tabs.forEach((item) => item.remove());
+						const wrapper = tab.closest(".flex-accordion-wrapper");
+						if (wrapper) {
+							wrapper.remove();
+							return;
 						}
+						if (group.type === "styled") {
+							group.container.remove();
+							return;
+						}
+						group.tabs.forEach((item) => item.remove());
 					},
 				});
 			});
@@ -5784,6 +5786,18 @@ function serializeSquareGridRow(block, ctx) {
 			target.appendChild(link);
 		};
 
+		const updateExitButtonLabel = () => {
+			const footer = qs("#cms-modal-footer");
+			if (!footer) return;
+			const closeBtn = footer.querySelector("[data-close='true']");
+			if (!closeBtn) return;
+			const assetEditing =
+				!imagePanel.hidden || !videoPanel.hidden || !docPanel.hidden;
+			closeBtn.textContent = assetEditing
+				? "Stop Editing Asset"
+				: "Stop Editing Block";
+		};
+
 		const openImagePanel = ({ targetStub = null } = {}) => {
 			if (!videoPanel.hidden) closeVideoPanel();
 			if (!docPanel.hidden) closeDocPanel();
@@ -5848,6 +5862,7 @@ function serializeSquareGridRow(block, ctx) {
 			imageDeleteBtn.disabled = !targetStub;
 			imagePanel.hidden = false;
 			attachModalCloseInterceptor();
+			updateExitButtonLabel();
 			loadImageLibraryIntoSelect(imageLibrarySelect).catch((err) =>
 				console.error(err),
 			);
@@ -5859,6 +5874,7 @@ function serializeSquareGridRow(block, ctx) {
 			imagePanel.hidden = true;
 			if (!videoPanel.hidden || !docPanel.hidden) return;
 			detachModalCloseInterceptor();
+			updateExitButtonLabel();
 		};
 
 		imageSaveBtn.addEventListener("click", () => {
@@ -5954,6 +5970,7 @@ function serializeSquareGridRow(block, ctx) {
 			videoDeleteBtn.disabled = !targetStub;
 			videoPanel.hidden = false;
 			attachModalCloseInterceptor();
+			updateExitButtonLabel();
 			videoPanel.scrollIntoView({ block: "center", behavior: "smooth" });
 		};
 
@@ -5962,6 +5979,7 @@ function serializeSquareGridRow(block, ctx) {
 			videoPanel.hidden = true;
 			if (!imagePanel.hidden || !docPanel.hidden) return;
 			detachModalCloseInterceptor();
+			updateExitButtonLabel();
 		};
 
 		videoSaveBtn.addEventListener("click", () => {
@@ -6037,6 +6055,7 @@ function serializeSquareGridRow(block, ctx) {
 			docDeleteBtn.disabled = !targetCard;
 			docPanel.hidden = false;
 			attachModalCloseInterceptor();
+			updateExitButtonLabel();
 			loadDocLibraryIntoSelect(docLibrarySelect)
 				.then(() => {
 					const current = docHrefInput.value.trim().replace(/^\/+/, "");
@@ -6051,6 +6070,7 @@ function serializeSquareGridRow(block, ctx) {
 			docPanel.hidden = true;
 			if (!imagePanel.hidden || !videoPanel.hidden) return;
 			detachModalCloseInterceptor();
+			updateExitButtonLabel();
 		};
 
 		docSaveBtn.addEventListener("click", () => {
@@ -6436,7 +6456,7 @@ function serializeSquareGridRow(block, ctx) {
 							type: "button",
 							"data-close": "true",
 						},
-						["Exit Edit"],
+						["Stop Editing Block"],
 					),
 				],
 				onClose: handleExitEdit,
@@ -6460,7 +6480,7 @@ function serializeSquareGridRow(block, ctx) {
 							type: "button",
 							"data-close": "true",
 						},
-						["Exit Edit"],
+						["Stop Editing Block"],
 					),
 				],
 				onClose: handleExitEdit,
@@ -6508,7 +6528,7 @@ function serializeSquareGridRow(block, ctx) {
 						type: "button",
 						"data-close": "true",
 					},
-						["Exit Edit"],
+					["Stop Editing Block"],
 					),
 					el(
 						"button",
@@ -6994,7 +7014,7 @@ function serializeSquareGridRow(block, ctx) {
 						type: "button",
 						"data-close": "true",
 					},
-						["Exit Edit"],
+					["Stop Editing Block"],
 					),
 					el(
 						"button",
