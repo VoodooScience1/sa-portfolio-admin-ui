@@ -667,34 +667,17 @@
 			const target =
 				link?.getAttribute("target") === "_blank" ? "_blank" : "_blank";
 			const rel = target === "_blank" ? "noopener noreferrer" : "";
-			const apps = [
-				{ exts: "pdf", icon: "picture_as_pdf" },
-				{ exts: "doc,docx", icon: "description" },
-				{ exts: "xls,xlsx,csv", icon: "table_chart" },
-				{ exts: "ppt,pptx", icon: "slideshow" },
-				{ exts: "md,txt,rtf", icon: "code" },
-				{ exts: "zip,rar,7z", icon: "archive" },
-			];
 			const lines = [
-				`<div class="doc-card">`,
+				`<div class="doc-card doc-card--compact">`,
 				`\t<a class="doc-card__link" href="${escapeAttr(
 					href,
 				)}" target="${target}" rel="${rel}" data-doc-open>`,
-				`\t\t<div class="doc-card__header">`,
+				`\t\t<span class="material-icons doc-card__type-icon" aria-hidden="true">insert_drive_file</span>`,
+				`\t\t<div class="doc-card__text">`,
 				`\t\t\t<div class="doc-card__title">${escapeHtml(title)}</div>`,
-				`\t\t\t<span class="material-icons doc-card__type-icon" aria-hidden="true">insert_drive_file</span>`,
-				`\t\t</div>`,
 			];
-			if (desc) lines.push(`\t\t<div class="doc-card__desc">${escapeHtml(desc)}</div>`);
-			lines.push(`\t\t<div class="doc-card__apps" aria-hidden="true">`);
-			apps.forEach((entry) => {
-				lines.push(
-					`\t\t\t<span class="material-icons doc-card__app" data-doc-ext="${escapeAttr(
-						entry.exts,
-					)}" aria-hidden="true">${entry.icon}</span>`,
-				);
-			});
 			lines.push(
+				`\t\t\t<div class="doc-card__desc">${escapeHtml(desc)}</div>`,
 				`\t\t</div>`,
 				`\t\t<div class="doc-card__overlay">`,
 				`\t\t\t<div class="doc-card__overlay-content">`,
@@ -3768,6 +3751,41 @@ function serializeSquareGridRow(block, ctx) {
 		return images;
 	}
 
+	const DOC_EXT_RE = /\.(pdf|doc|docx|xls|xlsx|csv|ppt|pptx|md|txt|rtf|zip|rar|7z)$/i;
+
+	async function fetchDocLibrary(path = "assets/docs", collected = []) {
+		const res = await fetch(`/api/repo/tree?path=${encodeURIComponent(path)}`, {
+			headers: { Accept: "application/json" },
+		});
+		const data = await res.json().catch(() => ({}));
+		if (!res.ok) throw new Error(data?.error || "Failed to load doc list");
+		const items = Array.isArray(data.items) ? data.items : [];
+		for (const item of items) {
+			if (item.type === "dir") {
+				await fetchDocLibrary(item.path, collected);
+			} else if (item.type === "file") {
+				collected.push(item);
+			}
+		}
+		return collected;
+	}
+
+	async function loadDocLibraryIntoSelect(select) {
+		const docs = await fetchDocLibrary();
+		select.innerHTML = "";
+		select.appendChild(el("option", { value: "" }, ["Select a document"]));
+		docs
+			.filter((item) => DOC_EXT_RE.test(String(item.path || "")))
+			.sort((a, b) => String(a.path).localeCompare(String(b.path)))
+			.forEach((item) => {
+				const label = String(item.path || "").replace(/^assets\/docs\//, "");
+				select.appendChild(
+					el("option", { value: item.path }, [label || item.name]),
+				);
+			});
+		return docs;
+	}
+
 
 	function buildImageSourceFields({
 		initialSrc = "",
@@ -4867,6 +4885,11 @@ function serializeSquareGridRow(block, ctx) {
 			class: "cms-field__input",
 			placeholder: "/assets/docs/...",
 		});
+		docHrefInput.disabled = true;
+		docHrefInput.classList.add("cms-field__input--muted");
+		const docLibrarySelect = el("select", { class: "cms-field__select" }, [
+			el("option", { value: "" }, ["Select a document"]),
+		]);
 		const docTitleInput = el("input", {
 			type: "text",
 			class: "cms-field__input",
@@ -4877,48 +4900,21 @@ function serializeSquareGridRow(block, ctx) {
 			class: "cms-field__input",
 			placeholder: "Optional description",
 		});
-		const docAppIcons = [
-			{ exts: "pdf", icon: "picture_as_pdf" },
-			{ exts: "doc,docx", icon: "description" },
-			{ exts: "xls,xlsx,csv", icon: "table_chart" },
-			{ exts: "ppt,pptx", icon: "slideshow" },
-			{ exts: "md,txt,rtf", icon: "code" },
-			{ exts: "zip,rar,7z", icon: "archive" },
-		];
-		const buildDocAppsNodes = () =>
-			el(
-				"div",
-				{ class: "doc-card__apps", "aria-hidden": "true" },
-				docAppIcons.map((entry) =>
-					el(
-						"span",
-						{
-							class: "material-icons doc-card__app",
-							"data-doc-ext": entry.exts,
-							"aria-hidden": "true",
-						},
-						[entry.icon],
-					),
-				),
-			);
+		const docPreviewIcon = el(
+			"span",
+			{ class: "material-icons doc-card__type-icon", "aria-hidden": "true" },
+			["insert_drive_file"],
+		);
 		const docPreviewTitle = el("div", { class: "doc-card__title" }, [
 			"Document title",
 		]);
 		const docPreviewDesc = el("div", { class: "doc-card__desc" }, [
 			"Document description.",
 		]);
-		const docPreviewHeader = el("div", { class: "doc-card__header" }, [
+		const docPreviewText = el("div", { class: "doc-card__text" }, [
 			docPreviewTitle,
-			el(
-				"span",
-				{
-					class: "material-icons doc-card__type-icon",
-					"aria-hidden": "true",
-				},
-				["insert_drive_file"],
-			),
+			docPreviewDesc,
 		]);
-		const docPreviewApps = buildDocAppsNodes();
 		const docPreviewOverlay = el("div", { class: "doc-card__overlay" }, [
 			el("div", { class: "doc-card__overlay-content" }, [
 				el("span", { class: "material-icons", "aria-hidden": "true" }, [
@@ -4936,25 +4932,31 @@ function serializeSquareGridRow(block, ctx) {
 				rel: "noopener noreferrer",
 				"data-doc-open": "true",
 			},
-			[docPreviewHeader, docPreviewDesc, docPreviewApps, docPreviewOverlay],
+			[docPreviewIcon, docPreviewText, docPreviewOverlay],
 		);
 		docPreviewLink.addEventListener("click", (event) => event.preventDefault());
-		const docPreviewCard = el("div", { class: "doc-card cms-doc-preview" }, [
-			docPreviewLink,
-		]);
+		const docPreviewCard = el(
+			"div",
+			{ class: "doc-card doc-card--compact cms-doc-preview" },
+			[docPreviewLink],
+		);
 		const docPreviewWrap = el(
 			"div",
 			{ class: "cms-image-settings__preview" },
 			[docPreviewCard],
 		);
+		const docLinkRow = el("div", { class: "cms-field__row" }, [
+			docHrefInput,
+			docLibrarySelect,
+		]);
 		const docSettingsWrap = el(
 			"div",
 			{ class: "cms-image-settings__controls" },
 			[
 				buildField({
-					label: "Link",
-					input: docHrefInput,
-					note: "Use /assets/docs/... or https://",
+					label: "Document",
+					input: docLinkRow,
+					note: "Choose from /assets/docs.",
 				}),
 				buildField({ label: "Title", input: docTitleInput }),
 				buildField({ label: "Description", input: docDescInput }),
@@ -4997,6 +4999,29 @@ function serializeSquareGridRow(block, ctx) {
 			return `/${path}`;
 		};
 
+		const getDocExtFromHref = (value) => {
+			const raw = String(value || "").trim();
+			if (!raw) return "";
+			const clean = raw.split("?")[0].split("#")[0];
+			const parts = clean.split(".");
+			return parts.length > 1 ? parts.pop().toLowerCase() : "";
+		};
+
+		const resolveDocIcon = (ext) => {
+			const map = [
+				{ exts: ["pdf"], icon: "picture_as_pdf" },
+				{ exts: ["doc", "docx"], icon: "description" },
+				{ exts: ["xls", "xlsx", "csv"], icon: "table_chart" },
+				{ exts: ["ppt", "pptx"], icon: "slideshow" },
+				{ exts: ["md", "txt", "rtf"], icon: "code" },
+				{ exts: ["zip", "rar", "7z"], icon: "archive" },
+			];
+			for (const entry of map) {
+				if (entry.exts.includes(ext)) return entry.icon;
+			}
+			return "insert_drive_file";
+		};
+
 		const updateDocPreview = () => {
 			const title = docTitleInput.value.trim();
 			const desc = docDescInput.value.trim();
@@ -5004,17 +5029,16 @@ function serializeSquareGridRow(block, ctx) {
 			const safeHref = sanitizeHref(href);
 			docPreviewTitle.textContent = title || "Document title";
 			docPreviewDesc.textContent = desc || "Document description.";
-			docPreviewDesc.hidden = !desc;
 			docPreviewLink.setAttribute("href", safeHref || "#");
+			const icon = resolveDocIcon(getDocExtFromHref(safeHref));
+			docPreviewIcon.textContent = icon;
 		};
 
-		docHrefInput.addEventListener("input", () => {
-			docHrefInput.classList.remove("cms-field__input--invalid");
-			updateDocPreview();
-		});
-		docHrefInput.addEventListener("blur", () => {
-			const normalized = normalizeDocHref(docHrefInput.value.trim());
-			if (normalized) docHrefInput.value = normalized;
+		docLibrarySelect.addEventListener("change", () => {
+			const path = docLibrarySelect.value;
+			docLibrarySelect.classList.remove("cms-field__input--invalid");
+			if (!path) return;
+			docHrefInput.value = `/${path}`;
 			updateDocPreview();
 		});
 		docTitleInput.addEventListener("input", () => {
@@ -5526,32 +5550,18 @@ function serializeSquareGridRow(block, ctx) {
 			const title = escapeHtml(attrs.title || "Document");
 			const desc = escapeHtml(attrs.desc || "");
 			const href = escapeAttr(attrs.href || "");
-			const apps = [
-				{ exts: "pdf", icon: "picture_as_pdf" },
-				{ exts: "doc,docx", icon: "description" },
-				{ exts: "xls,xlsx,csv", icon: "table_chart" },
-				{ exts: "ppt,pptx", icon: "slideshow" },
-				{ exts: "md,txt,rtf", icon: "code" },
-				{ exts: "zip,rar,7z", icon: "archive" },
-			];
+			const icon = resolveDocIcon(getDocExtFromHref(attrs.href || ""));
 			const lines = [
-				`<div class="doc-card">`,
+				`<div class="doc-card doc-card--compact">`,
 				`\t<a class="doc-card__link" href="${href}" target="_blank" rel="noopener noreferrer" data-doc-open>`,
-				`\t\t<div class="doc-card__header">`,
+				`\t\t<span class="material-icons doc-card__type-icon" aria-hidden="true">${escapeHtml(
+					icon,
+				)}</span>`,
+				`\t\t<div class="doc-card__text">`,
 				`\t\t\t<div class="doc-card__title">${title}</div>`,
-				`\t\t\t<span class="material-icons doc-card__type-icon" aria-hidden="true">insert_drive_file</span>`,
-				`\t\t</div>`,
 			];
-			if (desc) lines.push(`\t\t<div class="doc-card__desc">${desc}</div>`);
-			lines.push(`\t\t<div class="doc-card__apps" aria-hidden="true">`);
-			apps.forEach((entry) => {
-				lines.push(
-					`\t\t\t<span class="material-icons doc-card__app" data-doc-ext="${escapeAttr(
-						entry.exts,
-					)}" aria-hidden="true">${entry.icon}</span>`,
-				);
-			});
 			lines.push(
+				`\t\t\t<div class="doc-card__desc">${desc || ""}</div>`,
 				`\t\t</div>`,
 				`\t\t<div class="doc-card__overlay">`,
 				`\t\t\t<div class="doc-card__overlay-content">`,
@@ -5567,8 +5577,9 @@ function serializeSquareGridRow(block, ctx) {
 
 		const renderDocCard = (target, attrs) => {
 			if (!(target instanceof HTMLElement)) return;
-			target.className = "doc-card";
+			target.className = "doc-card doc-card--compact";
 			target.innerHTML = "";
+			const icon = resolveDocIcon(getDocExtFromHref(attrs.href || ""));
 			const link = el(
 				"a",
 				{
@@ -5579,23 +5590,20 @@ function serializeSquareGridRow(block, ctx) {
 					"data-doc-open": "true",
 				},
 				[
-					el("div", { class: "doc-card__header" }, [
+					el(
+						"span",
+						{
+							class: "material-icons doc-card__type-icon",
+							"aria-hidden": "true",
+						},
+						[icon],
+					),
+					el("div", { class: "doc-card__text" }, [
 						el("div", { class: "doc-card__title" }, [
 							attrs.title || "Document",
 						]),
-						el(
-							"span",
-							{
-								class: "material-icons doc-card__type-icon",
-								"aria-hidden": "true",
-							},
-							["insert_drive_file"],
-						),
+						el("div", { class: "doc-card__desc" }, [attrs.desc || ""]),
 					]),
-					...(attrs.desc
-						? [el("div", { class: "doc-card__desc" }, [attrs.desc])]
-						: []),
-					buildDocAppsNodes(),
 					el("div", { class: "doc-card__overlay" }, [
 						el("div", { class: "doc-card__overlay-content" }, [
 							el("span", { class: "material-icons", "aria-hidden": "true" }, [
@@ -5860,10 +5868,17 @@ function serializeSquareGridRow(block, ctx) {
 			docHrefInput.classList.remove("cms-field__input--invalid");
 			docTitleInput.classList.remove("cms-field__input--invalid");
 			updateDocPreview();
+			docLibrarySelect.value = "";
 			docSaveBtn.textContent = targetCard ? "Update document" : "Insert document";
 			docDeleteBtn.disabled = !targetCard;
 			docPanel.hidden = false;
 			attachModalCloseInterceptor();
+			loadDocLibraryIntoSelect(docLibrarySelect)
+				.then(() => {
+					const current = docHrefInput.value.trim().replace(/^\/+/, "");
+					if (current) docLibrarySelect.value = current;
+				})
+				.catch((err) => console.error(err));
 			docPanel.scrollIntoView({ block: "center", behavior: "smooth" });
 		};
 
@@ -5880,8 +5895,8 @@ function serializeSquareGridRow(block, ctx) {
 			const title = docTitleInput.value.trim();
 			const desc = docDescInput.value.trim();
 			if (!safeHref) {
-				docHrefInput.classList.add("cms-field__input--invalid");
-				docHrefInput.focus();
+				docLibrarySelect.classList.add("cms-field__input--invalid");
+				docLibrarySelect.focus();
 				return;
 			}
 			if (!title) {
