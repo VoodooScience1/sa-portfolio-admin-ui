@@ -2280,12 +2280,22 @@ function serializeSquareGridRow(block, ctx) {
 
 	function updateLocalBlocksAndRender(path, updatedLocal) {
 		const baseHtml = state.originalHtml || "";
+		const normalizedLocal = normalizeLocalBlocks(updatedLocal);
+		const hasLocal = normalizedLocal.length > 0;
+		if (!hasLocal) {
+			state.lastReorderLocal = null;
+			clearDirtyPage(path);
+			if (path === state.path) {
+				applyHtmlToCurrentPage(baseHtml);
+				renderPageSurface();
+			}
+			refreshUiStateForDirty();
+			return;
+		}
 		const updatedHtml = mergeDirtyWithBase(baseHtml, baseHtml, updatedLocal, {
 			respectRemovals: hasRemovalActions(updatedLocal),
 			path,
 		});
-		const normalizedLocal = normalizeLocalBlocks(updatedLocal);
-		const hasLocal = normalizedLocal.length > 0;
 		const hasReorder = normalizedLocal.some(
 			(item) => item.action === "reorder",
 		);
