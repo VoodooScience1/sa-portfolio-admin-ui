@@ -6457,22 +6457,74 @@ function serializeSquareGridRow(block, ctx) {
 			);
 			const wrap = doc.querySelector("#__wrap__");
 			if (!wrap) return "";
-			const pruneWhitespace = (node, inPre) => {
+			const stripHighlightMarkup = (root) => {
+				root.querySelectorAll("pre code").forEach((code) => {
+					code.classList.remove("hljs");
+					code.removeAttribute("data-highlighted");
+					code.textContent = code.textContent || "";
+				});
+				root.querySelectorAll("span").forEach((span) => {
+					const cls = span.getAttribute("class") || "";
+					const isHljs = cls
+						.split(/\s+/)
+						.some((c) => c === "hljs" || c.startsWith("hljs-"));
+					if (!isHljs) return;
+					span.replaceWith(document.createTextNode(span.textContent || ""));
+				});
+			};
+			const normalizeNode = (node, inPre) => {
 				if (node.nodeType === Node.TEXT_NODE) {
-					if (!inPre && !(node.textContent || "").trim()) node.remove();
+					if (inPre) return;
+					const cleaned = String(node.textContent || "")
+						.replace(/\s+/g, " ")
+						.trim();
+					if (!cleaned) {
+						node.remove();
+						return;
+					}
+					node.textContent = cleaned;
 					return;
 				}
 				if (node.nodeType !== Node.ELEMENT_NODE) return;
 				const tag = (node.tagName || "").toLowerCase();
 				const nextInPre = inPre || tag === "pre" || tag === "code";
+				if (node.classList?.contains("hljs")) node.classList.remove("hljs");
+				if (node.hasAttribute?.("data-highlighted"))
+					node.removeAttribute("data-highlighted");
+				if (tag === "code") {
+					node.classList?.remove("hljs");
+					node.removeAttribute?.("data-highlighted");
+				}
+				if (node.hasAttribute("data-cms-id")) {
+					node.removeAttribute("data-cms-id");
+				}
 				Array.from(node.childNodes).forEach((child) =>
-					pruneWhitespace(child, nextInPre),
+					normalizeNode(child, nextInPre),
 				);
+				const attrs = Array.from(node.attributes).sort((a, b) =>
+					a.name.localeCompare(b.name),
+				);
+				attrs.forEach((attr) => node.removeAttribute(attr.name));
+				attrs.forEach((attr) => node.setAttribute(attr.name, attr.value));
 			};
-			Array.from(wrap.childNodes).forEach((child) =>
-				pruneWhitespace(child, false),
-			);
-			return signatureForHtml(wrap.innerHTML);
+
+			const parts = [];
+			Array.from(wrap.childNodes).forEach((child) => {
+				if (child.nodeType === Node.ELEMENT_NODE) {
+					const clone = child.cloneNode(true);
+					stripHighlightMarkup(clone);
+					normalizeNode(clone, false);
+					parts.push(clone.outerHTML);
+					return;
+				}
+				if (child.nodeType === Node.TEXT_NODE) {
+					const text = String(child.textContent || "")
+						.replace(/\s+/g, " ")
+						.trim();
+					if (text) parts.push(`#text:${text}`);
+				}
+			});
+			return parts.join("\n");
 		};
 		const baseCanonicalHtml = (() => {
 			try {
