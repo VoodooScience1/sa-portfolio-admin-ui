@@ -152,12 +152,6 @@
 		renderDebugOverlay();
 	}
 
-	function buildSummaryForHtml(html) {
-		const main = extractRegion(html, "main");
-		if (!main.found) return [];
-		return parseBlocks(main.inner).map((b) => b.summary || b.type || "Block");
-	}
-
 	function normalizeFragmentHtml(html) {
 		const doc = new DOMParser().parseFromString(
 			`<div id="__wrap__">${String(html || "")}</div>`,
@@ -223,27 +217,6 @@
 		return escapeHtml(text).replace(/"/g, "&quot;");
 	}
 
-	function normalizeCodeText(text) {
-		const raw = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-		const lines = raw.split("\n");
-		const nonEmpty = lines.filter((line) => line.trim() !== "");
-		if (nonEmpty.length < 2) return raw;
-		let common = nonEmpty[0].match(/^[\t ]*/)?.[0] || "";
-		for (const line of nonEmpty.slice(1)) {
-			const indent = line.match(/^[\t ]*/)?.[0] || "";
-			let i = 0;
-			while (i < common.length && i < indent.length && common[i] === indent[i]) {
-				i += 1;
-			}
-			common = common.slice(0, i);
-			if (!common) break;
-		}
-		if (!common || !/^[\t ]+$/.test(common)) return raw;
-		return lines
-			.map((line) => (line.startsWith(common) ? line.slice(common.length) : line))
-			.join("\n");
-	}
-
 	function indentLines(text, level) {
 		const pad = "\t".repeat(level);
 		const raw = String(text || "");
@@ -257,7 +230,10 @@
 		const indented = lines
 			.map((line) => (line ? `${pad}${line}` : line))
 			.join("\n");
-		return indented.replace(/__CMS_PRE_(\d+)__/g, (_, idx) => pres[Number(idx)]);
+		return indented.replace(
+			/__CMS_PRE_(\d+)__/g,
+			(_, idx) => pres[Number(idx)],
+		);
 	}
 
 	function normalizeBool(val, fallback = "false") {
@@ -314,7 +290,10 @@
 	function serializeImgStub(attrs) {
 		let overlayText = attrs.overlayText || "";
 		if (!attrs.overlayTitle && !overlayText && attrs.overlayEnabled !== false) {
-			overlayText = normalizeBool(attrs.lightbox, "false") === "true" ? "Click to view" : "";
+			overlayText =
+				normalizeBool(attrs.lightbox, "false") === "true"
+					? "Click to view"
+					: "";
 		}
 		const ordered = {
 			class: "img-stub",
@@ -444,7 +423,11 @@
 	}
 
 	function guessImageMime(path) {
-		const ext = String(path || "").split(".").pop()?.toLowerCase() || "";
+		const ext =
+			String(path || "")
+				.split(".")
+				.pop()
+				?.toLowerCase() || "";
 		if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
 		if (ext === "png") return "image/png";
 		if (ext === "webp") return "image/webp";
@@ -539,10 +522,7 @@
 			/<code\b[^>]*>([\s\S]*?)<\/code>/gi,
 			(match, inner) => {
 				const escaped = String(inner || "")
-					.replace(
-						/&(?!(?:[a-zA-Z]+|#\d+|#x[0-9a-fA-F]+);)/g,
-						"&amp;",
-					)
+					.replace(/&(?!(?:[a-zA-Z]+|#\d+|#x[0-9a-fA-F]+);)/g, "&amp;")
 					.replace(/</g, "&lt;")
 					.replace(/>/g, "&gt;");
 				return match.replace(inner, escaped);
@@ -555,9 +535,13 @@
 		const wrap = doc.querySelector("#__wrap__");
 		if (!wrap) return "";
 		wrap.querySelectorAll(".cms-code-toolbar").forEach((node) => node.remove());
-		wrap.querySelectorAll(".cms-accordion-actions").forEach((node) => node.remove());
 		wrap
-			.querySelectorAll("select.cms-code-toolbar__select, .cms-code-toolbar__btn")
+			.querySelectorAll(".cms-accordion-actions")
+			.forEach((node) => node.remove());
+		wrap
+			.querySelectorAll(
+				"select.cms-code-toolbar__select, .cms-code-toolbar__btn",
+			)
 			.forEach((node) => node.remove());
 
 		const mergeAdjacentPres = (parent) => {
@@ -577,14 +561,9 @@
 				let j = i + 1;
 				while (j < children.length) {
 					const next = children[j];
-					if (
-						next instanceof Element &&
-						next.tagName.toLowerCase() === "pre"
-					) {
+					if (next instanceof Element && next.tagName.toLowerCase() === "pre") {
 						const nextCode = next.querySelector("code");
-						const nextText = nextCode
-							? nextCode.textContent
-							: next.textContent;
+						const nextText = nextCode ? nextCode.textContent : next.textContent;
 						lines.push(String(nextText || "").replace(/\n+$/g, ""));
 						next.remove();
 						j += 1;
@@ -768,98 +747,98 @@
 				return `<div>${inner}</div>`;
 			}
 
-		if (cls.includes("cms-code-toolbar")) return "";
+			if (cls.includes("cms-code-toolbar")) return "";
 
-		if (tag === "select" || tag === "option" || tag === "button") {
-			return "";
-		}
-
-		if (tag === "code") {
-			const lang = getLangFromCodeEl(node);
-			const text = escapeHtml(node.textContent || "");
-			if (lang) {
-				return `<code class="language-${escapeAttr(lang)}">${text}</code>`;
+			if (tag === "select" || tag === "option" || tag === "button") {
+				return "";
 			}
-			return `<code>${text}</code>`;
-		}
 
-		if (tag === "p" || tag === "strong" || tag === "em" || tag === "u") {
-			const inner = serializeChildren(node);
-			return `<${tag}>${inner}</${tag}>`;
-		}
-
-		if (tag === "b") {
-			const inner = serializeChildren(node);
-			return `<strong>${inner}</strong>`;
-		}
-
-		if (tag === "i") {
-			const inner = serializeChildren(node);
-			return `<em>${inner}</em>`;
-		}
-
-		if (tag === "h1") {
-			return serializeChildren(node);
-		}
-
-		if (tag === "h2" || tag === "h3") {
-			const inner = serializeChildren(node);
-			return `<${tag}>${inner}</${tag}>`;
-		}
-
-		if (tag === "blockquote") {
-			const inner = serializeChildren(node);
-			return `<blockquote>${inner}</blockquote>`;
-		}
-
-		if (tag === "table") {
-			const inner = serializeChildren(node);
-			const cls = node.getAttribute("class") || "";
-			const isBorderless = cls.split(/\s+/).includes("table-borderless");
-			return isBorderless
-				? `<table class="table-borderless">${inner}</table>`
-				: `<table>${inner}</table>`;
-		}
-
-		if (tag === "thead" || tag === "tbody") {
-			const inner = serializeChildren(node);
-			return `<${tag}>${inner}</${tag}>`;
-		}
-
-		if (tag === "tr") {
-			const inner = serializeChildren(node);
-			return `<tr>${inner}</tr>`;
-		}
-
-		if (tag === "th" || tag === "td") {
-			const inner = serializeChildren(node);
-			return `<${tag}>${inner}</${tag}>`;
-		}
-
-		if (tag === "pre") {
-			const codeChild = node.querySelector("code");
-			const lang = getLangFromCodeEl(codeChild);
-			const rawText = codeChild ? codeChild.textContent : node.textContent;
-			const text = escapeHtml(rawText || "");
-			if (lang) {
-				return `<pre><code class="language-${escapeAttr(lang)}">${text}</code></pre>`;
+			if (tag === "code") {
+				const lang = getLangFromCodeEl(node);
+				const text = escapeHtml(node.textContent || "");
+				if (lang) {
+					return `<code class="language-${escapeAttr(lang)}">${text}</code>`;
+				}
+				return `<code>${text}</code>`;
 			}
-			return `<pre><code>${text}</code></pre>`;
-		}
 
-		if (tag === "ul" || tag === "ol") {
-			const inner = serializeChildren(node);
-			return `<${tag}>${inner}</${tag}>`;
-		}
+			if (tag === "p" || tag === "strong" || tag === "em" || tag === "u") {
+				const inner = serializeChildren(node);
+				return `<${tag}>${inner}</${tag}>`;
+			}
 
-		if (tag === "li") {
-			const inner = serializeChildren(node);
-			return `<li>${inner}</li>`;
-		}
+			if (tag === "b") {
+				const inner = serializeChildren(node);
+				return `<strong>${inner}</strong>`;
+			}
 
-		if (tag === "br") return "<br />";
+			if (tag === "i") {
+				const inner = serializeChildren(node);
+				return `<em>${inner}</em>`;
+			}
 
-		if (tag === "a") {
+			if (tag === "h1") {
+				return serializeChildren(node);
+			}
+
+			if (tag === "h2" || tag === "h3") {
+				const inner = serializeChildren(node);
+				return `<${tag}>${inner}</${tag}>`;
+			}
+
+			if (tag === "blockquote") {
+				const inner = serializeChildren(node);
+				return `<blockquote>${inner}</blockquote>`;
+			}
+
+			if (tag === "table") {
+				const inner = serializeChildren(node);
+				const cls = node.getAttribute("class") || "";
+				const isBorderless = cls.split(/\s+/).includes("table-borderless");
+				return isBorderless
+					? `<table class="table-borderless">${inner}</table>`
+					: `<table>${inner}</table>`;
+			}
+
+			if (tag === "thead" || tag === "tbody") {
+				const inner = serializeChildren(node);
+				return `<${tag}>${inner}</${tag}>`;
+			}
+
+			if (tag === "tr") {
+				const inner = serializeChildren(node);
+				return `<tr>${inner}</tr>`;
+			}
+
+			if (tag === "th" || tag === "td") {
+				const inner = serializeChildren(node);
+				return `<${tag}>${inner}</${tag}>`;
+			}
+
+			if (tag === "pre") {
+				const codeChild = node.querySelector("code");
+				const lang = getLangFromCodeEl(codeChild);
+				const rawText = codeChild ? codeChild.textContent : node.textContent;
+				const text = escapeHtml(rawText || "");
+				if (lang) {
+					return `<pre><code class="language-${escapeAttr(lang)}">${text}</code></pre>`;
+				}
+				return `<pre><code>${text}</code></pre>`;
+			}
+
+			if (tag === "ul" || tag === "ol") {
+				const inner = serializeChildren(node);
+				return `<${tag}>${inner}</${tag}>`;
+			}
+
+			if (tag === "li") {
+				const inner = serializeChildren(node);
+				return `<li>${inner}</li>`;
+			}
+
+			if (tag === "br") return "<br />";
+
+			if (tag === "a") {
 				const href = sanitizeHref(node.getAttribute("href"));
 				if (!href) return serializeChildren(node);
 				const target =
@@ -954,7 +933,8 @@
 				const rightHeadingTag = rightHeadingEl
 					? rightHeadingEl.tagName.toLowerCase()
 					: "h2";
-				const safeLeftHeadingTag = leftHeadingTag === "h1" ? "h2" : leftHeadingTag;
+				const safeLeftHeadingTag =
+					leftHeadingTag === "h1" ? "h2" : leftHeadingTag;
 				const safeRightHeadingTag =
 					rightHeadingTag === "h1" ? "h2" : rightHeadingTag;
 				let leftHtml = leftNode?.innerHTML || "";
@@ -986,9 +966,7 @@
 			}
 			if (type === "imgText" || type === "split50") {
 				const headingEl = cleanNode.querySelector("h1,h2,h3");
-				const headingTag = headingEl
-					? headingEl.tagName.toLowerCase()
-					: "h2";
+				const headingTag = headingEl ? headingEl.tagName.toLowerCase() : "h2";
 				const safeHeadingTag = headingTag === "h1" ? "h2" : headingTag;
 				const overlayEnabled =
 					cleanNode.getAttribute("data-overlay") !== "false";
@@ -1048,8 +1026,7 @@
 		}
 
 		if (cls.contains("flex-accordion-wrapper")) {
-			const box =
-				cleanNode.querySelector(".flex-accordion-box") || cleanNode;
+			const box = cleanNode.querySelector(".flex-accordion-box") || cleanNode;
 			const titleEl = box.querySelector("h1,h2,h3");
 			const titleTag = titleEl ? titleEl.tagName.toLowerCase() : "h2";
 			const safeTitleTag = titleTag === "h1" ? "h2" : titleTag;
@@ -1063,7 +1040,8 @@
 				return false;
 			});
 			const items = Array.from(box.querySelectorAll(".tab")).map((tab) => {
-				const label = tab.querySelector(".tab-label")?.textContent?.trim() || "";
+				const label =
+					tab.querySelector(".tab-label")?.textContent?.trim() || "";
 				const body = tab.querySelector(".tab-content")?.innerHTML || "";
 				return { label, body };
 			});
@@ -1081,9 +1059,7 @@
 			const inner = cleanNode.querySelector(".default-div-wrapper");
 			if (inner && !inner.classList.contains("hero-override")) {
 				const headingEl = inner.querySelector("h1,h2,h3");
-				const headingTag = headingEl
-					? headingEl.tagName.toLowerCase()
-					: "h1";
+				const headingTag = headingEl ? headingEl.tagName.toLowerCase() : "h1";
 				const headingStyle = headingEl?.getAttribute("style") || "";
 				let body = inner.innerHTML || "";
 				if (headingEl) {
@@ -1142,10 +1118,12 @@
 		if (block?.cmsId) return block.cmsId;
 		if (block?.baseId) return block.baseId;
 		if (block?.id) return block.id;
-		const sig =
-			ctx?.sig || signatureForHtml(block?.raw || block?.html || "");
-		const occ =
-			Number.isInteger(ctx?.occ) ? ctx.occ : Number.isInteger(block?.occ) ? block.occ : idx;
+		const sig = ctx?.sig || signatureForHtml(block?.raw || block?.html || "");
+		const occ = Number.isInteger(ctx?.occ)
+			? ctx.occ
+			: Number.isInteger(block?.occ)
+				? block.occ
+				: idx;
 		if (ctx?.blockId) return ctx.blockId;
 		return makeCmsIdFromSig(sig, occ, block?.raw || block?.html || String(idx));
 	}
@@ -1168,7 +1146,10 @@
 		if (block.overlayTitle) attrs["data-overlay-title"] = block.overlayTitle;
 		let overlayText = block.overlayText || "";
 		if (!block.overlayTitle && !overlayText && block.overlayEnabled !== false) {
-			overlayText = normalizeBool(block.lightbox, "false") === "true" ? "Click to view" : "";
+			overlayText =
+				normalizeBool(block.lightbox, "false") === "true"
+					? "Click to view"
+					: "";
 		}
 		if (overlayText) attrs["data-overlay-text"] = overlayText;
 		const order = [
@@ -1200,12 +1181,18 @@
 
 	function serializeTwoCol(block, ctx) {
 		const cmsId = getBlockCmsId(block, ctx?.index ?? 0, ctx);
-		const leftHeadingText = (
-			block.leftHeading || block.heading || ""
-		).trim();
+		const leftHeadingText = (block.leftHeading || block.heading || "").trim();
 		const rightHeadingText = (block.rightHeading || "").trim();
-		const leftHeadingTag = (block.leftHeadingTag || block.headingTag || "h2").toLowerCase();
-		const rightHeadingTag = (block.rightHeadingTag || block.headingTag || "h2").toLowerCase();
+		const leftHeadingTag = (
+			block.leftHeadingTag ||
+			block.headingTag ||
+			"h2"
+		).toLowerCase();
+		const rightHeadingTag = (
+			block.rightHeadingTag ||
+			block.headingTag ||
+			"h2"
+		).toLowerCase();
 		const leftHeadingHtml = leftHeadingText
 			? `<${leftHeadingTag}>${escapeHtml(leftHeadingText)}</${leftHeadingTag}>`
 			: "";
@@ -1236,11 +1223,11 @@
 		const headingText = String(block.heading || "").trim();
 		const headingTag = (block.headingTag || "h1").toLowerCase();
 		const headingStyle = String(block.headingStyle || "").trim();
-		const styleAttr = headingStyle ? ` style="${escapeAttr(headingStyle)}"` : "";
+		const styleAttr = headingStyle
+			? ` style="${escapeAttr(headingStyle)}"`
+			: "";
 		const headingHtml = headingText
-			? `<${headingTag}${styleAttr}>${escapeHtml(
-					headingText,
-				)}</${headingTag}>`
+			? `<${headingTag}${styleAttr}>${escapeHtml(headingText)}</${headingTag}>`
 			: "";
 		const body = sanitizeRteHtml(block.body || "", ctx);
 		const lines = [
@@ -1254,7 +1241,7 @@
 		return lines.join("\n");
 	}
 
-function serializeHoverCardRow(block, ctx) {
+	function serializeHoverCardRow(block, ctx) {
 		const cmsId = getBlockCmsId(block, ctx?.index ?? 0, ctx);
 		const lines = [
 			`<div class="grid-wrapper grid-wrapper--row" data-cms-id="${escapeAttr(
@@ -1286,7 +1273,7 @@ function serializeHoverCardRow(block, ctx) {
 		return lines.join("\n");
 	}
 
-function serializeSquareGridRow(block, ctx) {
+	function serializeSquareGridRow(block, ctx) {
 		const cmsId = getBlockCmsId(block, ctx?.index ?? 0, ctx);
 		const lines = [
 			`<div class="grid-wrapper grid-wrapper--row" data-cms-id="${escapeAttr(
@@ -1308,24 +1295,23 @@ function serializeSquareGridRow(block, ctx) {
 		return lines.join("\n");
 	}
 
-function serializeStyledAccordion(block, ctx) {
+	function serializeStyledAccordion(block, ctx) {
 		const cmsId = getBlockCmsId(block, ctx?.index ?? 0, ctx);
 		const titleText = String(block.title || "").trim();
 		const titleTag = (block.titleTag || "h2").toLowerCase();
 		const safeTitleTag = titleTag === "h1" ? "h2" : titleTag;
 		const introText = String(block.intro || "").trim();
 		const pageHash = ctx?.pageHash || hashText(ctx?.path || "");
-		const blockShort =
-			ctx?.blockIdShort || hashText(ctx?.blockId || "block");
+		const blockShort = ctx?.blockIdShort || hashText(ctx?.blockId || "block");
 		const items = Array.isArray(block.items) ? block.items : [];
 		const lines = [
-			`<div class="flex-accordion-wrapper" data-cms-id="${escapeAttr(
-				cmsId,
-			)}">`,
+			`<div class="flex-accordion-wrapper" data-cms-id="${escapeAttr(cmsId)}">`,
 			`\t<div class="flex-accordion-box">`,
 		];
 		if (titleText) {
-			lines.push(`\t\t<${safeTitleTag}>${escapeHtml(titleText)}</${safeTitleTag}>`);
+			lines.push(
+				`\t\t<${safeTitleTag}>${escapeHtml(titleText)}</${safeTitleTag}>`,
+			);
 		}
 		if (introText) {
 			lines.push(`\t\t<p>${escapeHtml(introText)}</p>`);
@@ -1374,9 +1360,7 @@ function serializeStyledAccordion(block, ctx) {
 					sig,
 					occ,
 					blockId: stableId,
-					blockIdShort: hashText(
-						`${stableId || "block"}::${idx}`,
-					).slice(0, 4),
+					blockIdShort: hashText(`${stableId || "block"}::${idx}`).slice(0, 4),
 				};
 				if (block.type === "twoCol") return serializeTwoCol(block, blockCtx);
 				if (block.type === "stdContainer")
@@ -2377,52 +2361,6 @@ function serializeStyledAccordion(block, ctx) {
 		);
 	}
 
-	function stripBaseMoveEntries(localBlocks, baseKey, baseHtml) {
-		const baseSig = normalizeFragmentHtml(baseHtml || "");
-		return normalizeLocalBlocks(localBlocks).filter((item) => {
-			if (item.baseId && `id:${item.baseId}` === baseKey) return false;
-			if (item.action === "remove" && anchorKey(item.anchor) === baseKey)
-				return false;
-			if (
-				item.action === "insert" &&
-				item.kind === "edited" &&
-				(item.sourceKey === baseKey ||
-					(!item.sourceKey &&
-						normalizeFragmentHtml(item.html || "") === baseSig))
-			)
-				return false;
-			return true;
-		});
-	}
-
-	function stripAllBaseMoveEntries(localBlocks, baseKeys, baseHtmlByKey) {
-		const baseKeySet = new Set(baseKeys || []);
-		const baseHtmlMap = baseHtmlByKey || new Map();
-		return normalizeLocalBlocks(localBlocks).filter((item) => {
-			const key = anchorKey(item.anchor);
-			if (item.baseId && baseKeySet.has(`id:${item.baseId}`)) return false;
-			if (item.action === "remove" && baseKeySet.has(key)) return false;
-			if (
-				item.action === "insert" &&
-				item.kind === "edited" &&
-				(item.sourceKey ? baseKeySet.has(item.sourceKey) : baseKeySet.has(key))
-			)
-				return false;
-			if (
-				item.action === "insert" &&
-				item.kind === "edited" &&
-				baseKeySet.size
-			) {
-				const sig = normalizeFragmentHtml(item.html || "");
-				for (const baseKey of baseKeySet) {
-					const baseSig = baseHtmlMap.get(baseKey);
-					if (baseSig && baseSig === sig) return false;
-				}
-			}
-			return true;
-		});
-	}
-
 	function updateLocalBlocksAndRender(path, updatedLocal) {
 		const baseHtml = state.originalHtml || "";
 		const normalizedLocal = normalizeLocalBlocks(updatedLocal);
@@ -2558,10 +2496,6 @@ function serializeStyledAccordion(block, ctx) {
 		pruneUnusedAssetUploads();
 	}
 
-	function getDirtyHtml(path) {
-		return state.dirtyPages[path]?.html || "";
-	}
-
 	function buildDirtyLabel() {
 		const count = dirtyCount();
 		if (!count) return "CONNECTED - CLEAN";
@@ -2589,7 +2523,6 @@ function serializeStyledAccordion(block, ctx) {
 			baseBlocks.map((b) => [`${b.sig}::${b.occ ?? 0}`, b]),
 		);
 		const baseIds = new Set(baseBlocks.map((b) => b.id).filter(Boolean));
-		const baseByPos = baseBlocks.map((b) => (b.html || "").trim());
 		const baseSigByPos = baseBlocks.map((b) => signatureForHtml(b.html || ""));
 		const localsWithPos = items
 			.filter((item) => Number.isInteger(item.pos))
@@ -2788,7 +2721,6 @@ function serializeStyledAccordion(block, ctx) {
 		withoutPos.forEach((item) => {
 			mergedBlocks.push({ html: item.html });
 		});
-		const mergedMain = mergedBlocks.map((b) => b.html).join("\n\n");
 
 		let merged = baseHtml || "";
 		const dirtyHero = extractRegion(dirtyHtml, "hero");
@@ -3376,21 +3308,6 @@ function serializeStyledAccordion(block, ctx) {
 		else button.classList.add("cms-btn--danger");
 	}
 
-	function discardSelectedPages(paths) {
-		paths.forEach((p) => clearDirtyPage(p));
-		if (paths.includes(state.path)) {
-			state.heroInner = state.loadedHeroInner;
-			state.mainInner = state.loadedMainInner;
-			state.blocks = parseBlocks(state.loadedMainInner);
-			state.currentDirty = false;
-			rebuildPreviewHtml();
-			renderPageSurface();
-		}
-		if (!dirtyCount()) state.assetUploads = [];
-		if (!dirtyCount()) assetCachePrune(new Set());
-		refreshUiStateForDirty();
-	}
-
 	function addAssetUpload({ name, content, path, mime = "" }) {
 		if (!name || !content) return;
 		const clean = sanitizeImagePath(path || "", name);
@@ -3415,9 +3332,7 @@ function serializeStyledAccordion(block, ctx) {
 	function pruneUnusedAssetUploads() {
 		if (!state.assetUploads || !state.assetUploads.length) return;
 		const referenced = getReferencedAssetPaths();
-		const next = state.assetUploads.filter((item) =>
-			referenced.has(item.path),
-		);
+		const next = state.assetUploads.filter((item) => referenced.has(item.path));
 		if (next.length !== state.assetUploads.length) {
 			state.assetUploads = next;
 		}
@@ -3460,7 +3375,9 @@ function serializeStyledAccordion(block, ctx) {
 		const existing = new Set(
 			(state.assetUploads || []).map((item) => item.path),
 		);
-		const missing = Array.from(referenced).filter((path) => !existing.has(path));
+		const missing = Array.from(referenced).filter(
+			(path) => !existing.has(path),
+		);
 		if (!missing.length) return;
 		const recovered = await Promise.all(
 			missing.map((path) => assetCacheGet(path)),
@@ -3663,11 +3580,6 @@ function serializeStyledAccordion(block, ctx) {
 		}));
 	}
 
-	async function insertTestBlockAt(index, anchorOverride) {
-		const html = await buildTestContainerHtml();
-		return insertHtmlAt(index, anchorOverride, html);
-	}
-
 	async function insertBlockFromPartial(index, anchorOverride, partialPath) {
 		const html = await loadPartialHtml(partialPath);
 		return insertHtmlAt(index, anchorOverride, html);
@@ -3741,16 +3653,16 @@ function serializeStyledAccordion(block, ctx) {
 					"aria-label": `Insert ${item.label}`,
 				},
 				[
-				el("span", { class: "cms-modal__label" }, [item.label]),
-				el(
-					"button",
-					{
-						class: "cms-btn cms-modal__action cms-modal__action--pick",
-						type: "button",
-					},
-					["Insert"],
-				),
-			],
+					el("span", { class: "cms-modal__label" }, [item.label]),
+					el(
+						"button",
+						{
+							class: "cms-btn cms-modal__action cms-modal__action--pick",
+							type: "button",
+						},
+						["Insert"],
+					),
+				],
 			);
 			const handlePick = async () => {
 				closeModal();
@@ -3870,7 +3782,9 @@ function serializeStyledAccordion(block, ctx) {
 	async function loadImageLibraryIntoSelect(select) {
 		const images = await fetchImageLibrary();
 		select.innerHTML = "";
-		select.appendChild(el("option", { value: "" }, ["Select an existing image"]));
+		select.appendChild(
+			el("option", { value: "" }, ["Select an existing image"]),
+		);
 		images
 			.sort((a, b) => String(a.path).localeCompare(String(b.path)))
 			.forEach((item) => {
@@ -3882,7 +3796,8 @@ function serializeStyledAccordion(block, ctx) {
 		return images;
 	}
 
-	const DOC_EXT_RE = /\.(pdf|doc|docx|xls|xlsx|csv|ppt|pptx|md|txt|rtf|zip|rar|7z)$/i;
+	const DOC_EXT_RE =
+		/\.(pdf|doc|docx|xls|xlsx|csv|ppt|pptx|md|txt|rtf|zip|rar|7z)$/i;
 
 	async function fetchDocLibrary(path = "assets/docs", collected = []) {
 		const res = await fetch(`/api/repo/tree?path=${encodeURIComponent(path)}`, {
@@ -3917,195 +3832,6 @@ function serializeStyledAccordion(block, ctx) {
 		return docs;
 	}
 
-
-	function buildImageSourceFields({
-		initialSrc = "",
-		initialMode = "existing",
-		showMode = true,
-		showSource = true,
-		showBoth = false,
-		noteClass = "",
-	} = {}) {
-		const sourceInput = el("input", {
-			type: "text",
-			class: "cms-field__input",
-			placeholder: "/assets/img/...",
-			value: initialSrc || "",
-		});
-		const modeSelect = el(
-			"select",
-			{ class: "cms-field__select" },
-			[
-				el("option", { value: "existing" }, ["Use existing"]),
-				el("option", { value: "upload" }, ["Upload new"]),
-			],
-		);
-		modeSelect.value = initialMode === "upload" ? "upload" : "existing";
-
-		const librarySelect = el("select", { class: "cms-field__select" }, [
-			el("option", { value: "" }, ["Select an existing image"]),
-		]);
-		const fileInput = el("input", {
-			type: "file",
-			class: "cms-field__input",
-		});
-		const nameInput = el("input", {
-			type: "text",
-			class: "cms-field__input",
-			placeholder: "Filename (e.g. hero.jpg or sub/hero.jpg)",
-		});
-		const previewImg = el("img", {
-			class: "cms-image-preview__img",
-			alt: "Preview",
-		});
-		const previewWrap = el("div", { class: "cms-image-preview" }, [previewImg]);
-		const uploadNote = el(
-			"div",
-			{
-				class: ["cms-field__note", noteClass].filter(Boolean).join(" "),
-			},
-			[
-				"\u26a0 Uploads are staged locally and only become live after the PR merges. Saved under /assets/img.",
-			],
-		);
-
-		let currentFile = null;
-		let uploadPreviewSrc = "";
-
-		const updatePreview = () => {
-			const raw = showBoth
-				? uploadPreviewSrc || sourceInput.value.trim()
-				: modeSelect.value === "upload" && uploadPreviewSrc
-					? uploadPreviewSrc
-					: sourceInput.value.trim();
-			let src =
-				raw && !raw.startsWith("data:") ? normalizeImageSource(raw) : raw;
-			if (src && !src.startsWith("data:")) {
-				const local = getLocalAssetPath(src);
-				const cached = local ? getCachedAssetDataUrl(local) : "";
-				if (cached) src = cached;
-			}
-			if (!src) {
-				previewWrap.hidden = true;
-				previewImg.removeAttribute("src");
-				return;
-			}
-			previewWrap.hidden = false;
-			previewImg.src = src;
-		};
-
-		const stageUpload = (file, filename) => {
-			if (!file || !filename) return;
-			const safePath = sanitizeImagePath(filename, file.name || "");
-			if (!safePath) return;
-			const safeName = safePath.replace(/^assets\/img\//, "");
-			nameInput.value = safeName;
-			const reader = new FileReader();
-			reader.onload = () => {
-				const dataUrl = String(reader.result || "");
-				const base64 = dataUrl.split(",")[1] || "";
-				addAssetUpload({
-					name: safeName,
-					content: base64,
-					path: safePath,
-					mime: file.type || "",
-				});
-				sourceInput.value = `/${safePath}`;
-				uploadPreviewSrc = dataUrl;
-				updatePreview();
-			};
-			reader.readAsDataURL(file);
-		};
-
-		librarySelect.addEventListener("change", () => {
-			const path = librarySelect.value;
-			if (!path) return;
-			const safePath = sanitizeImagePath(path, "");
-			if (!safePath) return;
-			sourceInput.value = `/${safePath}`;
-			updatePreview();
-		});
-
-		fileInput.addEventListener("change", () => {
-			const file = fileInput.files?.[0];
-			if (!file) return;
-			currentFile = file;
-			if (!nameInput.value.trim()) {
-				nameInput.value = file.name || "";
-			}
-			stageUpload(file, nameInput.value.trim());
-		});
-
-		nameInput.addEventListener("blur", () => {
-			if (!currentFile) return;
-			const filename = nameInput.value.trim();
-			stageUpload(currentFile, filename);
-		});
-
-		sourceInput.addEventListener("input", updatePreview);
-		sourceInput.addEventListener("blur", () => {
-			const normalized = normalizeImageSource(sourceInput.value);
-			if (normalized) sourceInput.value = normalized;
-			updatePreview();
-		});
-		updatePreview();
-
-		const existingWrap = el("div", { class: "cms-image-source__existing" }, [
-			buildField({ label: "Existing images", input: librarySelect }),
-		]);
-		const uploadWrap = el("div", { class: "cms-image-source__upload" }, [
-			buildField({ label: "File", input: fileInput }),
-			buildField({ label: "Filename", input: nameInput }),
-		]);
-
-		const setMode = (mode) => {
-			if (showBoth) {
-				existingWrap.hidden = false;
-				uploadWrap.hidden = false;
-				uploadNote.hidden = false;
-				updatePreview();
-				return;
-			}
-			const useUpload = mode === "upload";
-			existingWrap.hidden = useUpload;
-			uploadWrap.hidden = !useUpload;
-			uploadNote.hidden = !useUpload;
-			updatePreview();
-		};
-
-		setMode(modeSelect.value);
-		modeSelect.addEventListener("change", () => setMode(modeSelect.value));
-
-		const modeField = buildField({ label: "Source mode", input: modeSelect });
-		const sourceField = buildField({
-			label: "Image source",
-			input: sourceInput,
-		});
-
-		const wrap = el("div", { class: "cms-image-source" }, [
-			...(showMode ? [modeField] : []),
-			...(showSource ? [sourceField] : []),
-			existingWrap,
-			uploadWrap,
-			uploadNote,
-			previewWrap,
-		]);
-
-		return {
-			wrap,
-			modeSelect,
-			sourceInput,
-			librarySelect,
-			fileInput,
-			nameInput,
-			previewWrap,
-			previewImg,
-			updatePreview,
-			setMode,
-			getSource: () => normalizeImageSource(sourceInput.value.trim()),
-		};
-	}
-
 	function buildRteEditor({ label, initialHtml }) {
 		const toolbarIcon = (name) =>
 			el(
@@ -4128,8 +3854,8 @@ function serializeStyledAccordion(block, ctx) {
 				},
 			];
 			const tabs = items
-				.map(
-					(item) => [
+				.map((item) =>
+					[
 						`<div class="tab">`,
 						`\t<input type="checkbox" id="${escapeAttr(item.id)}" />`,
 						`\t<label class="tab-label" for="${escapeAttr(item.id)}">${escapeHtml(item.title)}</label>`,
@@ -4417,13 +4143,6 @@ function serializeStyledAccordion(block, ctx) {
 			selection.addRange(lastRange);
 			return true;
 		};
-		const selectionToHtml = (range) => {
-			if (!range) return "";
-			const fragment = range.cloneContents();
-			const wrap = document.createElement("div");
-			wrap.appendChild(fragment);
-			return wrap.innerHTML;
-		};
 
 		const TOOLBAR_TEXT_RE =
 			/Auto\s*JS\s*JSON\s*HTML\s*CSS\s*Python\s*Markdown\s*YAML\s*Format/g;
@@ -4466,7 +4185,9 @@ function serializeStyledAccordion(block, ctx) {
 
 		const updateCodeLanguage = (codeEl, lang) => {
 			if (!codeEl) return;
-			const clean = String(lang || "").trim().toLowerCase();
+			const clean = String(lang || "")
+				.trim()
+				.toLowerCase();
 			codeEl.className = "";
 			codeEl.removeAttribute("data-lang");
 			if (clean && clean !== "auto") {
@@ -4521,16 +4242,15 @@ function serializeStyledAccordion(block, ctx) {
 					}
 					updateCodeLanguage(codeEl, value);
 				};
-				select.addEventListener("change", () =>
-					applySelection(select.value),
-				);
+				select.addEventListener("change", () => applySelection(select.value));
 				autoBtn.addEventListener("click", (event) => {
 					event.preventDefault();
 					applySelection("auto");
 				});
 				const deleteBtn = document.createElement("button");
 				deleteBtn.type = "button";
-				deleteBtn.className = "cms-code-toolbar__btn cms-code-toolbar__btn--danger";
+				deleteBtn.className =
+					"cms-code-toolbar__btn cms-code-toolbar__btn--danger";
 				deleteBtn.textContent = "Delete";
 				deleteBtn.addEventListener("click", (event) => {
 					event.preventDefault();
@@ -4567,7 +4287,10 @@ function serializeStyledAccordion(block, ctx) {
 				codeEl.textContent = codeEl.textContent.replace(TOOLBAR_TEXT_RE, "");
 			}
 			pre.classList.add("cms-code-block");
-			updateCodeLanguage(codeEl, getLangFromCodeEl(codeEl) || detected || "auto");
+			updateCodeLanguage(
+				codeEl,
+				getLangFromCodeEl(codeEl) || detected || "auto",
+			);
 			codeEl.removeAttribute("data-highlighted");
 			codeEl.classList.remove("hljs");
 			codeEl.textContent = codeEl.textContent || "";
@@ -4581,9 +4304,9 @@ function serializeStyledAccordion(block, ctx) {
 				mutation.addedNodes.forEach((node) => {
 					if (!(node instanceof HTMLElement)) return;
 					if (node.matches("pre")) ensureCodeToolbar(node);
-					node.querySelectorAll?.("pre").forEach((pre) =>
-						ensureCodeToolbar(pre),
-					);
+					node
+						.querySelectorAll?.("pre")
+						.forEach((pre) => ensureCodeToolbar(pre));
 				});
 			});
 		});
@@ -4634,9 +4357,13 @@ function serializeStyledAccordion(block, ctx) {
 			placeholder: "Filename (e.g. hero.jpg or sub/hero.jpg)",
 		});
 		uploadNameInput.hidden = true;
-		const uploadWarning = el("div", { class: "cms-modal__note cms-note--warning" }, [
-			"\u26a0 Please note: Uploaded images are only stored in local memory until comitted and could be lost \u26a0",
-		]);
+		const uploadWarning = el(
+			"div",
+			{ class: "cms-modal__note cms-note--warning" },
+			[
+				"\u26a0 Please note: Uploaded images are only stored in local memory until comitted and could be lost \u26a0",
+			],
+		);
 		uploadWarning.hidden = true;
 		const getFileExtension = (name) => {
 			const match = String(name || "")
@@ -4788,16 +4515,20 @@ function serializeStyledAccordion(block, ctx) {
 		});
 		const imagePreviewWrap = el(
 			"div",
-			{ class: "cms-image-preview cms-image-preview--inline content content--full" },
+			{
+				class:
+					"cms-image-preview cms-image-preview--inline content content--full",
+			},
 			[imagePreviewImg],
 		);
 		const overlayLayer = el("div", { class: "content-overlay" });
 		const overlayTitlePreview = el("h3", { class: "content-title" });
 		const overlayTextPreview = el("p", { class: "content-text" });
-		const overlayDetails = el("div", { class: "content-details fadeIn-bottom" }, [
-			overlayTitlePreview,
-			overlayTextPreview,
-		]);
+		const overlayDetails = el(
+			"div",
+			{ class: "content-details fadeIn-bottom" },
+			[overlayTitlePreview, overlayTextPreview],
+		);
 		imagePreviewWrap.appendChild(overlayLayer);
 		imagePreviewWrap.appendChild(overlayDetails);
 		const updateImagePreview = () => {
@@ -4853,17 +4584,13 @@ function serializeStyledAccordion(block, ctx) {
 			class: "cms-field__checkbox",
 		});
 		lightboxInput.checked = true;
-		const scaleSelect = el(
-			"select",
-			{ class: "cms-field__select" },
-			[
-				el("option", { value: "auto" }, ["Auto"]),
-				el("option", { value: "sm" }, ["Small"]),
-				el("option", { value: "md" }, ["Medium"]),
-				el("option", { value: "lg" }, ["Large"]),
-				el("option", { value: "full" }, ["Full"]),
-			],
-		);
+		const scaleSelect = el("select", { class: "cms-field__select" }, [
+			el("option", { value: "auto" }, ["Auto"]),
+			el("option", { value: "sm" }, ["Small"]),
+			el("option", { value: "md" }, ["Medium"]),
+			el("option", { value: "lg" }, ["Large"]),
+			el("option", { value: "full" }, ["Full"]),
+		]);
 		const applyScalePreview = () => {
 			const img = imagePreviewImg;
 			if (!img) return;
@@ -4943,11 +4670,12 @@ function serializeStyledAccordion(block, ctx) {
 		const displayField = buildField({ label: "Display", input: displayRow });
 		const captionField = buildField({ label: "Caption", input: captionInput });
 		const sizeField = buildField({ label: "Size", input: scaleSelect });
-		const controlsWrap = el(
-			"div",
-			{ class: "cms-image-settings__controls" },
-			[displayField, captionField, sizeField, overlayGroup],
-		);
+		const controlsWrap = el("div", { class: "cms-image-settings__controls" }, [
+			displayField,
+			captionField,
+			sizeField,
+			overlayGroup,
+		]);
 		const settingsRow = el("div", { class: "cms-image-settings" }, [
 			el("div", { class: "cms-image-settings__preview" }, [imagePreviewWrap]),
 			controlsWrap,
@@ -4991,20 +4719,20 @@ function serializeStyledAccordion(block, ctx) {
 			class: "cms-field__input",
 			placeholder: "Caption (required)",
 		});
-		const videoScaleSelect = el(
-			"select",
-			{ class: "cms-field__select" },
+		const videoScaleSelect = el("select", { class: "cms-field__select" }, [
+			el("option", { value: "auto" }, ["Auto"]),
+			el("option", { value: "sm" }, ["Small"]),
+			el("option", { value: "md" }, ["Medium"]),
+			el("option", { value: "lg" }, ["Large"]),
+			el("option", { value: "full" }, ["Full"]),
+		]);
+		const videoWarning = el(
+			"div",
+			{ class: "cms-modal__note cms-note--warning" },
 			[
-				el("option", { value: "auto" }, ["Auto"]),
-				el("option", { value: "sm" }, ["Small"]),
-				el("option", { value: "md" }, ["Medium"]),
-				el("option", { value: "lg" }, ["Large"]),
-				el("option", { value: "full" }, ["Full"]),
+				"\u26a0 Videos must be YouTube links only. Uploading is disabled. \u26a0",
 			],
 		);
-		const videoWarning = el("div", { class: "cms-modal__note cms-note--warning" }, [
-			"\u26a0 Videos must be YouTube links only. Uploading is disabled. \u26a0",
-		]);
 		const videoSourceRow = el("div", { class: "cms-field__row" }, [videoInput]);
 		const videoPlaceholder = el("div", { class: "cms-video-placeholder" }, [
 			"YouTube preview disabled",
@@ -5119,11 +4847,9 @@ function serializeStyledAccordion(block, ctx) {
 			{ class: "doc-card doc-card--compact cms-doc-preview" },
 			[docPreviewLink],
 		);
-		const docPreviewWrap = el(
-			"div",
-			{ class: "cms-image-settings__preview" },
-			[docPreviewCard],
-		);
+		const docPreviewWrap = el("div", { class: "cms-image-settings__preview" }, [
+			docPreviewCard,
+		]);
 		const docLinkRow = el("div", { class: "cms-field__row" }, [
 			docHrefInput,
 			docLibrarySelect,
@@ -5351,10 +5077,7 @@ function serializeStyledAccordion(block, ctx) {
 					el("p", { class: "cms-modal__text" }, [
 						"Delete this item? Unsaved changes will be lost if you continue.",
 					]),
-					el("div", { class: "cms-modal__confirm-actions" }, [
-						cancel,
-						confirm,
-					]),
+					el("div", { class: "cms-modal__confirm-actions" }, [cancel, confirm]),
 				]);
 				overlay = el("div", { class: "cms-modal__confirm" }, [panel]);
 				overlay.addEventListener("click", (event) => {
@@ -5417,7 +5140,8 @@ function serializeStyledAccordion(block, ctx) {
 			const size = (stub.getAttribute("data-size") || "sml")
 				.trim()
 				.toLowerCase();
-			const sizeClass = size === "lrg" ? "lrg-img-text-div-img" : "img-text-div-img";
+			const sizeClass =
+				size === "lrg" ? "lrg-img-text-div-img" : "img-text-div-img";
 
 			let previewSrc = imgSrc;
 			if (previewSrc && !previewSrc.startsWith("data:")) {
@@ -5452,7 +5176,11 @@ function serializeStyledAccordion(block, ctx) {
 				}
 				if (overlayEnabled) {
 					const overlay = el("div", { class: "content-overlay" });
-					const details = el("div", { class: "content-details fadeIn-bottom" }, []);
+					const details = el(
+						"div",
+						{ class: "content-details fadeIn-bottom" },
+						[],
+					);
 					if (titleText) {
 						const h3 = document.createElement("h3");
 						h3.className = "content-title";
@@ -5717,9 +5445,7 @@ function serializeStyledAccordion(block, ctx) {
 			let nextIndex = maxIndex + 1;
 			let nextId = `${prefix}-${nextIndex}`;
 			const escapeId = (value) =>
-				typeof CSS !== "undefined" && CSS.escape
-					? CSS.escape(value)
-					: value;
+				typeof CSS !== "undefined" && CSS.escape ? CSS.escape(value) : value;
 			while (editor.querySelector(`#${escapeId(nextId)}`)) {
 				nextIndex += 1;
 				nextId = `${prefix}-${nextIndex}`;
@@ -5751,7 +5477,10 @@ function serializeStyledAccordion(block, ctx) {
 			const icon = (name) =>
 				el(
 					"span",
-					{ class: "material-icons cms-accordion__icon", "aria-hidden": "true" },
+					{
+						class: "material-icons cms-accordion__icon",
+						"aria-hidden": "true",
+					},
 					[name],
 				);
 			const addBtn = el(
@@ -5768,7 +5497,8 @@ function serializeStyledAccordion(block, ctx) {
 				"button",
 				{
 					type: "button",
-					class: "cms-block__btn cms-block__btn--edit cms-accordion-btn cms-accordion-btn--remove",
+					class:
+						"cms-block__btn cms-block__btn--edit cms-accordion-btn cms-accordion-btn--remove",
 					"data-tooltip": "Remove row",
 					"aria-label": "Remove row",
 				},
@@ -5938,9 +5668,7 @@ function serializeStyledAccordion(block, ctx) {
 							el("span", { class: "material-icons", "aria-hidden": "true" }, [
 								"open_in_new",
 							]),
-							el("span", { class: "doc-card__overlay-label" }, [
-								overlayLabel,
-							]),
+							el("span", { class: "doc-card__overlay-label" }, [overlayLabel]),
 						]),
 					]),
 				],
@@ -5989,7 +5717,8 @@ function serializeStyledAccordion(block, ctx) {
 			if (attrs) {
 				imgInput.value = attrs.img;
 				captionInput.value = attrs.caption;
-				lightboxInput.checked = normalizeBool(attrs.lightbox, "false") === "true";
+				lightboxInput.checked =
+					normalizeBool(attrs.lightbox, "false") === "true";
 				overlayEnabledInput.checked = attrs.overlay !== "false";
 				overlayTitleInput.value = attrs.overlayTitle;
 				overlayTextInput.value = attrs.overlayText;
@@ -6214,7 +5943,9 @@ function serializeStyledAccordion(block, ctx) {
 			docTitleInput.classList.remove("cms-field__input--invalid");
 			updateDocPreview();
 			docLibrarySelect.value = "";
-			docSaveBtn.textContent = targetCard ? "Update document" : "Insert document";
+			docSaveBtn.textContent = targetCard
+				? "Update document"
+				: "Insert document";
 			docDeleteBtn.disabled = !targetCard;
 			docPanel.hidden = false;
 			attachModalCloseInterceptor();
@@ -6344,7 +6075,9 @@ function serializeStyledAccordion(block, ctx) {
 				if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
 				const existingCode = node?.closest ? node.closest("code") : null;
 				if (existingCode) {
-					const textNode = document.createTextNode(existingCode.textContent || "");
+					const textNode = document.createTextNode(
+						existingCode.textContent || "",
+					);
 					existingCode.replaceWith(textNode);
 					selection.removeAllRanges();
 					const newRange = document.createRange();
@@ -6445,9 +6178,7 @@ function serializeStyledAccordion(block, ctx) {
 
 		const insertPlainTextIntoCode = (target, text) => {
 			const code =
-				target?.closest?.("code") ||
-				target?.querySelector?.("code") ||
-				null;
+				target?.closest?.("code") || target?.querySelector?.("code") || null;
 			if (!code) return false;
 			const selection = window.getSelection();
 			if (!selection || selection.rangeCount === 0) return false;
@@ -6537,8 +6268,10 @@ function serializeStyledAccordion(block, ctx) {
 	function stripEditEntriesForBase(localBlocks, anchor) {
 		const key = anchorKey(anchor);
 		return normalizeLocalBlocks(localBlocks).filter((item) => {
-			if (item.action === "mark" && anchorKey(item.anchor) === key) return false;
-			if (item.action === "remove" && anchorKey(item.anchor) === key) return false;
+			if (item.action === "mark" && anchorKey(item.anchor) === key)
+				return false;
+			if (item.action === "remove" && anchorKey(item.anchor) === key)
+				return false;
 			if (
 				item.action === "insert" &&
 				item.kind === "edited" &&
@@ -6550,10 +6283,7 @@ function serializeStyledAccordion(block, ctx) {
 	}
 
 	function buildField({ label, input, note }) {
-		const nodes = [
-			el("div", { class: "cms-field__label" }, [label]),
-			input,
-		];
+		const nodes = [el("div", { class: "cms-field__label" }, [label]), input];
 		if (note) nodes.push(el("div", { class: "cms-field__note" }, [note]));
 		return el("div", { class: "cms-field" }, nodes);
 	}
@@ -6870,9 +6600,13 @@ function serializeStyledAccordion(block, ctx) {
 			placeholder: "Filename (e.g. hero.jpg or sub/hero.jpg)",
 		});
 		uploadNameInput.hidden = true;
-		const uploadWarning = el("div", { class: "cms-modal__note cms-note--warning" }, [
-			"\u26a0 Please note: Uploaded images are only stored in local memory until comitted and could be lost \u26a0",
-		]);
+		const uploadWarning = el(
+			"div",
+			{ class: "cms-modal__note cms-note--warning" },
+			[
+				"\u26a0 Please note: Uploaded images are only stored in local memory until comitted and could be lost \u26a0",
+			],
+		);
 		uploadWarning.hidden = true;
 		let currentUploadFile = null;
 		let currentUploadBase64 = "";
@@ -6996,16 +6730,20 @@ function serializeStyledAccordion(block, ctx) {
 		});
 		const imagePreviewWrap = el(
 			"div",
-			{ class: "cms-image-preview cms-image-preview--inline content content--full" },
+			{
+				class:
+					"cms-image-preview cms-image-preview--inline content content--full",
+			},
 			[imagePreviewImg],
 		);
 		const overlayLayer = el("div", { class: "content-overlay" });
 		const overlayTitlePreview = el("h3", { class: "content-title" });
 		const overlayTextPreview = el("p", { class: "content-text" });
-		const overlayDetails = el("div", { class: "content-details fadeIn-bottom" }, [
-			overlayTitlePreview,
-			overlayTextPreview,
-		]);
+		const overlayDetails = el(
+			"div",
+			{ class: "content-details fadeIn-bottom" },
+			[overlayTitlePreview, overlayTextPreview],
+		);
 		imagePreviewWrap.appendChild(overlayLayer);
 		imagePreviewWrap.appendChild(overlayDetails);
 		const updateOverlayPreview = () => {
@@ -7138,7 +6876,10 @@ function serializeStyledAccordion(block, ctx) {
 			]),
 		]);
 		const displayField = buildField({ label: "Display", input: displayRow });
-		const controls = [displayField, buildField({ label: "Alt text", input: altInput })];
+		const controls = [
+			displayField,
+			buildField({ label: "Alt text", input: altInput }),
+		];
 		if (isHover) {
 			const overlayInputs = el("div", { class: "cms-field__stack" }, [
 				overlayTitleInput,
@@ -7228,7 +6969,9 @@ function serializeStyledAccordion(block, ctx) {
 				uploadWarning,
 				buildField({ label: "Image settings", input: settingsRow }),
 			],
-			footerNodes: onDelete ? [cancelBtn, deleteBtn, saveBtn] : [cancelBtn, saveBtn],
+			footerNodes: onDelete
+				? [cancelBtn, deleteBtn, saveBtn]
+				: [cancelBtn, saveBtn],
 		});
 	}
 
@@ -7267,7 +7010,10 @@ function serializeStyledAccordion(block, ctx) {
 			const blockRoot = getBlockRootElement(wrapper);
 			if (!blockRoot) return;
 			const parsed = parseMainBlockNode(blockRoot);
-			if (!parsed || (parsed.type !== "hoverCardRow" && parsed.type !== "squareGridRow"))
+			if (
+				!parsed ||
+				(parsed.type !== "hoverCardRow" && parsed.type !== "squareGridRow")
+			)
 				return;
 			const nextModel = updateFn(parsed);
 			if (!nextModel) return;
@@ -7307,7 +7053,11 @@ function serializeStyledAccordion(block, ctx) {
 				const leftBtn = buildAction("chevron_left", "Move left");
 				const rightBtn = buildAction("chevron_right", "Move right");
 				const addBtn = buildAction("add", "Add card");
-				const deleteBtn = buildAction("delete", "Delete card", "cms-grid-action--danger");
+				const deleteBtn = buildAction(
+					"delete",
+					"Delete card",
+					"cms-grid-action--danger",
+				);
 
 				editBtn.addEventListener("click", (event) => {
 					event.preventDefault();
@@ -7423,7 +7173,11 @@ function serializeStyledAccordion(block, ctx) {
 				const leftBtn = buildAction("chevron_left", "Move left");
 				const rightBtn = buildAction("chevron_right", "Move right");
 				const addBtn = buildAction("add", "Add image");
-				const deleteBtn = buildAction("delete", "Delete image", "cms-grid-action--danger");
+				const deleteBtn = buildAction(
+					"delete",
+					"Delete image",
+					"cms-grid-action--danger",
+				);
 
 				editBtn.addEventListener("click", (event) => {
 					event.preventDefault();
@@ -7524,7 +7278,13 @@ function serializeStyledAccordion(block, ctx) {
 		}
 	}
 
-	function openBlockEditor({ blockHtml, origin, localId, anchorBase, currentLocal }) {
+	function openBlockEditor({
+		blockHtml,
+		origin,
+		localId,
+		anchorBase,
+		currentLocal,
+	}) {
 		const doc = new DOMParser().parseFromString(
 			`<div id="__wrap__">${String(blockHtml || "")}</div>`,
 			"text/html",
@@ -7725,9 +7485,13 @@ function serializeStyledAccordion(block, ctx) {
 				closeConfirm();
 				handleExitEdit();
 			});
-			const warning = el("div", { class: "cms-modal__note cms-note--warning" }, [
-				"\u26a0 Are you sure you want to close? All unsaved changes will be lost. \u26a0",
-			]);
+			const warning = el(
+				"div",
+				{ class: "cms-modal__note cms-note--warning" },
+				[
+					"\u26a0 Are you sure you want to close? All unsaved changes will be lost. \u26a0",
+				],
+			);
 			const panel = el("div", { class: "cms-modal__confirm-panel" }, [
 				el("h3", { class: "cms-modal__confirm-title" }, ["Exit editor"]),
 				warning,
@@ -7825,7 +7589,9 @@ function serializeStyledAccordion(block, ctx) {
 				});
 			};
 			const buildItem = ({ label, body }) => {
-				const titleEl = el("div", { class: "cms-modal__group-title" }, ["Item"]);
+				const titleEl = el("div", { class: "cms-modal__group-title" }, [
+					"Item",
+				]);
 				const labelInput = el("input", {
 					type: "text",
 					class: "cms-field__input",
@@ -7865,13 +7631,25 @@ function serializeStyledAccordion(block, ctx) {
 					downBtn,
 					removeBtn,
 				]);
-				const wrap = el("div", { class: "cms-modal__group cms-modal__group--settings" }, [
+				const wrap = el(
+					"div",
+					{ class: "cms-modal__group cms-modal__group--settings" },
+					[
+						titleEl,
+						buildField({ label: "Row title", input: labelInput }),
+						editor.wrap,
+						actionRow,
+					],
+				);
+				const item = {
+					wrap,
 					titleEl,
-					buildField({ label: "Row title", input: labelInput }),
-					editor.wrap,
-					actionRow,
-				]);
-				const item = { wrap, titleEl, labelInput, editor, upBtn, downBtn, removeBtn };
+					labelInput,
+					editor,
+					upBtn,
+					downBtn,
+					removeBtn,
+				};
 				upBtn.addEventListener("click", () => {
 					const index = accordionItems.indexOf(item);
 					if (index <= 0) return;
@@ -7930,9 +7708,7 @@ function serializeStyledAccordion(block, ctx) {
 						note: "Optional intro text above the accordion rows.",
 					}),
 					el("div", { class: "cms-modal__group cms-modal__group--settings" }, [
-						el("div", { class: "cms-modal__group-title" }, [
-							"Accordion rows",
-						]),
+						el("div", { class: "cms-modal__group-title" }, ["Accordion rows"]),
 						itemsWrap,
 						addBtn,
 					]),
@@ -8060,12 +7836,12 @@ function serializeStyledAccordion(block, ctx) {
 				footerNodes: [
 					el(
 						"button",
-					{
-						class: "cms-btn cms-modal__action cms-btn--danger",
-						type: "button",
-						"data-close": "true",
-					},
-					["Stop Editing Block"],
+						{
+							class: "cms-btn cms-modal__action cms-btn--danger",
+							type: "button",
+							"data-close": "true",
+						},
+						["Stop Editing Block"],
 					),
 					el(
 						"button",
@@ -8128,14 +7904,10 @@ function serializeStyledAccordion(block, ctx) {
 					value: parsed.img || "",
 					placeholder: "/assets/img/...",
 				});
-				imageModeSelect = el(
-					"select",
-					{ class: "cms-field__select" },
-					[
-						el("option", { value: "existing" }, ["Use existing"]),
-						el("option", { value: "upload" }, ["Upload new"]),
-					],
-				);
+				imageModeSelect = el("select", { class: "cms-field__select" }, [
+					el("option", { value: "existing" }, ["Use existing"]),
+					el("option", { value: "upload" }, ["Upload new"]),
+				]);
 				imageModeSelect.value = "existing";
 				imageLibrarySelect = el("select", { class: "cms-field__select" }, [
 					el("option", { value: "" }, ["Select an existing image"]),
@@ -8206,7 +7978,10 @@ function serializeStyledAccordion(block, ctx) {
 					const safeName = safePath.replace(/^assets\/img\//, "");
 					if (normalize && uploadNameInput) {
 						uploadNameInput.value = safeName;
-						if (currentUploadExt && document.activeElement === uploadNameInput) {
+						if (
+							currentUploadExt &&
+							document.activeElement === uploadNameInput
+						) {
 							const caret = Math.max(
 								0,
 								safeName.length - currentUploadExt.length,
@@ -8243,10 +8018,9 @@ function serializeStyledAccordion(block, ctx) {
 						const base64 = dataUrl.split(",")[1] || "";
 						currentUploadBase64 = base64;
 						currentUploadMime = file.type || "";
-						syncUploadName(
-							uploadNameInput?.value.trim() || safeName,
-							{ normalize: true },
-						);
+						syncUploadName(uploadNameInput?.value.trim() || safeName, {
+							normalize: true,
+						});
 					};
 					reader.readAsDataURL(file);
 				};
@@ -8313,7 +8087,8 @@ function serializeStyledAccordion(block, ctx) {
 				imagePreviewWrap = el(
 					"div",
 					{
-						class: "cms-image-preview cms-image-preview--inline content content--full",
+						class:
+							"cms-image-preview cms-image-preview--inline content content--full",
 					},
 					[imagePreviewImg],
 				);
@@ -8367,9 +8142,7 @@ function serializeStyledAccordion(block, ctx) {
 					const title = overlayTitleInput?.value.trim() || "";
 					const text = overlayTextInput?.value.trim() || "";
 					const fallback =
-						!title && !text && lightboxInput?.checked
-							? "Click to view"
-							: text;
+						!title && !text && lightboxInput?.checked ? "Click to view" : text;
 					overlayLayer.hidden = false;
 					overlayDetails.hidden = false;
 					overlayTitlePreview.textContent = title;
@@ -8411,15 +8184,12 @@ function serializeStyledAccordion(block, ctx) {
 					type: "checkbox",
 					class: "cms-field__checkbox",
 				});
-				lightboxInput.checked = normalizeBool(parsed.lightbox, "false") === "true";
-				posSelect = el(
-					"select",
-					{ class: "cms-field__select" },
-					[
-						el("option", { value: "left" }, ["Image left"]),
-						el("option", { value: "right" }, ["Image right"]),
-					],
-				);
+				lightboxInput.checked =
+					normalizeBool(parsed.lightbox, "false") === "true";
+				posSelect = el("select", { class: "cms-field__select" }, [
+					el("option", { value: "left" }, ["Image left"]),
+					el("option", { value: "right" }, ["Image right"]),
+				]);
 				posSelect.value = parsed.imgPos === "right" ? "right" : "left";
 				const overlayInputs = el("div", { class: "cms-field__stack" }, [
 					overlayTitleInput,
@@ -8486,7 +8256,10 @@ function serializeStyledAccordion(block, ctx) {
 					label: "Display",
 					input: displayRow,
 				});
-				const captionField = buildField({ label: "Caption", input: captionInput });
+				const captionField = buildField({
+					label: "Caption",
+					input: captionInput,
+				});
 				const controlsWrap = el(
 					"div",
 					{ class: "cms-image-settings__controls" },
@@ -8505,9 +8278,13 @@ function serializeStyledAccordion(block, ctx) {
 						note: "Required for image blocks.",
 					}),
 				);
-				uploadWarning = el("div", { class: "cms-modal__note cms-note--warning" }, [
-					"\u26a0 Please note: Uploaded images are only stored in local memory until comitted and could be lost \u26a0",
-				]);
+				uploadWarning = el(
+					"div",
+					{ class: "cms-modal__note cms-note--warning" },
+					[
+						"\u26a0 Please note: Uploaded images are only stored in local memory until comitted and could be lost \u26a0",
+					],
+				);
 				uploadWarning.hidden = true;
 				settingsNodes.push(uploadWarning);
 				settingsNodes.push(
@@ -8539,10 +8316,16 @@ function serializeStyledAccordion(block, ctx) {
 
 			const settingsWrap =
 				settingsNodes.length > 0
-					? el("div", { class: "cms-modal__group cms-modal__group--settings" }, [
-							el("div", { class: "cms-modal__group-title" }, ["Block settings"]),
-							...settingsNodes,
-						])
+					? el(
+							"div",
+							{ class: "cms-modal__group cms-modal__group--settings" },
+							[
+								el("div", { class: "cms-modal__group-title" }, [
+									"Block settings",
+								]),
+								...settingsNodes,
+							],
+						)
 					: null;
 
 			openModal({
@@ -8551,12 +8334,12 @@ function serializeStyledAccordion(block, ctx) {
 				footerNodes: [
 					el(
 						"button",
-					{
-						class: "cms-btn cms-modal__action cms-btn--danger",
-						type: "button",
-						"data-close": "true",
-					},
-					["Stop Editing Block"],
+						{
+							class: "cms-btn cms-modal__action cms-btn--danger",
+							type: "button",
+							"data-close": "true",
+						},
+						["Stop Editing Block"],
 					),
 					el(
 						"button",
@@ -8587,7 +8370,7 @@ function serializeStyledAccordion(block, ctx) {
 
 		const modal = document.querySelector(".cms-modal");
 		const saveBtn = modal?.querySelector(
-			".cms-btn.cms-modal__action.cms-btn--success[data-action=\"save-block\"]",
+			'.cms-btn.cms-modal__action.cms-btn--success[data-action="save-block"]',
 		);
 		if (!saveBtn) return;
 
@@ -8601,8 +8384,7 @@ function serializeStyledAccordion(block, ctx) {
 					ctx,
 				);
 				updated.items = settings.accordionItems.map((item, idx) => ({
-					label:
-						item.labelInput?.value.trim() || `Item ${idx + 1}`,
+					label: item.labelInput?.value.trim() || `Item ${idx + 1}`,
 					body: sanitizeRteHtml(item.editor?.editor.innerHTML || "", ctx),
 				}));
 			}
@@ -8958,7 +8740,8 @@ function serializeStyledAccordion(block, ctx) {
 		if (path === state.path) {
 			updateLocalBlocksAndRender(path, remaining);
 		} else {
-			const baseHtml = entry.baseHtml || entry.dirtyHtml || state.originalHtml || "";
+			const baseHtml =
+				entry.baseHtml || entry.dirtyHtml || state.originalHtml || "";
 			const updatedHtml = mergeDirtyWithBase(baseHtml, baseHtml, remaining, {
 				respectRemovals: hasRemovalActions(remaining),
 				path,
@@ -9212,7 +8995,6 @@ function serializeStyledAccordion(block, ctx) {
 		setTimeout(scheduleHighlightStaticCodeBlocks, 200);
 	}
 
-
 	function renderPageSurface() {
 		const entry = state.dirtyPages[state.path];
 		if (entry?.html) {
@@ -9281,7 +9063,11 @@ function serializeStyledAccordion(block, ctx) {
 			return;
 		}
 
-		const insertDivider = (index, label = "Insert block", anchorInfo = null) => {
+		const insertDivider = (
+			index,
+			label = "Insert block",
+			anchorInfo = null,
+		) => {
 			const attrs = {
 				class: "cms-divider-btn",
 				type: "button",
@@ -9296,18 +9082,14 @@ function serializeStyledAccordion(block, ctx) {
 				if (anchorInfo.placement)
 					attrs["data-anchor-placement"] = anchorInfo.placement;
 			}
-			return el(
-				"button",
-				attrs,
-				[
-					el("span", { class: "cms-divider-line", "aria-hidden": "true" }),
-					el("span", { class: "cms-divider-plus", "aria-hidden": "true" }, [
-						"＋",
-					]),
-					el("span", { class: "cms-divider-text" }, [label]),
-					el("span", { class: "cms-divider-line", "aria-hidden": "true" }),
-				],
-			);
+			return el("button", attrs, [
+				el("span", { class: "cms-divider-line", "aria-hidden": "true" }),
+				el("span", { class: "cms-divider-plus", "aria-hidden": "true" }, [
+					"＋",
+				]),
+				el("span", { class: "cms-divider-text" }, [label]),
+				el("span", { class: "cms-divider-line", "aria-hidden": "true" }),
+			]);
 		};
 
 		// Render from state.blocks (raw HTML),
@@ -9626,9 +9408,7 @@ function serializeStyledAccordion(block, ctx) {
 					type: blockType,
 					origin: localItem ? "local" : "base",
 					localId: localItem?.id || "",
-					anchorBase: isBase
-						? { id: b.id, sig: b.sig, occ: b.occ }
-						: null,
+					anchorBase: isBase ? { id: b.id, sig: b.sig, occ: b.occ } : null,
 				});
 			}
 			mainWrap.appendChild(
@@ -9864,9 +9644,6 @@ function serializeStyledAccordion(block, ctx) {
 					const baseOrder =
 						registry.blocks || buildBaseBlocksWithOcc(baseHtml || "");
 					const baseOrderKeys = baseOrder.map((b) => anchorKey(b));
-					const baseHtmlByKey = new Map(
-						baseOrder.map((b) => [anchorKey(b), normalizeFragmentHtml(b.html)]),
-					);
 					const currentBaseOrder = merged
 						.filter((item) => item?._base)
 						.map((item) => ({
@@ -10398,12 +10175,12 @@ function serializeStyledAccordion(block, ctx) {
 		// Debug signal: whitespace normalisation can make this false even when correct.
 		const rebuiltMain = serializeMainFromBlocks(state.blocks);
 		const originalMain = (state.mainInner || "").trim();
-			if (state.debug) {
-				console.log(
-					"[cms-portal] roundtrip main equal?",
-					rebuiltMain === originalMain,
-				);
-			}
+		if (state.debug) {
+			console.log(
+				"[cms-portal] roundtrip main equal?",
+				rebuiltMain === originalMain,
+			);
+		}
 
 		const missing = [];
 		if (!hero.found) missing.push("hero markers");
@@ -10593,7 +10370,7 @@ function serializeStyledAccordion(block, ctx) {
 		codeInput.addEventListener("input", updateAction);
 		updateAction();
 
-			action.addEventListener("click", () => {
+		action.addEventListener("click", () => {
 			const pathsToProcess = Array.from(selectedPages);
 			if (!pathsToProcess.length) return;
 			pathsToProcess.forEach((path) => {
@@ -10653,8 +10430,7 @@ function serializeStyledAccordion(block, ctx) {
 				const matchesBase =
 					normalizeForDirtyCompare(updatedHtml, path) ===
 					normalizeForDirtyCompare(baseForCompare, path);
-				if (!updatedHtml || matchesBase)
-					clearDirtyPage(path);
+				if (!updatedHtml || matchesBase) clearDirtyPage(path);
 				else setDirtyPage(path, updatedHtml, entry.baseHtml, remappedLocal);
 				if (path === state.path) {
 					applyHtmlToCurrentPage(updatedHtml);
@@ -11057,8 +10833,7 @@ function serializeStyledAccordion(block, ctx) {
 				const matchesBase =
 					normalizeForDirtyCompare(remainingHtml, path) ===
 					normalizeForDirtyCompare(baseForCompare, path);
-				if (!remainingHtml || matchesBase)
-					clearDirtyPage(path);
+				if (!remainingHtml || matchesBase) clearDirtyPage(path);
 				else {
 					setDirtyPage(path, remainingHtml, entry.baseHtml, remappedLocal);
 					postPrUpdates.push({
