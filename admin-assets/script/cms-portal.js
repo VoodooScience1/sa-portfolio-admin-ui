@@ -560,6 +560,7 @@
 		const wrap = doc.querySelector("#__wrap__");
 		if (!wrap) return "";
 		wrap.querySelectorAll(".cms-code-toolbar").forEach((node) => node.remove());
+		wrap.querySelectorAll(".cms-accordion-actions").forEach((node) => node.remove());
 		wrap
 			.querySelectorAll("select.cms-code-toolbar__select, .cms-code-toolbar__btn")
 			.forEach((node) => node.remove());
@@ -5290,6 +5291,172 @@ function serializeSquareGridRow(block, ctx) {
 			});
 		};
 
+		const getAccordionGroup = (tab) => {
+			if (!(tab instanceof HTMLElement)) return { container: null, tabs: [] };
+			const styledBox = tab.closest(".flex-accordion-box");
+			if (styledBox) {
+				return {
+					container: styledBox,
+					tabs: Array.from(styledBox.querySelectorAll(".tab")),
+					type: "styled",
+				};
+			}
+			const parent = tab.parentElement;
+			if (!parent) return { container: null, tabs: [] };
+			let start = tab;
+			while (
+				start.previousElementSibling &&
+				start.previousElementSibling.classList.contains("tab")
+			) {
+				start = start.previousElementSibling;
+			}
+			const tabs = [];
+			let node = start;
+			while (node && node.classList.contains("tab")) {
+				tabs.push(node);
+				node = node.nextElementSibling;
+			}
+			return { container: parent, tabs, type: "simple" };
+		};
+
+		const getNextAccordionId = (tabs) => {
+			let prefix = `acc-${BUILD_TOKEN}-${makeLocalId()}`;
+			let maxIndex = 0;
+			tabs.forEach((tab) => {
+				const id = tab.querySelector("input[type=checkbox]")?.id || "";
+				const match = id.match(/^(.*)-(\d+)$/);
+				if (match) {
+					prefix = match[1];
+					const num = Number.parseInt(match[2], 10);
+					if (!Number.isNaN(num)) maxIndex = Math.max(maxIndex, num);
+				}
+			});
+			let nextIndex = maxIndex + 1;
+			let nextId = `${prefix}-${nextIndex}`;
+			const escapeId = (value) =>
+				typeof CSS !== "undefined" && CSS.escape
+					? CSS.escape(value)
+					: value;
+			while (editor.querySelector(`#${escapeId(nextId)}`)) {
+				nextIndex += 1;
+				nextId = `${prefix}-${nextIndex}`;
+			}
+			return { id: nextId, index: nextIndex };
+		};
+
+		const buildAccordionTab = ({ id, title, bodyHtml }) => {
+			const input = el("input", { type: "checkbox", id });
+			const label = el("label", { class: "tab-label", for: id }, [title]);
+			const content = el("div", { class: "tab-content", html: bodyHtml });
+			return el("div", { class: "tab" }, [input, label, content]);
+		};
+
+		const updateAccordionActionState = (tabs) => {
+			const disableRemove = tabs.length <= 1;
+			tabs.forEach((tab) => {
+				const btn = tab.querySelector(".cms-accordion-btn--remove");
+				if (!btn) return;
+				btn.disabled = disableRemove;
+				btn.classList.toggle("is-disabled", disableRemove);
+			});
+		};
+
+		const attachAccordionActions = (tab) => {
+			if (!(tab instanceof HTMLElement)) return;
+			if (tab.querySelector(".cms-accordion-actions")) return;
+			tab.classList.add("cms-accordion-item");
+			const icon = (name) =>
+				el(
+					"span",
+					{ class: "material-icons cms-accordion__icon", "aria-hidden": "true" },
+					[name],
+				);
+			const addBtn = el(
+				"button",
+				{
+					type: "button",
+					class: "cms-block__btn cms-block__btn--move cms-accordion-btn",
+					"data-tooltip": "Add row",
+					"aria-label": "Add row",
+				},
+				[icon("add")],
+			);
+			const removeBtn = el(
+				"button",
+				{
+					type: "button",
+					class: "cms-block__btn cms-block__btn--edit cms-accordion-btn cms-accordion-btn--remove",
+					"data-tooltip": "Remove row",
+					"aria-label": "Remove row",
+				},
+				[icon("remove")],
+			);
+			const deleteBtn = el(
+				"button",
+				{
+					type: "button",
+					class: "cms-block__btn cms-block__btn--danger cms-accordion-btn",
+					"data-tooltip": "Delete accordion",
+					"aria-label": "Delete accordion",
+				},
+				[buildTrashIcon()],
+			);
+			addBtn.addEventListener("click", (event) => {
+				event.preventDefault();
+				event.stopPropagation();
+				const group = getAccordionGroup(tab);
+				if (!group.container) return;
+				const next = getNextAccordionId(group.tabs);
+				const newTab = buildAccordionTab({
+					id: next.id,
+					title: `Item ${next.index}`,
+					bodyHtml: "<ul><li>Point A</li><li>Point B</li></ul>",
+				});
+				tab.after(newTab);
+				attachAccordionActions(newTab);
+				updateAccordionActionState(getAccordionGroup(newTab).tabs);
+			});
+			removeBtn.addEventListener("click", (event) => {
+				event.preventDefault();
+				event.stopPropagation();
+				const group = getAccordionGroup(tab);
+				if (!group.container || group.tabs.length <= 1) return;
+				tab.remove();
+				updateAccordionActionState(group.tabs.filter((t) => t !== tab));
+			});
+			deleteBtn.addEventListener("click", (event) => {
+				event.preventDefault();
+				event.stopPropagation();
+				const group = getAccordionGroup(tab);
+				if (!group.container) return;
+				openInlineDeleteConfirm({
+					onConfirm: () => {
+						if (group.type === "styled") {
+							const wrapper = group.container.closest(
+								".flex-accordion-wrapper",
+							);
+							(wrapper || group.container).remove();
+						} else {
+							group.tabs.forEach((item) => item.remove());
+						}
+					},
+				});
+			});
+			const actions = el("div", { class: "cms-accordion-actions" }, [
+				addBtn,
+				removeBtn,
+				deleteBtn,
+			]);
+			tab.appendChild(actions);
+			updateAccordionActionState(getAccordionGroup(tab).tabs);
+		};
+
+		const renderAccordionActions = () => {
+			editor.querySelectorAll(".tab").forEach((tab) => {
+				attachAccordionActions(tab);
+			});
+		};
+
 		const buildDocCardHtml = (attrs) => {
 			const title = escapeHtml(attrs.title || "Document");
 			const desc = escapeHtml(attrs.desc || "");
@@ -5741,9 +5908,11 @@ function serializeSquareGridRow(block, ctx) {
 			} else if (cmd === "accordion-simple") {
 				const html = buildAccordionMarkup({ styled: false });
 				insertHtmlAtCursor(editor, html);
+				queueMicrotask(() => renderAccordionActions());
 			} else if (cmd === "accordion-styled") {
 				const html = buildAccordionMarkup({ styled: true });
 				insertHtmlAtCursor(editor, html);
+				queueMicrotask(() => renderAccordionActions());
 			} else if (cmd === "doc") {
 				openDocPanel();
 			}
@@ -5852,6 +6021,7 @@ function serializeSquareGridRow(block, ctx) {
 		});
 		renderInlineImageStubs();
 		renderInlineVideoStubs();
+		renderAccordionActions();
 		return {
 			wrap,
 			editor,
