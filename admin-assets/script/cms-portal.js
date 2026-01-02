@@ -6450,6 +6450,7 @@ function serializeSquareGridRow(block, ctx) {
 			blockId,
 			blockIdShort: hashText(String(blockId || "block")).slice(0, 4),
 		};
+		const baseSig = signatureForHtml(blockHtml || "");
 		const escapeSelector = (value) => {
 			if (!value) return "";
 			if (window.CSS && typeof window.CSS.escape === "function")
@@ -6510,6 +6511,17 @@ function serializeSquareGridRow(block, ctx) {
 				},
 				["Cancel"],
 			);
+			const saveBtn = root.querySelector('[data-action="save-block"]');
+			const saveClose = saveBtn
+				? el(
+						"button",
+						{
+							class: "cms-btn cms-modal__action cms-btn--success",
+							type: "button",
+						},
+						["Save and Close"],
+					)
+				: null;
 			const confirm = el(
 				"button",
 				{
@@ -6523,6 +6535,14 @@ function serializeSquareGridRow(block, ctx) {
 				closeConfirm();
 				bindModalCloseHandler(openExitConfirm);
 			});
+			if (saveClose) {
+				saveClose.addEventListener("click", (event) => {
+					event.preventDefault();
+					closeConfirm();
+					bindModalCloseHandler(openExitConfirm);
+					saveBtn.click();
+				});
+			}
 			confirm.addEventListener("click", (event) => {
 				event.preventDefault();
 				closeConfirm();
@@ -6536,6 +6556,7 @@ function serializeSquareGridRow(block, ctx) {
 				warning,
 				el("div", { class: "cms-modal__confirm-actions" }, [
 					cancel,
+					...(saveClose ? [saveClose] : []),
 					confirm,
 				]),
 			]);
@@ -7189,6 +7210,11 @@ function serializeSquareGridRow(block, ctx) {
 				path: state.path,
 			}).trim();
 			if (!updatedHtml) return;
+			const updatedSig = signatureForHtml(updatedHtml);
+			if (updatedSig === baseSig) {
+				closeModal();
+				return;
+			}
 
 			if (origin === "local" && localId) {
 				const nextLocal = normalizeLocalBlocks(currentLocal).map((item) =>
@@ -9113,7 +9139,11 @@ function serializeSquareGridRow(block, ctx) {
 					updatedHtml,
 					remainingLocal,
 				);
-				if (!updatedHtml || updatedHtml.trim() === entry.baseHtml.trim())
+				const baseForCompare = entry.baseHtml || "";
+				const matchesBase =
+					normalizeForDirtyCompare(updatedHtml, path) ===
+					normalizeForDirtyCompare(baseForCompare, path);
+				if (!updatedHtml || matchesBase)
 					clearDirtyPage(path);
 				else setDirtyPage(path, updatedHtml, entry.baseHtml, remappedLocal);
 				if (path === state.path) {
@@ -9494,7 +9524,11 @@ function serializeSquareGridRow(block, ctx) {
 				if (commitHtml) {
 					payloads.push({ path, text: commitHtml });
 				}
-				if (!remainingHtml || remainingHtml.trim() === entry.baseHtml.trim())
+				const baseForCompare = entry.baseHtml || remainingBase;
+				const matchesBase =
+					normalizeForDirtyCompare(remainingHtml, path) ===
+					normalizeForDirtyCompare(baseForCompare, path);
+				if (!remainingHtml || matchesBase)
 					clearDirtyPage(path);
 				else {
 					setDirtyPage(path, remainingHtml, entry.baseHtml, remappedLocal);
