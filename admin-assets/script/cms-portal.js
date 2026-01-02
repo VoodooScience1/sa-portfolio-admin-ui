@@ -3946,20 +3946,119 @@ function serializeSquareGridRow(block, ctx) {
 			el("div", { class: "cms-rte__toolbar-divider", "aria-hidden": "true" });
 		const toolbar = el("div", { class: "cms-rte__toolbar" }, [
 			buildToolbarGroup("Styling", [
-				el("button", { type: "button", "data-cmd": "bold" }, ["B"]),
-				el("button", { type: "button", "data-cmd": "italic" }, ["I"]),
-				el("button", { type: "button", "data-cmd": "underline" }, ["U"]),
-				el("button", { type: "button", "data-cmd": "h2" }, ["H2"]),
-				el("button", { type: "button", "data-cmd": "h3" }, ["H3"]),
-				el("button", { type: "button", "data-cmd": "quote" }, ["❝"]),
-				el("button", { type: "button", "data-cmd": "ul" }, ["•"]),
-				el("button", { type: "button", "data-cmd": "ol" }, ["1."]),
+				el(
+					"button",
+					{
+						type: "button",
+						"data-cmd": "bold",
+						"data-tooltip": "Bold",
+						"aria-label": "Bold",
+					},
+					[toolbarIcon("format_bold")],
+				),
+				el(
+					"button",
+					{
+						type: "button",
+						"data-cmd": "italic",
+						"data-tooltip": "Italic",
+						"aria-label": "Italic",
+					},
+					[toolbarIcon("format_italic")],
+				),
+				el(
+					"button",
+					{
+						type: "button",
+						"data-cmd": "underline",
+						"data-tooltip": "Underline",
+						"aria-label": "Underline",
+					},
+					[toolbarIcon("format_underlined")],
+				),
+				el(
+					"button",
+					{
+						type: "button",
+						"data-cmd": "h2",
+						"data-tooltip": "Header 2",
+						"aria-label": "Header 2",
+					},
+					[toolbarIcon("filter_2")],
+				),
+				el(
+					"button",
+					{
+						type: "button",
+						"data-cmd": "h3",
+						"data-tooltip": "Header 3",
+						"aria-label": "Header 3",
+					},
+					[toolbarIcon("filter_3")],
+				),
+				el(
+					"button",
+					{
+						type: "button",
+						"data-cmd": "quote",
+						"data-tooltip": "Blockquote",
+						"aria-label": "Blockquote",
+					},
+					[toolbarIcon("format_quote")],
+				),
+				el(
+					"button",
+					{
+						type: "button",
+						"data-cmd": "ul",
+						"data-tooltip": "Bulleted list",
+						"aria-label": "Bulleted list",
+					},
+					[toolbarIcon("format_list_bulleted")],
+				),
+				el(
+					"button",
+					{
+						type: "button",
+						"data-cmd": "ol",
+						"data-tooltip": "Numbered list",
+						"aria-label": "Numbered list",
+					},
+					[toolbarIcon("format_list_numbered")],
+				),
 			]),
 			toolbarDivider(),
 			buildToolbarGroup("Table", [
-				el("button", { type: "button", "data-cmd": "table" }, ["Table"]),
-				el("button", { type: "button", "data-cmd": "table-row" }, ["Row +"]),
-				el("button", { type: "button", "data-cmd": "table-col" }, ["Col +"]),
+				el(
+					"button",
+					{
+						type: "button",
+						"data-cmd": "table",
+						"data-tooltip": "Table",
+						"aria-label": "Table",
+					},
+					[toolbarIcon("grid_on")],
+				),
+				el(
+					"button",
+					{
+						type: "button",
+						"data-cmd": "table-row",
+						"data-tooltip": "Add row",
+						"aria-label": "Add row",
+					},
+					[toolbarIcon("call_to_action")],
+				),
+				el(
+					"button",
+					{
+						type: "button",
+						"data-cmd": "table-col",
+						"data-tooltip": "Add column",
+						"aria-label": "Add column",
+					},
+					[toolbarIcon("chrome_reader_mode")],
+				),
 			]),
 			toolbarDivider(),
 			buildToolbarGroup("Code", [
@@ -3981,7 +4080,7 @@ function serializeSquareGridRow(block, ctx) {
 						"data-tooltip": "Code block",
 						"aria-label": "Code block",
 					},
-					[toolbarIcon("crop_square"), toolbarLabel("Block")],
+					[toolbarIcon("crop_square")],
 				),
 				el(
 					"button",
@@ -3991,7 +4090,7 @@ function serializeSquareGridRow(block, ctx) {
 						"data-tooltip": "Wrap in code block",
 						"aria-label": "Wrap in code block",
 					},
-					[toolbarIcon("wrap_text"), toolbarLabel("Wrap")],
+					[toolbarIcon("wrap_text")],
 				),
 			]),
 			toolbarDivider(),
