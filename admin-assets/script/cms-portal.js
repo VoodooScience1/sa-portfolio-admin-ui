@@ -8970,11 +8970,27 @@ function serializeSquareGridRow(block, ctx) {
 					if (!selectedIds.has(block.id)) return;
 					if (block.localId) localIdsToDrop.add(block.localId);
 				});
-				const remainingLocal = normalizeLocalBlocks(
-					(state.dirtyPages[path]?.localBlocks || []).filter(
-						(item) => !localIdsToDrop.has(item.id),
-					),
+				const currentLocal = normalizeLocalBlocks(
+					state.dirtyPages[path]?.localBlocks || [],
 				);
+				const localById = new Map(currentLocal.map((item) => [item.id, item]));
+				const baseIdsToDrop = new Set();
+				localIdsToDrop.forEach((id) => {
+					const item = localById.get(id);
+					if (!item) return;
+					if (item.action === "insert" && item.kind === "edited") {
+						const baseId = item.baseId || item.anchor?.id || "";
+						if (baseId) baseIdsToDrop.add(baseId);
+					}
+				});
+				const remainingLocal = currentLocal.filter((item) => {
+					if (localIdsToDrop.has(item.id)) return false;
+					if (item.action === "remove" || item.action === "mark") {
+						const baseId = item.baseId || item.anchor?.id || "";
+						if (baseId && baseIdsToDrop.has(baseId)) return false;
+					}
+					return true;
+				});
 				const updatedHtml = mergeDirtyWithBase(
 					entry.baseHtml || entry.dirtyHtml || "",
 					entry.baseHtml || entry.dirtyHtml || "",
