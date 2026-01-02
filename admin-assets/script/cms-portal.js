@@ -725,6 +725,9 @@
 			const tag = node.tagName.toLowerCase();
 			const cls = node.getAttribute("class") || "";
 
+			if (cls.includes("cms-inline-actions")) return "";
+			if (cls.includes("cms-table-wrap")) return serializeChildren(node);
+
 			if (tag === "div") {
 				if (cls.includes("img-stub")) {
 					const overlayEnabled = node.getAttribute("data-overlay") !== "false";
@@ -4403,10 +4406,23 @@ function serializeSquareGridRow(block, ctx) {
 					event.preventDefault();
 					applySelection("auto");
 				});
+				const deleteBtn = document.createElement("button");
+				deleteBtn.type = "button";
+				deleteBtn.className = "cms-code-toolbar__btn cms-code-toolbar__btn--danger";
+				deleteBtn.textContent = "Delete";
+				deleteBtn.addEventListener("click", (event) => {
+					event.preventDefault();
+					openInlineDeleteConfirm({
+						onConfirm: () => {
+							wrap.remove();
+						},
+					});
+				});
 				toolbar = document.createElement("div");
 				toolbar.className = "cms-code-toolbar";
 				toolbar.appendChild(select);
 				toolbar.appendChild(autoBtn);
+				toolbar.appendChild(deleteBtn);
 				wrap.appendChild(toolbar);
 			}
 			const select = toolbar.querySelector("select.cms-code-toolbar__select");
@@ -5159,42 +5175,60 @@ function serializeSquareGridRow(block, ctx) {
 		};
 
 		const openInlineDeleteConfirm = ({ onConfirm }) => {
-			detachModalCloseInterceptor();
 			const root = qs("#cms-modal");
 			const hadModal = Boolean(root && root.classList.contains("is-open"));
-			const prevTitle = hadModal ? qs("#cms-modal-title")?.textContent || "" : "";
-			const prevBody = hadModal ? qs("#cms-modal-body") : null;
-			const prevFooter = hadModal ? qs("#cms-modal-footer") : null;
-			const prevBodyNodes =
-				hadModal && prevBody ? Array.from(prevBody.childNodes) : [];
-			const prevFooterNodes =
-				hadModal && prevFooter ? Array.from(prevFooter.childNodes) : [];
-			const prevPrune = hadModal && root ? root.dataset.pruneAssets : "false";
+			if (hadModal && root) {
+				const existing = root.querySelector(".cms-modal__confirm");
+				if (existing) existing.remove();
+				let overlay = null;
+				const closeConfirm = () => {
+					if (overlay) overlay.remove();
+				};
+				const cancel = el(
+					"button",
+					{
+						class: "cms-btn cms-btn--move cms-modal__action",
+						type: "button",
+					},
+					["Cancel"],
+				);
+				const confirm = el(
+					"button",
+					{
+						class: "cms-btn cms-modal__action cms-btn--danger",
+						type: "button",
+					},
+					["Delete"],
+				);
+				cancel.addEventListener("click", (event) => {
+					event.preventDefault();
+					closeConfirm();
+				});
+				confirm.addEventListener("click", (event) => {
+					event.preventDefault();
+					closeConfirm();
+					if (typeof onConfirm === "function") onConfirm();
+				});
+				const panel = el("div", { class: "cms-modal__confirm-panel" }, [
+					el("h3", { class: "cms-modal__confirm-title" }, ["Delete item"]),
+					el("p", { class: "cms-modal__text" }, [
+						"Delete this item? Unsaved changes will be lost if you continue.",
+					]),
+					el("div", { class: "cms-modal__confirm-actions" }, [
+						cancel,
+						confirm,
+					]),
+				]);
+				overlay = el("div", { class: "cms-modal__confirm" }, [panel]);
+				overlay.addEventListener("click", (event) => {
+					if (event.target !== overlay) return;
+					closeConfirm();
+				});
+				root.appendChild(overlay);
+				return;
+			}
 
-			const restoreParentModal = () => {
-				if (!hadModal || !root || !prevBody || !prevFooter) {
-					closeModal();
-					if (!imagePanel.hidden || !videoPanel.hidden || !docPanel.hidden)
-						attachModalCloseInterceptor();
-					return;
-				}
-				qs("#cms-modal-title").textContent = prevTitle || "Modal";
-				prevBody.innerHTML = "";
-				prevFooter.innerHTML = "";
-				prevBodyNodes.forEach((node) => prevBody.appendChild(node));
-				prevFooterNodes.forEach((node) => prevFooter.appendChild(node));
-				root.dataset.pruneAssets = prevPrune || "false";
-				root.classList.add("is-open");
-				document.documentElement.classList.add("cms-lock");
-				document.body.classList.add("cms-lock");
-				if (!imagePanel.hidden || !videoPanel.hidden || !docPanel.hidden)
-					attachModalCloseInterceptor();
-			};
-
-			const closeConfirm = () => {
-				if (hadModal) restoreParentModal();
-				else closeModal();
-			};
+			detachModalCloseInterceptor();
 
 			const cancel = el(
 				"button",
@@ -5214,7 +5248,7 @@ function serializeSquareGridRow(block, ctx) {
 				["Delete"],
 			);
 			confirm.addEventListener("click", () => {
-				closeConfirm();
+				closeModal();
 				if (typeof onConfirm === "function") onConfirm();
 			});
 
@@ -5226,7 +5260,7 @@ function serializeSquareGridRow(block, ctx) {
 					]),
 				],
 				footerNodes: [cancel, confirm],
-				onClose: closeConfirm,
+				onClose: closeModal,
 			});
 		};
 
@@ -5422,6 +5456,84 @@ function serializeSquareGridRow(block, ctx) {
 		const renderInlineVideoStubs = () => {
 			editor.querySelectorAll(".video-stub").forEach((stub) => {
 				renderInlineVideoStub(stub);
+			});
+		};
+
+		const renderDocCardActions = () => {
+			editor.querySelectorAll(".doc-card").forEach((card) => {
+				if (!(card instanceof HTMLElement)) return;
+				if (card.classList.contains("cms-doc-preview")) return;
+				if (card.querySelector(":scope > .cms-inline-actions")) return;
+				const editBtn = el(
+					"button",
+					{
+						type: "button",
+						class: "cms-block__btn cms-block__btn--edit cms-inline-action",
+					},
+					[buildPenIcon(), "Edit"],
+				);
+				editBtn.addEventListener("click", (event) => {
+					event.preventDefault();
+					event.stopPropagation();
+					openDocPanel({ targetCard: card });
+				});
+				const deleteBtn = el(
+					"button",
+					{
+						type: "button",
+						class: "cms-block__btn cms-block__btn--danger cms-inline-action",
+					},
+					[buildTrashIcon(), "Delete"],
+				);
+				deleteBtn.addEventListener("click", (event) => {
+					event.preventDefault();
+					event.stopPropagation();
+					openInlineDeleteConfirm({
+						onConfirm: () => {
+							if (activeDocTarget === card) closeDocPanel();
+							card.remove();
+						},
+					});
+				});
+				const actions = el("div", { class: "cms-inline-actions" }, [
+					editBtn,
+					deleteBtn,
+				]);
+				card.appendChild(actions);
+			});
+		};
+
+		const renderTableActions = () => {
+			editor.querySelectorAll("table").forEach((table) => {
+				if (!(table instanceof HTMLElement)) return;
+				if (table.closest(".cms-table-wrap")) return;
+				const wrap = document.createElement("div");
+				wrap.className = "cms-table-wrap";
+				table.parentElement?.insertBefore(wrap, table);
+				wrap.appendChild(table);
+			});
+			editor.querySelectorAll(".cms-table-wrap").forEach((wrap) => {
+				if (!(wrap instanceof HTMLElement)) return;
+				if (wrap.querySelector(":scope > .cms-inline-actions")) return;
+				const deleteBtn = el(
+					"button",
+					{
+						type: "button",
+						class: "cms-block__btn cms-block__btn--danger cms-inline-action",
+					},
+					[buildTrashIcon(), "Delete"],
+				);
+				deleteBtn.addEventListener("click", (event) => {
+					event.preventDefault();
+					event.stopPropagation();
+					openInlineDeleteConfirm({
+						onConfirm: () => {
+							wrap.remove();
+						},
+					});
+				});
+				const actions = el("div", { class: "cms-inline-actions" }, [deleteBtn]);
+				wrap.appendChild(actions);
 			});
 		};
 
@@ -5964,6 +6076,9 @@ function serializeSquareGridRow(block, ctx) {
 				restoreSelection();
 				insertHtmlAtCursor(editor, html);
 			}
+			queueMicrotask(() => {
+				renderDocCardActions();
+			});
 			closeDocPanel();
 		});
 
@@ -6007,6 +6122,7 @@ function serializeSquareGridRow(block, ctx) {
 					"</table>",
 				].join("\n");
 				insertHtmlAtCursor(editor, tableHtml);
+				queueMicrotask(() => renderTableActions());
 			} else if (cmd === "table-borderless") {
 				const selection = window.getSelection();
 				let node = selection?.anchorNode || null;
@@ -6014,18 +6130,23 @@ function serializeSquareGridRow(block, ctx) {
 				const table = node?.closest ? node.closest("table") : null;
 				if (table) {
 					table.classList.add("table-borderless");
+					table.querySelector("thead")?.remove();
+					table.querySelectorAll("th").forEach((th) => {
+						const td = document.createElement("td");
+						td.innerHTML = th.innerHTML;
+						th.replaceWith(td);
+					});
+					queueMicrotask(() => renderTableActions());
 				} else {
 					const tableHtml = [
 						'<table class="table-borderless">',
-						"\t<thead>",
-						"\t\t<tr><th>Header</th><th>Header</th></tr>",
-						"\t</thead>",
 						"\t<tbody>",
 						"\t\t<tr><td>Cell</td><td>Cell</td></tr>",
 						"\t</tbody>",
 						"</table>",
 					].join("\n");
 					insertHtmlAtCursor(editor, tableHtml);
+					queueMicrotask(() => renderTableActions());
 				}
 			} else if (cmd === "table-row") {
 				addTableRowAfterCell();
@@ -6221,6 +6342,8 @@ function serializeSquareGridRow(block, ctx) {
 		});
 		renderInlineImageStubs();
 		renderInlineVideoStubs();
+		renderDocCardActions();
+		renderTableActions();
 		renderAccordionActions();
 		return {
 			wrap,
