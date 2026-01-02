@@ -2864,6 +2864,14 @@ function serializeSquareGridRow(block, ctx) {
 		Object.keys(state.dirtyPages || {}).forEach((path) => {
 			const entry = state.dirtyPages[path];
 			if (!entry) return;
+			if (
+				entry.baseHash &&
+				entry.dirtyHash &&
+				entry.baseHash === entry.dirtyHash
+			) {
+				clearDirtyPage(path);
+				return;
+			}
 			if (normalizeLocalBlocks(entry.localBlocks || []).length) return;
 			if (path === state.path) {
 				const baseNow = state.originalHtml || "";
@@ -2877,12 +2885,6 @@ function serializeSquareGridRow(block, ctx) {
 					return;
 				}
 			}
-			if (
-				entry.baseHash &&
-				entry.dirtyHash &&
-				entry.baseHash === entry.dirtyHash
-			)
-				clearDirtyPage(path);
 		});
 	}
 
@@ -4915,12 +4917,17 @@ function serializeSquareGridRow(block, ctx) {
 			docPreviewTitle,
 			docPreviewDesc,
 		]);
+		const docPreviewOverlayLabel = el(
+			"span",
+			{ class: "doc-card__overlay-label" },
+			["Open document"],
+		);
 		const docPreviewOverlay = el("div", { class: "doc-card__overlay" }, [
 			el("div", { class: "doc-card__overlay-content" }, [
 				el("span", { class: "material-icons", "aria-hidden": "true" }, [
 					"open_in_new",
 				]),
-				el("span", { class: "doc-card__overlay-label" }, ["Open document"]),
+				docPreviewOverlayLabel,
 			]),
 		]);
 		const docPreviewLink = el(
@@ -5030,8 +5037,12 @@ function serializeSquareGridRow(block, ctx) {
 			docPreviewTitle.textContent = title || "Document title";
 			docPreviewDesc.textContent = desc || "Document description.";
 			docPreviewLink.setAttribute("href", safeHref || "#");
-			const icon = resolveDocIcon(getDocExtFromHref(safeHref));
+			const ext = getDocExtFromHref(safeHref);
+			const icon = resolveDocIcon(ext);
 			docPreviewIcon.textContent = icon;
+			docPreviewCard.dataset.docExt = ext || "";
+			docPreviewOverlayLabel.textContent =
+				ext === "pdf" ? "Open PDF" : "Open document";
 		};
 
 		docLibrarySelect.addEventListener("change", () => {
@@ -5550,9 +5561,13 @@ function serializeSquareGridRow(block, ctx) {
 			const title = escapeHtml(attrs.title || "Document");
 			const desc = escapeHtml(attrs.desc || "");
 			const href = escapeAttr(attrs.href || "");
-			const icon = resolveDocIcon(getDocExtFromHref(attrs.href || ""));
+			const ext = getDocExtFromHref(attrs.href || "");
+			const icon = resolveDocIcon(ext);
+			const overlayLabel = ext === "pdf" ? "Open PDF" : "Open document";
 			const lines = [
-				`<div class="doc-card doc-card--compact">`,
+				`<div class="doc-card doc-card--compact" data-doc-ext="${escapeAttr(
+					ext,
+				)}">`,
 				`\t<a class="doc-card__link" href="${href}" target="_blank" rel="noopener noreferrer" data-doc-open>`,
 				`\t\t<span class="material-icons doc-card__type-icon" aria-hidden="true">${escapeHtml(
 					icon,
@@ -5566,7 +5581,7 @@ function serializeSquareGridRow(block, ctx) {
 				`\t\t<div class="doc-card__overlay">`,
 				`\t\t\t<div class="doc-card__overlay-content">`,
 				`\t\t\t\t<span class="material-icons" aria-hidden="true">open_in_new</span>`,
-				`\t\t\t\t<span class="doc-card__overlay-label">Open document</span>`,
+				`\t\t\t\t<span class="doc-card__overlay-label">${overlayLabel}</span>`,
 				`\t\t\t</div>`,
 				`\t\t</div>`,
 				`\t</a>`,
@@ -5579,7 +5594,10 @@ function serializeSquareGridRow(block, ctx) {
 			if (!(target instanceof HTMLElement)) return;
 			target.className = "doc-card doc-card--compact";
 			target.innerHTML = "";
-			const icon = resolveDocIcon(getDocExtFromHref(attrs.href || ""));
+			const ext = getDocExtFromHref(attrs.href || "");
+			const icon = resolveDocIcon(ext);
+			const overlayLabel = ext === "pdf" ? "Open PDF" : "Open document";
+			target.dataset.docExt = ext || "";
 			const link = el(
 				"a",
 				{
@@ -5610,7 +5628,7 @@ function serializeSquareGridRow(block, ctx) {
 								"open_in_new",
 							]),
 							el("span", { class: "doc-card__overlay-label" }, [
-								"Open document",
+								overlayLabel,
 							]),
 						]),
 					]),
