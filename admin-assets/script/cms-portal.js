@@ -351,8 +351,9 @@
 			class: "video-stub",
 			"data-video": attrs.video || "",
 			"data-caption": attrs.caption || "",
+			"data-scale": attrs.scale && attrs.scale !== "auto" ? attrs.scale : "",
 		};
-		const order = ["class", "data-video", "data-caption"];
+		const order = ["class", "data-video", "data-caption", "data-scale"];
 		return `<div${serializeAttrsOrdered(ordered, order)}></div>`;
 	}
 
@@ -377,27 +378,6 @@
 		return `${base}${parts.join("/")}`;
 	}
 
-	function sanitizeVideoPath(rawPath, fallbackName = "") {
-		const base = "assets/video/";
-		const raw = String(rawPath || fallbackName || "").trim();
-		if (!raw) return "";
-		let path = raw.replace(/^\/+/, "");
-		if (path.startsWith(base)) {
-			path = path.slice(base.length);
-		} else if (path.startsWith("assets/")) {
-			path = path.slice("assets/".length);
-			if (path.startsWith("video/")) path = path.slice("video/".length);
-		} else if (path.startsWith("video/")) {
-			path = path.slice("video/".length);
-		}
-		const parts = path
-			.split("/")
-			.map((part) => part.replace(/[^A-Za-z0-9._-]/g, "-"))
-			.filter((part) => part && part !== "." && part !== "..");
-		if (!parts.length) return "";
-		return `${base}${parts.join("/")}`;
-	}
-
 	function normalizeImageSource(value) {
 		const raw = String(value || "").trim();
 		if (!raw) return "";
@@ -406,12 +386,34 @@
 		return local ? `/${local}` : "";
 	}
 
-	function normalizeVideoSource(value) {
+	function getYouTubeVideoId(value) {
 		const raw = String(value || "").trim();
 		if (!raw) return "";
-		if (/^https?:\/\//i.test(raw)) return raw;
-		const local = sanitizeVideoPath(raw, "");
-		return local ? `/${local}` : "";
+		if (/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
+		let url = null;
+		try {
+			url = new URL(raw);
+		} catch {
+			return "";
+		}
+		const host = url.hostname.toLowerCase();
+		if (host.includes("youtu.be")) {
+			return url.pathname.replace(/^\/+/, "").split("/")[0] || "";
+		}
+		if (!host.includes("youtube.com")) return "";
+		if (url.pathname === "/watch") {
+			return url.searchParams.get("v") || "";
+		}
+		const parts = url.pathname.split("/").filter(Boolean);
+		if (parts[0] === "embed" && parts[1]) return parts[1];
+		if (parts[0] === "shorts" && parts[1]) return parts[1];
+		if (parts[0] === "live" && parts[1]) return parts[1];
+		return "";
+	}
+
+	function normalizeVideoSource(value) {
+		const id = getYouTubeVideoId(value);
+		return id ? `https://www.youtube.com/embed/${id}` : "";
 	}
 
 	function getLocalAssetPath(value) {
@@ -419,13 +421,6 @@
 		if (!raw) return "";
 		if (/^https?:\/\//i.test(raw)) return "";
 		return sanitizeImagePath(raw, "");
-	}
-
-	function getLocalVideoPath(value) {
-		const raw = String(value || "").trim();
-		if (!raw) return "";
-		if (/^https?:\/\//i.test(raw)) return "";
-		return sanitizeVideoPath(raw, "");
 	}
 
 	const ASSET_CACHE_DB = "cms-asset-cache";
@@ -740,6 +735,7 @@
 					return serializeVideoStub({
 						video: node.getAttribute("data-video") || "",
 						caption: node.getAttribute("data-caption") || "",
+						scale: node.getAttribute("data-scale") || "",
 					});
 				}
 				if (cls.includes("tab")) return serializeAccordion(node);
@@ -3740,40 +3736,6 @@ function serializeSquareGridRow(block, ctx) {
 		return images;
 	}
 
-	const VIDEO_EXT_RE = /\.(mp4|webm|mov|m4v)$/i;
-
-	async function fetchVideoLibrary(path = "assets/video", collected = []) {
-		const res = await fetch(`/api/repo/tree?path=${encodeURIComponent(path)}`, {
-			headers: { Accept: "application/json" },
-		});
-		const data = await res.json().catch(() => ({}));
-		if (!res.ok) throw new Error(data?.error || "Failed to load video list");
-		const items = Array.isArray(data.items) ? data.items : [];
-		for (const item of items) {
-			if (item.type === "dir") {
-				await fetchVideoLibrary(item.path, collected);
-			} else if (item.type === "file") {
-				collected.push(item);
-			}
-		}
-		return collected;
-	}
-
-	async function loadVideoLibraryIntoSelect(select) {
-		const videos = await fetchVideoLibrary();
-		select.innerHTML = "";
-		select.appendChild(el("option", { value: "" }, ["Select an existing video"]));
-		videos
-			.filter((item) => VIDEO_EXT_RE.test(String(item.path || "")))
-			.sort((a, b) => String(a.path).localeCompare(String(b.path)))
-			.forEach((item) => {
-				const label = String(item.path || "").replace(/^assets\/video\//, "");
-				select.appendChild(
-					el("option", { value: item.path }, [label || item.name]),
-				);
-			});
-		return videos;
-	}
 
 	function buildImageSourceFields({
 		initialSrc = "",
@@ -3964,6 +3926,14 @@ function serializeSquareGridRow(block, ctx) {
 	}
 
 	function buildRteEditor({ label, initialHtml }) {
+		const toolbarIcon = (name) =>
+			el(
+				"span",
+				{ class: "material-icons cms-rte__icon", "aria-hidden": "true" },
+				[name],
+			);
+		const toolbarLabel = (text) =>
+			el("span", { class: "cms-rte__icon-label" }, [text]);
 		const buildToolbarGroup = (title, actions) =>
 			el("div", { class: "cms-rte__toolbar-group" }, [
 				el("div", { class: "cms-rte__toolbar-title" }, [
@@ -3993,14 +3963,69 @@ function serializeSquareGridRow(block, ctx) {
 			]),
 			toolbarDivider(),
 			buildToolbarGroup("Code", [
-				el("button", { type: "button", "data-cmd": "code" }, ["Code"]),
-				el("button", { type: "button", "data-cmd": "code-block" }, ["Block code"]),
-				el("button", { type: "button", "data-cmd": "code-wrap" }, ["Code wrap"]),
+				el(
+					"button",
+					{
+						type: "button",
+						"data-cmd": "code",
+						"data-tooltip": "Inline code",
+						"aria-label": "Inline code",
+					},
+					[toolbarIcon("linear_scale")],
+				),
+				el(
+					"button",
+					{
+						type: "button",
+						"data-cmd": "code-block",
+						"data-tooltip": "Code block",
+						"aria-label": "Code block",
+					},
+					[toolbarIcon("crop_square"), toolbarLabel("Block")],
+				),
+				el(
+					"button",
+					{
+						type: "button",
+						"data-cmd": "code-wrap",
+						"data-tooltip": "Wrap in code block",
+						"aria-label": "Wrap in code block",
+					},
+					[toolbarIcon("wrap_text"), toolbarLabel("Wrap")],
+				),
 			]),
 			toolbarDivider(),
 			buildToolbarGroup("Tools", [
-				el("button", { type: "button", "data-cmd": "img" }, ["Image"]),
-				el("button", { type: "button", "data-cmd": "video" }, ["Video"]),
+				el(
+					"button",
+					{
+						type: "button",
+						"data-cmd": "img",
+						"data-tooltip": "Image",
+						"aria-label": "Image",
+					},
+					[toolbarIcon("image")],
+				),
+				el(
+					"button",
+					{
+						type: "button",
+						"data-cmd": "video",
+						"data-tooltip": "Video",
+						"aria-label": "Video",
+					},
+					[toolbarIcon("ondemand_video")],
+				),
+				el(
+					"button",
+					{
+						type: "button",
+						"data-cmd": "accordion",
+						"data-tooltip": "Accordion (coming soon)",
+						"aria-label": "Accordion (coming soon)",
+					},
+					[toolbarIcon("dvr")],
+				),
 			]),
 		]);
 		const editor = el("div", {
@@ -4579,25 +4604,30 @@ function serializeSquareGridRow(block, ctx) {
 		const videoInput = el("input", {
 			type: "text",
 			class: "cms-field__input",
-			placeholder: "/assets/video/...",
+			placeholder: "https://youtu.be/...",
 		});
-		const videoLibrarySelect = el("select", { class: "cms-field__select" }, [
-			el("option", { value: "" }, ["Select an existing video"]),
-		]);
 		const videoCaptionInput = el("input", {
 			type: "text",
 			class: "cms-field__input",
 			placeholder: "Caption (required)",
 		});
+		const videoScaleSelect = el(
+			"select",
+			{ class: "cms-field__select" },
+			[
+				el("option", { value: "auto" }, ["Auto"]),
+				el("option", { value: "sm" }, ["Small"]),
+				el("option", { value: "md" }, ["Medium"]),
+				el("option", { value: "lg" }, ["Large"]),
+				el("option", { value: "full" }, ["Full"]),
+			],
+		);
 		const videoWarning = el("div", { class: "cms-modal__note cms-note--warning" }, [
-			"\u26a0 Uploading is disabled for videos. Add files to /assets/video in the repo and select them here. \u26a0",
+			"\u26a0 Videos must be YouTube links only. Uploading is disabled. \u26a0",
 		]);
-		const videoSourceRow = el("div", { class: "cms-field__row" }, [
-			videoInput,
-			videoLibrarySelect,
-		]);
+		const videoSourceRow = el("div", { class: "cms-field__row" }, [videoInput]);
 		const videoPlaceholder = el("div", { class: "cms-video-placeholder" }, [
-			"Video preview disabled",
+			"YouTube preview disabled",
 		]);
 		const videoPreviewCard = el(
 			"div",
@@ -4612,6 +4642,7 @@ function serializeSquareGridRow(block, ctx) {
 					input: videoCaptionInput,
 					note: "Required for inline videos.",
 				}),
+				buildField({ label: "Size", input: videoScaleSelect }),
 			]),
 		]);
 		const videoSaveBtn = el(
@@ -4631,7 +4662,7 @@ function serializeSquareGridRow(block, ctx) {
 				buildField({
 					label: "Video source",
 					input: videoSourceRow,
-					note: "Videos must live in /assets/video.",
+					note: "YouTube links only.",
 				}),
 				videoWarning,
 				buildField({ label: "Video settings", input: videoSettingsRow }),
@@ -4656,35 +4687,18 @@ function serializeSquareGridRow(block, ctx) {
 
 		const updateVideoPreview = () => {
 			const raw = videoInput.value.trim();
-			videoPlaceholder.textContent = raw ? "Video preview disabled" : "No video selected";
-		};
-		const syncVideoInput = () => {
-			const raw = videoInput.value.trim();
-			if (!raw) {
-				updateVideoPreview();
-				return;
-			}
-			const local = getLocalVideoPath(raw);
-			if (local) videoLibrarySelect.value = local;
-			updateVideoPreview();
+			videoPlaceholder.textContent = raw
+				? "YouTube preview disabled"
+				: "No video selected";
 		};
 		videoInput.addEventListener("input", () => {
 			videoInput.classList.remove("cms-field__input--invalid");
 			videoCaptionInput.classList.remove("cms-field__input--invalid");
-			syncVideoInput();
+			updateVideoPreview();
 		});
 		videoInput.addEventListener("blur", () => {
 			const normalized = normalizeVideoSource(videoInput.value);
 			if (normalized) videoInput.value = normalized;
-			syncVideoInput();
-		});
-		videoLibrarySelect.addEventListener("change", () => {
-			const path = videoLibrarySelect.value;
-			if (!path) return;
-			const safePath = sanitizeVideoPath(path, "");
-			if (!safePath) return;
-			videoInput.value = `/${safePath}`;
-			videoInput.classList.remove("cms-field__input--invalid");
 			updateVideoPreview();
 		});
 		videoCaptionInput.addEventListener("input", () => {
@@ -4920,14 +4934,24 @@ function serializeSquareGridRow(block, ctx) {
 			const rawSrc = stub.getAttribute("data-video") || "";
 			const caption = stub.getAttribute("data-caption") || "";
 			const videoSrc = rawSrc ? normalizeVideoSource(rawSrc) : "";
+			const scale = (stub.getAttribute("data-scale") || "")
+				.trim()
+				.toLowerCase();
 
 			stub.classList.remove("img-text-div-img", "lrg-img-text-div-img");
 			stub.classList.add("video-stub", "img-text-div-img");
+			stub.classList.remove(
+				"img-scale-sm",
+				"img-scale-md",
+				"img-scale-lg",
+				"img-scale-full",
+			);
+			if (scale && scale !== "auto") stub.classList.add(`img-scale-${scale}`);
 			stub.innerHTML = "";
 
 			const content = el("div", { class: "content content--full" }, []);
 			const placeholder = el("div", { class: "cms-video-placeholder" }, [
-				videoSrc ? "Video preview disabled" : "No video selected",
+				videoSrc ? "YouTube preview disabled" : "No video selected",
 			]);
 			content.appendChild(placeholder);
 			stub.appendChild(content);
@@ -5129,29 +5153,25 @@ function serializeSquareGridRow(block, ctx) {
 				? {
 						video: targetStub.getAttribute("data-video") || "",
 						caption: targetStub.getAttribute("data-caption") || "",
+						scale: targetStub.getAttribute("data-scale") || "auto",
 					}
 				: null;
-			const localPath = attrs ? getLocalVideoPath(attrs.video) : "";
 			if (attrs) {
 				videoInput.value = attrs.video;
 				videoCaptionInput.value = attrs.caption;
+				videoScaleSelect.value = attrs.scale || "auto";
 			} else {
 				videoInput.value = "";
 				videoCaptionInput.value = "";
+				videoScaleSelect.value = "auto";
 			}
 			videoInput.classList.remove("cms-field__input--invalid");
 			videoCaptionInput.classList.remove("cms-field__input--invalid");
-			videoLibrarySelect.value = "";
 			updateVideoPreview();
 			videoSaveBtn.textContent = targetStub ? "Update video" : "Insert video";
 			videoDeleteBtn.disabled = !targetStub;
 			videoPanel.hidden = false;
 			attachModalCloseInterceptor();
-			loadVideoLibraryIntoSelect(videoLibrarySelect)
-				.then(() => {
-					if (localPath) videoLibrarySelect.value = localPath;
-				})
-				.catch((err) => console.error(err));
 			videoPanel.scrollIntoView({ block: "center", behavior: "smooth" });
 		};
 
@@ -5164,14 +5184,13 @@ function serializeSquareGridRow(block, ctx) {
 
 		videoSaveBtn.addEventListener("click", () => {
 			const raw = videoInput.value.trim();
-			if (/^https?:\/\//i.test(raw)) {
+			const src = normalizeVideoSource(raw);
+			const caption = videoCaptionInput.value.trim();
+			if (!src) {
 				videoInput.classList.add("cms-field__input--invalid");
 				videoInput.focus();
 				return;
 			}
-			const src = normalizeVideoSource(raw);
-			const caption = videoCaptionInput.value.trim();
-			if (!src) return;
 			if (!caption) {
 				videoCaptionInput.classList.add("cms-field__input--invalid");
 				videoCaptionInput.focus();
@@ -5180,10 +5199,16 @@ function serializeSquareGridRow(block, ctx) {
 			const attrs = {
 				video: src,
 				caption,
+				scale: videoScaleSelect.value === "auto" ? "" : videoScaleSelect.value,
 			};
 			if (activeVideoTarget) {
 				activeVideoTarget.setAttribute("data-video", attrs.video);
 				activeVideoTarget.setAttribute("data-caption", attrs.caption);
+				if (attrs.scale) {
+					activeVideoTarget.setAttribute("data-scale", attrs.scale);
+				} else {
+					activeVideoTarget.removeAttribute("data-scale");
+				}
 				renderInlineVideoStub(activeVideoTarget);
 			} else {
 				const html = serializeVideoStub(attrs);
@@ -5312,6 +5337,8 @@ function serializeSquareGridRow(block, ctx) {
 				openImagePanel();
 			} else if (cmd === "video") {
 				openVideoPanel();
+			} else if (cmd === "accordion") {
+				return;
 			}
 		});
 		editor.addEventListener("keydown", (event) => {
