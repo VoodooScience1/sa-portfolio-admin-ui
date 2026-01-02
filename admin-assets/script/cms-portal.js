@@ -3660,7 +3660,7 @@ function serializeSquareGridRow(block, ctx) {
 						type: "button",
 						"data-close": "true",
 					},
-					["Close"],
+					["Close Modal"],
 				),
 			],
 		});
@@ -6389,6 +6389,36 @@ function serializeSquareGridRow(block, ctx) {
 			blockId,
 			blockIdShort: hashText(String(blockId || "block")).slice(0, 4),
 		};
+		const escapeSelector = (value) => {
+			if (!value) return "";
+			if (window.CSS && typeof window.CSS.escape === "function")
+				return window.CSS.escape(value);
+			return String(value).replace(/["\\]/g, "\\$&");
+		};
+		const scrollToEditedBlock = () => {
+			const root = qs("#cms-portal");
+			if (!root) return;
+			let target = null;
+			if (blockId) {
+				const safeId = escapeSelector(blockId);
+				target =
+					root.querySelector(`[data-cms-id="${safeId}"]`) ||
+					root.querySelector(`.cms-block[data-base-id="${safeId}"]`);
+			}
+			if (!target && anchorBase?.sig) {
+				const safeSig = escapeSelector(anchorBase.sig);
+				target = root.querySelector(`.cms-block[data-base-sig="${safeSig}"]`);
+			}
+			if (!target) return;
+			const block = target.classList.contains("cms-block")
+				? target
+				: target.closest(".cms-block") || target;
+			block.scrollIntoView({ block: "center", behavior: "smooth" });
+		};
+		const handleExitEdit = () => {
+			closeModal();
+			queueMicrotask(() => scrollToEditedBlock());
+		};
 
 		if (parsed.type === "hoverCardRow" || parsed.type === "squareGridRow") {
 			openModal({
@@ -6406,9 +6436,10 @@ function serializeSquareGridRow(block, ctx) {
 							type: "button",
 							"data-close": "true",
 						},
-						["Close"],
+						["Exit Edit"],
 					),
 				],
+				onClose: handleExitEdit,
 			});
 			return;
 		}
@@ -6429,9 +6460,10 @@ function serializeSquareGridRow(block, ctx) {
 							type: "button",
 							"data-close": "true",
 						},
-						["Close"],
+						["Exit Edit"],
 					),
 				],
+				onClose: handleExitEdit,
 			});
 			return;
 		}
@@ -6471,12 +6503,12 @@ function serializeSquareGridRow(block, ctx) {
 				footerNodes: [
 					el(
 						"button",
-						{
-							class: "cms-btn cms-modal__action cms-btn--danger",
-							type: "button",
-							"data-close": "true",
-						},
-						["Close"],
+					{
+						class: "cms-btn cms-modal__action cms-btn--danger",
+						type: "button",
+						"data-close": "true",
+					},
+						["Exit Edit"],
 					),
 					el(
 						"button",
@@ -6489,6 +6521,7 @@ function serializeSquareGridRow(block, ctx) {
 					),
 				],
 				pruneAssets: true,
+				onClose: handleExitEdit,
 			});
 			settings = { headingInput };
 		} else {
@@ -6956,12 +6989,12 @@ function serializeSquareGridRow(block, ctx) {
 				footerNodes: [
 					el(
 						"button",
-						{
-							class: "cms-btn cms-modal__action cms-btn--danger",
-							type: "button",
-							"data-close": "true",
-						},
-						["Close"],
+					{
+						class: "cms-btn cms-modal__action cms-btn--danger",
+						type: "button",
+						"data-close": "true",
+					},
+						["Exit Edit"],
 					),
 					el(
 						"button",
@@ -6974,6 +7007,7 @@ function serializeSquareGridRow(block, ctx) {
 					),
 				],
 				pruneAssets: true,
+				onClose: handleExitEdit,
 			});
 
 			settings = {
