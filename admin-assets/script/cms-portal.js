@@ -5703,6 +5703,32 @@ function serializeSquareGridRow(block, ctx) {
 			editor.querySelectorAll(".tab").forEach((tab) => {
 				attachAccordionActions(tab);
 			});
+			editor.querySelectorAll(".flex-accordion-wrapper").forEach((wrapper) => {
+				if (!(wrapper instanceof HTMLElement)) return;
+				if (wrapper.querySelector(":scope > .cms-inline-actions")) return;
+				wrapper.classList.add("cms-accordion-group");
+				const deleteBtn = el(
+					"button",
+					{
+						type: "button",
+						class: "cms-block__btn cms-block__btn--danger cms-inline-action",
+						"data-tooltip": "Delete accordion",
+						"aria-label": "Delete accordion",
+					},
+					[buildTrashIcon(), "Delete"],
+				);
+				deleteBtn.addEventListener("click", (event) => {
+					event.preventDefault();
+					event.stopPropagation();
+					openInlineDeleteConfirm({
+						onConfirm: () => {
+							wrapper.remove();
+						},
+					});
+				});
+				const actions = el("div", { class: "cms-inline-actions" }, [deleteBtn]);
+				wrapper.appendChild(actions);
+			});
 		};
 
 		const buildDocCardHtml = (attrs) => {
