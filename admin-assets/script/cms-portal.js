@@ -6495,6 +6495,11 @@ function serializeSquareGridRow(block, ctx) {
 					node.classList?.remove("hljs");
 					node.removeAttribute?.("data-highlighted");
 				}
+				if (node.classList && node.classList.length) {
+					Array.from(node.classList).forEach((cls) => {
+						if (cls.startsWith("cms-")) node.classList.remove(cls);
+					});
+				}
 				if (node.hasAttribute("data-cms-id")) {
 					node.removeAttribute("data-cms-id");
 				}
