@@ -7831,6 +7831,7 @@
 						input: headingRightInput,
 						note: "Optional right column header.",
 					}),
+					right.wrap,
 				],
 				footerNodes: [
 					el(
