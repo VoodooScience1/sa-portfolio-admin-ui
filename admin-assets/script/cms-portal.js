@@ -7799,9 +7799,9 @@
 				value: parsed.leftHeading || parsed.heading || "",
 				placeholder: "Left header",
 			});
-			const body = buildRteEditor({
-				label: "Content",
-				initialHtml: parsed.body || "",
+			const left = buildRteEditor({
+				label: "Left column",
+				initialHtml: parsed.left || "",
 			});
 			const headingRightInput = el("input", {
 				type: "text",
@@ -7809,8 +7809,14 @@
 				value: parsed.rightHeading || "",
 				placeholder: "Right header",
 			});
-			editors = [{ key: "body", editor: body.editor }];
-
+			const right = buildRteEditor({
+				label: "Right column",
+				initialHtml: parsed.right || "",
+			});
+			editors = [
+				{ key: "left", editor: left.editor },
+				{ key: "right", editor: right.editor },
+			];
 			openModal({
 				title: "Edit block",
 				bodyNodes: [
@@ -7819,12 +7825,13 @@
 						input: headingLeftInput,
 						note: "Optional left column header.",
 					}),
-					body.wrap,
+					left.wrap,
 					buildField({
 						label: "Header (right)",
 						input: headingRightInput,
 						note: "Optional right column header.",
 					}),
+					right.wrap,
 				],
 				footerNodes: [
 					el(
