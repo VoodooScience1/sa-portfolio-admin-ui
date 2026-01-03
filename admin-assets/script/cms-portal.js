@@ -7799,15 +7799,15 @@
 				value: parsed.leftHeading || parsed.heading || "",
 				placeholder: "Left header",
 			});
+			const left = buildRteEditor({
+				label: "Left column",
+				initialHtml: parsed.left || "",
+			});
 			const headingRightInput = el("input", {
 				type: "text",
 				class: "cms-field__input",
 				value: parsed.rightHeading || "",
 				placeholder: "Right header",
-			});
-			const left = buildRteEditor({
-				label: "Left column",
-				initialHtml: parsed.left || "",
 			});
 			const right = buildRteEditor({
 				label: "Right column",
@@ -7825,12 +7825,12 @@
 						input: headingLeftInput,
 						note: "Optional left column header.",
 					}),
+					left.wrap,
 					buildField({
 						label: "Header (right)",
 						input: headingRightInput,
 						note: "Optional right column header.",
 					}),
-					left.wrap,
 					right.wrap,
 				],
 				footerNodes: [
