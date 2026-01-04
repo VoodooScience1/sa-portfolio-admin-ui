@@ -884,9 +884,20 @@
 		if (!hero) {
 			return { type: "legacy", raw: innerHtml || "" };
 		}
-		const title = hero.querySelector("h1")?.textContent?.trim() || "";
-		const subtitle = hero.querySelector("p")?.textContent?.trim() || "";
-		return { type: "hero", title, subtitle };
+		const titleEl = hero.querySelector("h1");
+		const subtitleEl = hero.querySelector("p");
+		const titleStyle = titleEl?.getAttribute("style") || "";
+		const subtitleStyle = subtitleEl?.getAttribute("style") || "";
+		const titleAlign = /text-align\s*:/i.test(titleStyle)
+			? normalizeHeadingAlign(getHeadingAlignFromStyle(titleStyle), "center")
+			: "center";
+		const subtitleAlign = /text-align\s*:/i.test(subtitleStyle)
+			? normalizeHeadingAlign(getHeadingAlignFromStyle(subtitleStyle), titleAlign)
+			: titleAlign;
+		const align = normalizeHeadingAlign(subtitleAlign || titleAlign, "center");
+		const title = titleEl?.textContent?.trim() || "";
+		const subtitle = subtitleEl?.textContent?.trim() || "";
+		return { type: "hero", title, subtitle, align };
 	}
 
 	function serializeHeroInner(model) {
@@ -895,11 +906,18 @@
 		}
 		const title = escapeHtml(model.title || "");
 		const subtitle = escapeHtml(model.subtitle || "");
+		const align = normalizeHeadingAlign(model.align, "center");
+		const titleStyle = applyTextAlignStyle("", align);
+		const subtitleStyle = applyTextAlignStyle("", align);
+		const titleAttr = titleStyle ? ` style="${escapeAttr(titleStyle)}"` : "";
+		const subtitleAttr = subtitleStyle
+			? ` style="${escapeAttr(subtitleStyle)}"`
+			: "";
 		return [
 			`<div class="div-wrapper">`,
 			`\t<div class="default-div-wrapper hero-override">`,
-			`\t\t<h1 style="text-align: center">${title}</h1>`,
-			`\t\t<p style="text-align: center">${subtitle}</p>`,
+			`\t\t<h1${titleAttr}>${title}</h1>`,
+			`\t\t<p${subtitleAttr}>${subtitle}</p>`,
 			`\t</div>`,
 			`</div>`,
 		].join("\n");
@@ -924,6 +942,47 @@
 			.replace(/^-+/, "")
 			.replace(/-+$/, "");
 		return key;
+	}
+
+	function normalizeHeadingAlign(value, fallback = "left") {
+		const raw = String(value || "").toLowerCase();
+		if (raw === "center") return "center";
+		if (raw === "left") return "left";
+		return fallback;
+	}
+
+	function getHeadingAlignFromStyle(style) {
+		const match = String(style || "").match(/text-align\s*:\s*(left|center)/i);
+		return match ? match[1].toLowerCase() : "left";
+	}
+
+	function applyTextAlignStyle(style, align) {
+		const rawStyle = String(style || "");
+		const hasAlign = /text-align\s*:/i.test(rawStyle);
+		const cleaned = rawStyle
+			.split(";")
+			.map((part) => part.trim())
+			.filter(Boolean)
+			.filter((part) => !/^text-align\s*:/i.test(part))
+			.join("; ");
+		const normalizedAlign = normalizeHeadingAlign(align, "left");
+		if (normalizedAlign === "center") {
+			return cleaned ? `${cleaned}; text-align: center;` : "text-align: center;";
+		}
+		if (normalizedAlign === "left") {
+			if (!hasAlign) return cleaned;
+			return cleaned ? `${cleaned}; text-align: left;` : "text-align: left;";
+		}
+		return cleaned;
+	}
+
+	function buildHeadingHtml({ tag, text, align, style }) {
+		const headingText = String(text || "").trim();
+		if (!headingText) return "";
+		const safeTag = String(tag || "h2").toLowerCase();
+		const mergedStyle = applyTextAlignStyle(style || "", align);
+		const styleAttr = mergedStyle ? ` style="${escapeAttr(mergedStyle)}"` : "";
+		return `<${safeTag}${styleAttr}>${escapeHtml(headingText)}</${safeTag}>`;
 	}
 
 	function normalizePortfolioDate(value) {
@@ -1005,6 +1064,15 @@
 	function normalizePortfolioGrid(raw, attrs = {}) {
 		const safe = raw && typeof raw === "object" ? raw : {};
 		const title = String(safe.title || attrs.title || "").trim();
+		const rawAlign =
+			typeof safe.titleAlign === "string" || typeof safe.titleAlign === "number"
+				? String(safe.titleAlign)
+				: typeof attrs.titleAlign === "string"
+					? attrs.titleAlign
+					: "";
+		const titleAlign = rawAlign
+			? normalizeHeadingAlign(rawAlign, "center")
+			: "";
 		const intro = String(safe.intro || attrs.intro || "").trim();
 		const maxFromAttrs = Number(attrs.maxVisible);
 		const maxFromData = Number(safe.maxVisible);
@@ -1033,6 +1101,7 @@
 			: [];
 		return {
 			title,
+			titleAlign,
 			intro,
 			maxVisible,
 			showSearch,
@@ -1110,9 +1179,15 @@
 			attrs.showTypeFilters = node.getAttribute("data-show-types");
 		if (node.hasAttribute("data-show-tags"))
 			attrs.showTagFilters = node.getAttribute("data-show-tags");
-		const headerText =
-			node.querySelector(".portfolio-grid__header h1,h2,h3")?.textContent?.trim() ||
-			"";
+		const headerEl = node.querySelector(".portfolio-grid__header h1,h2,h3");
+		const headerText = headerEl?.textContent?.trim() || "";
+		const headerStyle = headerEl?.getAttribute("style") || "";
+		if (/text-align\s*:/i.test(headerStyle)) {
+			attrs.titleAlign = normalizeHeadingAlign(
+				getHeadingAlignFromStyle(headerStyle),
+				"center",
+			);
+		}
 		const introHtml = node.querySelector(".portfolio-grid__intro")?.innerHTML || "";
 
 		let data = null;
@@ -1183,6 +1258,16 @@
 					leftHeadingTag === "h1" ? "h2" : leftHeadingTag;
 				const safeRightHeadingTag =
 					rightHeadingTag === "h1" ? "h2" : rightHeadingTag;
+				const leftHeadingStyle = leftHeadingEl?.getAttribute("style") || "";
+				const rightHeadingStyle = rightHeadingEl?.getAttribute("style") || "";
+				const leftHeadingAlign = normalizeHeadingAlign(
+					getHeadingAlignFromStyle(leftHeadingStyle),
+					"left",
+				);
+				const rightHeadingAlign = normalizeHeadingAlign(
+					getHeadingAlignFromStyle(rightHeadingStyle),
+					"left",
+				);
 				let leftHtml = leftNode?.innerHTML || "";
 				if (leftHeadingEl && leftNode) {
 					const clone = leftNode.cloneNode(true);
@@ -1204,8 +1289,12 @@
 					headingTag: safeLeftHeadingTag,
 					leftHeading: leftHeadingEl?.textContent?.trim() || "",
 					leftHeadingTag: safeLeftHeadingTag,
+					leftHeadingStyle,
+					leftHeadingAlign,
 					rightHeading: rightHeadingEl?.textContent?.trim() || "",
 					rightHeadingTag: safeRightHeadingTag,
+					rightHeadingStyle,
+					rightHeadingAlign,
 					left: leftHtml,
 					right: rightHtml,
 				};
@@ -1214,6 +1303,11 @@
 				const headingEl = cleanNode.querySelector("h1,h2,h3");
 				const headingTag = headingEl ? headingEl.tagName.toLowerCase() : "h2";
 				const safeHeadingTag = headingTag === "h1" ? "h2" : headingTag;
+				const headingStyle = headingEl?.getAttribute("style") || "";
+				const headingAlign = normalizeHeadingAlign(
+					getHeadingAlignFromStyle(headingStyle),
+					"left",
+				);
 				const overlayEnabled =
 					cleanNode.getAttribute("data-overlay") !== "false";
 				let body = cleanNode.innerHTML || "";
@@ -1235,6 +1329,8 @@
 					overlayText: cleanNode.getAttribute("data-overlay-text") || "",
 					heading: headingEl?.textContent?.trim() || "",
 					headingTag: safeHeadingTag,
+					headingStyle,
+					headingAlign,
 					body,
 				};
 			}
@@ -1303,6 +1399,11 @@
 				cmsId,
 				title: titleEl?.textContent?.trim() || "",
 				titleTag: safeTitleTag,
+				titleStyle: titleEl?.getAttribute("style") || "",
+				titleAlign: normalizeHeadingAlign(
+					getHeadingAlignFromStyle(titleEl?.getAttribute("style") || ""),
+					"left",
+				),
 				intro,
 				items,
 			};
@@ -1327,6 +1428,10 @@
 					heading: headingEl?.textContent?.trim() || "",
 					headingTag,
 					headingStyle,
+					headingAlign: normalizeHeadingAlign(
+						getHeadingAlignFromStyle(headingStyle),
+						"left",
+					),
 					body,
 				};
 			}
@@ -1420,7 +1525,12 @@
 		const headingText = (block.heading || "").trim();
 		const headingTag = (block.headingTag || "h2").toLowerCase();
 		const headingHtml = headingText
-			? `<${headingTag}>${escapeHtml(headingText)}</${headingTag}>`
+			? buildHeadingHtml({
+					tag: headingTag,
+					text: headingText,
+					align: block.headingAlign,
+					style: block.headingStyle,
+				})
 			: "";
 		const body = sanitizeRteHtml(block.body || "", ctx);
 		const content = headingHtml
@@ -1447,10 +1557,20 @@
 			"h2"
 		).toLowerCase();
 		const leftHeadingHtml = leftHeadingText
-			? `<${leftHeadingTag}>${escapeHtml(leftHeadingText)}</${leftHeadingTag}>`
+			? buildHeadingHtml({
+					tag: leftHeadingTag,
+					text: leftHeadingText,
+					align: block.leftHeadingAlign,
+					style: block.leftHeadingStyle,
+				})
 			: "";
 		const rightHeadingHtml = rightHeadingText
-			? `<${rightHeadingTag}>${escapeHtml(rightHeadingText)}</${rightHeadingTag}>`
+			? buildHeadingHtml({
+					tag: rightHeadingTag,
+					text: rightHeadingText,
+					align: block.rightHeadingAlign,
+					style: block.rightHeadingStyle,
+				})
 			: "";
 		const left = sanitizeRteHtml(block.left || "", ctx);
 		const right = sanitizeRteHtml(block.right || "", ctx);
@@ -1475,7 +1595,10 @@
 		const cmsId = getBlockCmsId(block, ctx?.index ?? 0, ctx);
 		const headingText = String(block.heading || "").trim();
 		const headingTag = (block.headingTag || "h1").toLowerCase();
-		const headingStyle = String(block.headingStyle || "").trim();
+		const headingStyle = applyTextAlignStyle(
+			String(block.headingStyle || "").trim(),
+			block.headingAlign,
+		);
 		const styleAttr = headingStyle
 			? ` style="${escapeAttr(headingStyle)}"`
 			: "";
@@ -1618,9 +1741,17 @@
 			normalized.showSearch || normalized.showTypeFilters || normalized.showTagFilters;
 
 		if (normalized.title) {
+			const titleAlign = normalized.titleAlign || "";
+			const alignValue = normalizeHeadingAlign(titleAlign, "center");
+			const alignStyle = titleAlign
+				? alignValue === "left"
+					? "text-align: left;"
+					: "text-align: center;"
+				: "";
+			const alignAttr = alignStyle ? ` style="${escapeAttr(alignStyle)}"` : "";
 			lines.push(
 				`\t<div class="portfolio-grid__header">`,
-				`\t\t<h2>${escapeHtml(normalized.title)}</h2>`,
+				`\t\t<h2${alignAttr}>${escapeHtml(normalized.title)}</h2>`,
 				`\t</div>`,
 			);
 		}
@@ -1797,6 +1928,7 @@
 		const jsonPayload = {
 			version: 1,
 			title: normalized.title || "",
+			titleAlign: normalized.titleAlign || "",
 			intro: normalized.intro || "",
 			maxVisible: normalized.maxVisible,
 			showSearch: normalized.showSearch,
@@ -1831,6 +1963,14 @@
 		const titleText = String(block.title || "").trim();
 		const titleTag = (block.titleTag || "h2").toLowerCase();
 		const safeTitleTag = titleTag === "h1" ? "h2" : titleTag;
+		const titleHtml = titleText
+			? buildHeadingHtml({
+					tag: safeTitleTag,
+					text: titleText,
+					align: block.titleAlign,
+					style: block.titleStyle,
+				})
+			: "";
 		const introRaw = String(block.intro || "").trim();
 		const pageHash = ctx?.pageHash || hashText(ctx?.path || "");
 		const blockShort = ctx?.blockIdShort || hashText(ctx?.blockId || "block");
@@ -1839,11 +1979,7 @@
 			`<div class="flex-accordion-wrapper" data-cms-id="${escapeAttr(cmsId)}">`,
 			`\t<div class="flex-accordion-box">`,
 		];
-		if (titleText) {
-			lines.push(
-				`\t\t<${safeTitleTag}>${escapeHtml(titleText)}</${safeTitleTag}>`,
-			);
-		}
+		if (titleHtml) lines.push(`\t\t${titleHtml}`);
 		if (introRaw) {
 			const introHtml = /<[a-z][\s\S]*>/i.test(introRaw)
 				? sanitizeRteHtml(introRaw, ctx)
@@ -2057,8 +2193,12 @@
 		footerNodes,
 		pruneAssets = false,
 		onClose,
+		scrollTarget = null,
 	}) {
 		const root = ensureModalRoot();
+		root.dataset.scrollY = String(window.scrollY || 0);
+		root._scrollTarget =
+			scrollTarget instanceof HTMLElement ? scrollTarget : null;
 		qs("#cms-modal-title").textContent = title || "Modal";
 		const body = qs("#cms-modal-body");
 		const footer = qs("#cms-modal-footer");
@@ -2087,11 +2227,24 @@
 		const root = qs("#cms-modal");
 		if (!root) return;
 		const pruneAssets = root.dataset.pruneAssets === "true";
+		const scrollY = Number(root.dataset.scrollY);
+		const scrollTarget = root._scrollTarget || null;
 		root.dataset.pruneAssets = "false";
+		root.dataset.scrollY = "";
+		root._scrollTarget = null;
 		root.classList.remove("is-open");
 		document.documentElement.classList.remove("cms-lock");
 		document.body.classList.remove("cms-lock");
 		if (pruneAssets) pruneUnusedAssetUploads();
+		requestAnimationFrame(() => {
+			if (scrollTarget && scrollTarget.isConnected) {
+				scrollTarget.scrollIntoView({ block: "center", behavior: "smooth" });
+				return;
+			}
+			if (Number.isFinite(scrollY)) {
+				window.scrollTo({ top: scrollY, left: 0, behavior: "auto" });
+			}
+		});
 	}
 
 	function openLoadingModal(title = "Loading…") {
@@ -6904,6 +7057,15 @@
 		return el("div", { class: "cms-field" }, nodes);
 	}
 
+	function buildAlignSelect(value, fallback = "left") {
+		const select = el("select", { class: "cms-field__select" }, [
+			el("option", { value: "left" }, ["Left"]),
+			el("option", { value: "center" }, ["Center"]),
+		]);
+		select.value = normalizeHeadingAlign(value, fallback);
+		return select;
+	}
+
 	function buildBlockNoopSignature(html) {
 		const doc = new DOMParser().parseFromString(
 			`<div id="__wrap__">${String(html || "")}</div>`,
@@ -7157,6 +7319,7 @@
 		isNew = false,
 		onSave,
 		onDelete,
+		scrollTarget = null,
 	}) {
 		const isHover = type === "hover";
 		const itemLabel = isHover ? "card" : "image";
@@ -7588,6 +7751,7 @@
 			footerNodes: onDelete
 				? [cancelBtn, deleteBtn, saveBtn]
 				: [cancelBtn, saveBtn],
+			scrollTarget,
 		});
 	}
 
@@ -7690,6 +7854,7 @@
 						type: "hover",
 						item: { lightbox: true },
 						isNew: true,
+						scrollTarget: root,
 						onSave: (next) => {
 							updateCards((model) => {
 								const nextCards = [...(model.cards || [])];
@@ -7758,6 +7923,7 @@
 						type: "hover",
 						item: current,
 						isNew: false,
+						scrollTarget: card,
 						onSave: (next) => {
 							updateCards((model) => {
 								const nextCards = [...(model.cards || [])];
@@ -7856,6 +8022,7 @@
 						type: "square",
 						item: { lightbox: true },
 						isNew: true,
+						scrollTarget: root,
 						onSave: (next) => {
 							updateCards((model) => {
 								const nextItems = [...(model.items || [])];
@@ -7920,6 +8087,7 @@
 						type: "square",
 						item: current,
 						isNew: false,
+						scrollTarget: box,
 						onSave: (next) => {
 							updateCards((model) => {
 								const nextItems = [...(model.items || [])];
@@ -8286,6 +8454,10 @@
 				value: normalized.title || "",
 				placeholder: "Portfolio header",
 			});
+			const titleAlignSelect = buildAlignSelect(
+				normalized.titleAlign || "center",
+				"center",
+			);
 			const introHtml = (() => {
 				const raw = String(normalized.intro || "").trim();
 				if (!raw) return "";
@@ -8467,6 +8639,8 @@
 					{
 						type: "button",
 						class: "cms-btn cms-btn--success cms-btn--inline",
+						"data-tooltip": "Add to type list",
+						"aria-label": "Add type to list",
 					},
 					["Add"],
 				);
@@ -8480,10 +8654,18 @@
 					},
 					["i"],
 				);
+				const typeInputLabel = el("div", { class: "cms-field__label" }, [
+					"New type",
+				]);
+				const typeInputRow = el(
+					"div",
+					{ class: "cms-field__row" },
+					[typeInput, typeAddBtn, typeInfoBtn],
+				);
 				const typeControls = el(
 					"div",
-					{ class: "cms-portfolio-type-controls" },
-					[typeSelect, typeInput, typeAddBtn, typeInfoBtn],
+					{ class: "cms-portfolio-type-controls cms-field__stack" },
+					[typeSelect, typeInputLabel, typeInputRow],
 				);
 				const startInput = el("input", {
 					type: "text",
@@ -8986,6 +9168,8 @@
 				{
 					type: "button",
 					class: "cms-btn cms-btn--primary",
+					"data-tooltip": "Add a new portfolio card",
+					"aria-label": "Add a new portfolio card",
 				},
 				["Add card"],
 			);
@@ -8996,9 +9180,9 @@
 			});
 			const sharedToolbar = toolbarHost();
 			const topField = buildField({
-				label: "Show top",
+				label: "How many items do you want showing?",
 				input: maxVisibleInput,
-				note: "Cards shown when no filters are active. Use * for all.",
+				note: "Displays the number of cards specified when no filters are active. Use * for all. Sorts based on most recent.",
 			});
 			const filtersField = buildField({
 				label: "Filters",
@@ -9012,6 +9196,10 @@
 						label: "Header",
 						input: titleInput,
 						note: "Saved as an H2 heading.",
+					}),
+					buildField({
+						label: "Header alignment",
+						input: titleAlignSelect,
 					}),
 					...(sharedToolbar ? [sharedToolbar] : []),
 					introEditor.wrap,
@@ -9052,6 +9240,8 @@
 
 			settings = {
 				portfolioTitleInput: titleInput,
+				portfolioTitleAlignSelect: titleAlignSelect,
+				portfolioTitleAlignDefault: normalized.titleAlign || "",
 				portfolioIntroEditor: introEditor,
 				portfolioMaxInput: maxVisibleInput,
 				portfolioShowSearch: showSearchInput,
@@ -9066,6 +9256,7 @@
 				value: parsed.title || "",
 				placeholder: "Accordion title",
 			});
+			const titleAlignSelect = buildAlignSelect(parsed.titleAlign, "left");
 			const introHtml = (() => {
 				const raw = String(parsed.intro || "").trim();
 				if (!raw) return "";
@@ -9078,6 +9269,7 @@
 				toolbarController: ensureToolbar(),
 			});
 			introEditor.wrap.classList.add("cms-rte__field--intro");
+			introEditor.wrap.classList.add("cms-rte__field--light");
 			const itemsWrap = el("div", { class: "cms-modal__subgroup" }, []);
 			const accordionItems = [];
 			const syncItems = () => {
@@ -9225,6 +9417,10 @@
 						label: "Title",
 						input: titleInput,
 					}),
+					buildField({
+						label: "Title alignment",
+						input: titleAlignSelect,
+					}),
 					...(sharedToolbar ? [sharedToolbar] : []),
 					introGroup,
 					el("div", { class: "cms-modal__group cms-modal__group--settings" }, [
@@ -9259,6 +9455,8 @@
 
 			settings = {
 				accordionTitleInput: titleInput,
+				accordionTitleAlignSelect: titleAlignSelect,
+				accordionTitleStyle: parsed.titleStyle || "",
 				accordionIntroEditor: introEditor,
 				accordionItems,
 			};
@@ -9269,6 +9467,7 @@
 				value: parsed.heading || "",
 				placeholder: "Header text",
 			});
+			const headingAlignSelect = buildAlignSelect(parsed.headingAlign, "left");
 			const body = buildRteEditor({
 				label: "Content",
 				initialHtml: parsed.body || "",
@@ -9283,6 +9482,10 @@
 						label: "Header",
 						input: headingInput,
 						note: "Optional header for this container.",
+					}),
+					buildField({
+						label: "Header alignment",
+						input: headingAlignSelect,
 					}),
 					...(sharedToolbar ? [sharedToolbar] : []),
 					body.wrap,
@@ -9314,6 +9517,7 @@
 				stdHeadingInput: headingInput,
 				stdHeadingTag: parsed.headingTag || "h1",
 				stdHeadingStyle: parsed.headingStyle || "",
+				stdHeadingAlignSelect: headingAlignSelect,
 			};
 		} else if (parsed.type === "twoCol") {
 			const headingLeftInput = el("input", {
@@ -9322,6 +9526,7 @@
 				value: parsed.leftHeading || parsed.heading || "",
 				placeholder: "Left header",
 			});
+			const leftAlignSelect = buildAlignSelect(parsed.leftHeadingAlign, "left");
 			const left = buildRteEditor({
 				label: "Left column",
 				initialHtml: parsed.left || "",
@@ -9333,6 +9538,7 @@
 				value: parsed.rightHeading || "",
 				placeholder: "Right header",
 			});
+			const rightAlignSelect = buildAlignSelect(parsed.rightHeadingAlign, "left");
 			const right = buildRteEditor({
 				label: "Right column",
 				initialHtml: parsed.right || "",
@@ -9352,11 +9558,19 @@
 						input: headingLeftInput,
 						note: "Optional left column header.",
 					}),
+					buildField({
+						label: "Alignment (left)",
+						input: leftAlignSelect,
+					}),
 					left.wrap,
 					buildField({
 						label: "Header (right)",
 						input: headingRightInput,
 						note: "Optional right column header.",
+					}),
+					buildField({
+						label: "Alignment (right)",
+						input: rightAlignSelect,
 					}),
 					right.wrap,
 				],
@@ -9388,9 +9602,15 @@
 				rightHeadingInput: headingRightInput,
 				leftHeadingTag: parsed.leftHeadingTag || parsed.headingTag || "h2",
 				rightHeadingTag: parsed.rightHeadingTag || "h2",
+				leftHeadingStyle: parsed.leftHeadingStyle || "",
+				rightHeadingStyle: parsed.rightHeadingStyle || "",
+				leftHeadingAlignSelect: leftAlignSelect,
+				rightHeadingAlignSelect: rightAlignSelect,
 			};
 		} else {
 			let headingInput = null;
+			let headingAlignSelect = null;
+			let headingStyle = "";
 			let imgInput = null;
 			let imagePickBtn = null;
 			let imageModeSelect = null;
@@ -9425,6 +9645,8 @@
 					value: parsed.heading || "",
 					placeholder: "Heading",
 				});
+				headingAlignSelect = buildAlignSelect(parsed.headingAlign, "left");
+				headingStyle = parsed.headingStyle || "";
 				imgInput = el("input", {
 					type: "text",
 					class: "cms-field__input",
@@ -9745,6 +9967,14 @@
 						note: "Controls the block title styling.",
 					}),
 				);
+				if (headingAlignSelect) {
+					settingsNodes.push(
+						buildField({
+							label: "Heading alignment",
+							input: headingAlignSelect,
+						}),
+					);
+				}
 			}
 			if (imgInput) {
 				const imageRow = el("div", { class: "cms-field__row" }, [
@@ -9892,6 +10122,8 @@
 
 			settings = {
 				headingInput,
+				headingAlignSelect,
+				headingStyle,
 				imgInput,
 				imagePickBtn,
 				captionInput,
@@ -9914,6 +10146,9 @@
 			if (settings.accordionItems) {
 				updated.title = settings.accordionTitleInput?.value.trim() || "";
 				updated.titleTag = parsed.titleTag || "h2";
+				updated.titleAlign =
+					settings.accordionTitleAlignSelect?.value || parsed.titleAlign || "";
+				updated.titleStyle = settings.accordionTitleStyle || "";
 				updated.intro = sanitizeRteHtml(
 					settings.accordionIntroEditor?.editor.innerHTML || "",
 					ctx,
@@ -9927,16 +10162,31 @@
 				updated.heading = settings.stdHeadingInput.value.trim();
 				updated.headingTag = settings.stdHeadingTag || "h1";
 				updated.headingStyle = settings.stdHeadingStyle || "";
+				updated.headingAlign =
+					settings.stdHeadingAlignSelect?.value || parsed.headingAlign || "";
 			}
 			if (settings.headingInput) {
 				updated.heading = settings.headingInput.value.trim();
 				updated.headingTag = parsed.headingTag || "h2";
+				updated.headingAlign =
+					settings.headingAlignSelect?.value || parsed.headingAlign || "";
+				updated.headingStyle = settings.headingStyle || parsed.headingStyle || "";
 			}
 			if (settings.leftHeadingInput) {
 				updated.leftHeading = settings.leftHeadingInput.value.trim();
 				updated.leftHeadingTag = settings.leftHeadingTag || "h2";
+				updated.leftHeadingStyle = settings.leftHeadingStyle || "";
+				updated.leftHeadingAlign =
+					settings.leftHeadingAlignSelect?.value ||
+					parsed.leftHeadingAlign ||
+					"";
 				updated.rightHeading = settings.rightHeadingInput?.value.trim() || "";
 				updated.rightHeadingTag = settings.rightHeadingTag || "h2";
+				updated.rightHeadingStyle = settings.rightHeadingStyle || "";
+				updated.rightHeadingAlign =
+					settings.rightHeadingAlignSelect?.value ||
+					parsed.rightHeadingAlign ||
+					"";
 				updated.heading = updated.leftHeading;
 				updated.headingTag = updated.leftHeadingTag;
 			}
@@ -9966,6 +10216,17 @@
 				updated.showTypeFilters = settings.portfolioShowTypes?.checked ?? true;
 				updated.showTagFilters = settings.portfolioShowTags?.checked ?? true;
 				updated.title = settings.portfolioTitleInput?.value.trim() || "";
+				const alignValue = normalizeHeadingAlign(
+					settings.portfolioTitleAlignSelect?.value,
+					"center",
+				);
+				const baseAlign = settings.portfolioTitleAlignDefault || "";
+				updated.titleAlign =
+					alignValue === "center"
+						? baseAlign === "center"
+							? "center"
+							: ""
+						: "left";
 				updated.intro = sanitizeRteHtml(
 					settings.portfolioIntroEditor?.editor.innerHTML || "",
 					ctx,
@@ -10101,6 +10362,7 @@
 			placeholder: "Hero subtitle",
 		});
 		subtitleInput.value = heroModel.subtitle || "";
+		const alignSelect = buildAlignSelect(heroModel.align, "center");
 
 		const saveBtn = el(
 			"button",
@@ -10115,13 +10377,16 @@
 				type: "hero",
 				title: titleInput.value.trim(),
 				subtitle: subtitleInput.value.trim(),
+				align: alignSelect.value,
 			};
 			const baseHero = extractRegion(state.originalHtml || "", "hero");
 			const baseHeroModel = parseHeroInner(baseHero.inner || "");
 			const unchanged =
 				baseHeroModel.type === "hero" &&
 				baseHeroModel.title === nextHero.title &&
-				baseHeroModel.subtitle === nextHero.subtitle;
+				baseHeroModel.subtitle === nextHero.subtitle &&
+				normalizeHeadingAlign(baseHeroModel.align, "center") ===
+					normalizeHeadingAlign(nextHero.align, "center");
 			const entry = state.dirtyPages[state.path] || {};
 			const localBlocks = entry.localBlocks || [];
 			if (unchanged && !localBlocks.length) {
@@ -10147,6 +10412,11 @@
 					label: "Title",
 					input: titleInput,
 					note: "Hero uses a single h1 and a single subtitle line.",
+				}),
+				buildField({
+					label: "Alignment",
+					input: alignSelect,
+					note: "Applies to both title and subtitle.",
 				}),
 				buildField({ label: "Subtitle", input: subtitleInput }),
 			],
