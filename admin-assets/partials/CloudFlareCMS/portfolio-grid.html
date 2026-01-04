@@ -6,6 +6,14 @@
 	data-show-types="true"
 	data-show-tags="true"
 >
+	<div class="portfolio-grid__header">
+		<h1>Portfolio</h1>
+	</div>
+	<div class="portfolio-grid__intro">
+		<p>Short intro about the portfolio section goes here.</p>
+	</div>
+	<div class="portfolio-grid__divider"></div>
+
 	<div class="portfolio-grid__controls">
 		<div class="portfolio-grid__search">
 			<input
@@ -58,29 +66,33 @@
 				</div>
 				<div class="portfolio-card__icons">
 					<a
-						class="portfolio-card__icon"
+						class="portfolio-card__icon portfolio-card__icon--site"
 						href="https://portfolio.tacsa.co.uk"
 						target="_blank"
 						rel="noopener noreferrer"
 						data-link="site"
-						aria-label="Open website"
+						data-tooltip="Website"
+						aria-label="Website"
 					>
 						<span class="material-icons" aria-hidden="true">link</span>
 					</a>
 					<button
 						type="button"
-						class="portfolio-card__icon"
+						class="portfolio-card__icon portfolio-card__icon--gallery"
 						data-link="gallery"
-						aria-label="Open image gallery"
+						data-tooltip="Gallery"
+						aria-label="Gallery"
 					>
 						<span class="material-icons" aria-hidden="true">collections</span>
 					</button>
 				</div>
 			</div>
 			<div class="portfolio-card__type">Work</div>
+			<div class="portfolio-card__divider"></div>
 			<div class="portfolio-card__summary">
 				<p>Short blurb about the project goes here.</p>
 			</div>
+			<div class="portfolio-card__divider"></div>
 			<div class="portfolio-card__tags">
 				<button type="button" class="portfolio-card__tag" data-tag="AWS">
 					AWS
@@ -98,6 +110,8 @@
 	<script type="application/json" class="portfolio-grid__data" data-cms="portfolio">
 		{
 			"version": 1,
+			"title": "Portfolio",
+			"intro": "Short intro about the portfolio section goes here.",
 			"maxVisible": 3,
 			"showSearch": true,
 			"showTypeFilters": true,

@@ -930,7 +930,13 @@
 		const raw = String(value || "").trim();
 		if (!raw) return "";
 		const lower = raw.toLowerCase();
-		if (lower === "present" || lower === "current") return "present";
+		if (
+			lower === "present" ||
+			lower === "current" ||
+			lower === "on-going" ||
+			lower === "ongoing"
+		)
+			return "present";
 		const match = raw.match(/(\d{1,2})\D+(\d{4})/);
 		if (!match) return raw;
 		const month = Math.max(1, Math.min(12, Number(match[1] || 0)));
@@ -998,6 +1004,8 @@
 
 	function normalizePortfolioGrid(raw, attrs = {}) {
 		const safe = raw && typeof raw === "object" ? raw : {};
+		const title = String(safe.title || attrs.title || "").trim();
+		const intro = String(safe.intro || attrs.intro || "").trim();
 		const maxFromAttrs = Number(attrs.maxVisible);
 		const maxFromData = Number(safe.maxVisible);
 		const maxRaw = Number.isFinite(maxFromData)
@@ -1024,6 +1032,8 @@
 			? safe.cards.map((card) => normalizePortfolioCard(card))
 			: [];
 		return {
+			title,
+			intro,
 			maxVisible,
 			showSearch,
 			showTypeFilters,
@@ -1044,8 +1054,7 @@
 			const start = card.getAttribute("data-start") || "";
 			const end = card.getAttribute("data-end") || "";
 			const summary =
-				card.querySelector(".portfolio-card__summary")?.textContent?.trim() ||
-				"";
+				card.querySelector(".portfolio-card__summary")?.innerHTML?.trim() || "";
 			let tags = Array.from(card.querySelectorAll(".portfolio-card__tag"))
 				.map((tag) => tag.textContent?.trim() || "")
 				.filter(Boolean);
@@ -1101,6 +1110,10 @@
 			attrs.showTypeFilters = node.getAttribute("data-show-types");
 		if (node.hasAttribute("data-show-tags"))
 			attrs.showTagFilters = node.getAttribute("data-show-tags");
+		const headerText =
+			node.querySelector(".portfolio-grid__header h1,h2,h3")?.textContent?.trim() ||
+			"";
+		const introHtml = node.querySelector(".portfolio-grid__intro")?.innerHTML || "";
 
 		let data = null;
 		const script = node.querySelector(
@@ -1123,7 +1136,13 @@
 		} else {
 			cards = data.cards;
 		}
-		const merged = { ...attrs, ...(data || {}), cards };
+		const merged = {
+			...attrs,
+			title: data?.title ?? headerText,
+			intro: data?.intro ?? introHtml,
+			...(data || {}),
+			cards,
+		};
 		const normalized = normalizePortfolioGrid(merged, attrs);
 		return {
 			type: "portfolioGrid",
@@ -1529,9 +1548,12 @@
 		return lines.join("\n");
 	}
 
-	function formatPortfolioSummaryHtml(summary) {
+	function formatPortfolioSummaryHtml(summary, ctx) {
 		const raw = String(summary || "").replace(/\r\n/g, "\n").trim();
 		if (!raw) return "";
+		if (/<[a-z][\s\S]*>/i.test(raw)) {
+			return sanitizeRteHtml(raw, ctx);
+		}
 		const parts = raw
 			.split(/\n{2,}/)
 			.map((part) => part.trim())
@@ -1561,6 +1583,20 @@
 			),
 		).sort((a, b) => a.localeCompare(b));
 
+		const typeColorMap = {
+			work: "#2563eb",
+			academic: "#dc2626",
+			personal: "#16a34a",
+		};
+		const getTypeColor = (typeKey) => {
+			if (!typeKey) return "";
+			if (typeColorMap[typeKey]) return typeColorMap[typeKey];
+			const hash = hashText(typeKey);
+			const num = parseInt(hash.slice(0, 6), 16);
+			const hue = Number.isFinite(num) ? num % 360 : 210;
+			return `hsl(${hue} 70% 42%)`;
+		};
+
 		const attrs = {
 			class: "portfolio-grid",
 			"data-cms-id": cmsId,
@@ -1580,6 +1616,25 @@
 		const lines = [`<div${serializeAttrsOrdered(attrs, order)}>`];
 		const hasControls =
 			normalized.showSearch || normalized.showTypeFilters || normalized.showTagFilters;
+
+		if (normalized.title) {
+			lines.push(
+				`\t<div class="portfolio-grid__header">`,
+				`\t\t<h1>${escapeHtml(normalized.title)}</h1>`,
+				`\t</div>`,
+			);
+		}
+		if (normalized.intro) {
+			const introHtml = /<[a-z][\s\S]*>/i.test(normalized.intro)
+				? sanitizeRteHtml(normalized.intro, ctx)
+				: `<p>${escapeHtml(normalized.intro)}</p>`;
+			lines.push(`\t<div class="portfolio-grid__intro">`);
+			if (introHtml) lines.push(indentLines(introHtml, 2));
+			lines.push(`\t</div>`);
+		}
+		if (normalized.title || normalized.intro) {
+			lines.push(`\t<div class="portfolio-grid__divider"></div>`);
+		}
 
 		if (hasControls) {
 			lines.push(`\t<div class="portfolio-grid__controls">`);
@@ -1632,6 +1687,7 @@
 			const typeKey = normalizePortfolioTypeKey(typeLabel);
 			const tagsValue = (card.tags || []).join(", ");
 			const galleryValue = (card.gallery || []).join(",");
+			const typeColor = getTypeColor(typeKey);
 			const cardAttrs = {
 				class: "portfolio-card",
 				"data-type": typeKey,
@@ -1640,6 +1696,7 @@
 				"data-start": card.start || "",
 				"data-end": card.end || "",
 				"data-gallery": galleryValue,
+				style: typeColor ? `--portfolio-type-bg:${typeColor};` : "",
 			};
 			const cardOrder = [
 				"class",
@@ -1649,6 +1706,7 @@
 				"data-start",
 				"data-end",
 				"data-gallery",
+				"style",
 			];
 			const dateText = (() => {
 				const start = card.start || "";
@@ -1656,7 +1714,9 @@
 				if (start && end && start !== end) return `${start} - ${end}`;
 				return start || end;
 			})();
-			const summaryHtml = formatPortfolioSummaryHtml(card.summary);
+			const summaryHtml = formatPortfolioSummaryHtml(card.summary, ctx);
+			const hasSummary = Boolean(summaryHtml);
+			const hasTags = Boolean(card.tags?.length);
 			lines.push(
 				`\t\t<article${serializeAttrsOrdered(cardAttrs, cardOrder)}>`,
 				`\t\t\t<div class="portfolio-card__head">`,
@@ -1671,27 +1731,35 @@
 				`\t\t\t\t<div class="portfolio-card__icons">`,
 			);
 			const iconMap = {
-				site: "link",
-				github: "code",
-				youtube: "smart_display",
-				facebook: "public",
+				site: { icon: "link", label: "Website" },
+				github: { icon: "github", label: "GitHub" },
+				youtube: { icon: "smart_display", label: "YouTube" },
+				facebook: { icon: "chat_bubble", label: "Message" },
 			};
-			Object.entries(iconMap).forEach(([key, icon]) => {
+			Object.entries(iconMap).forEach(([key, meta]) => {
 				const href = card.links?.[key] || "";
 				if (!href) return;
+				const iconMarkup =
+					meta.icon === "github"
+						? `<svg class="portfolio-icon portfolio-icon--github" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0.3c-6.6 0-12 5.4-12 12 0 5.3 3.4 9.8 8.2 11.4 0.6 0.1 0.8-0.3 0.8-0.6v-2.2c-3.3 0.7-4-1.4-4-1.4-0.5-1.3-1.2-1.7-1.2-1.7-1-0.7 0.1-0.7 0.1-0.7 1.1 0.1 1.7 1.2 1.7 1.2 1 1.7 2.6 1.2 3.2 0.9 0.1-0.7 0.4-1.2 0.7-1.5-2.6-0.3-5.4-1.3-5.4-5.9 0-1.3 0.5-2.4 1.2-3.2-0.1-0.3-0.5-1.5 0.1-3.1 0 0 1-0.3 3.3 1.2 1-0.3 2-0.4 3-0.4s2.1 0.1 3 0.4c2.3-1.5 3.3-1.2 3.3-1.2 0.6 1.6 0.2 2.8 0.1 3.1 0.8 0.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.4 5.9 0.4 0.4 0.8 1 0.8 2v3c0 0.3 0.2 0.7 0.8 0.6 4.8-1.6 8.2-6.1 8.2-11.4 0-6.6-5.4-12-12-12z"/></svg>`
+						: `<span class="material-icons" aria-hidden="true">${meta.icon}</span>`;
 				lines.push(
-					`\t\t\t\t\t<a class="portfolio-card__icon" href="${escapeAttr(
+					`\t\t\t\t\t<a class="portfolio-card__icon portfolio-card__icon--${escapeAttr(
+						key,
+					)}" href="${escapeAttr(
 						href,
 					)}" target="_blank" rel="noopener noreferrer" data-link="${escapeAttr(
 						key,
-					)}" aria-label="Open ${escapeAttr(key)}">`,
-					`\t\t\t\t\t\t<span class="material-icons" aria-hidden="true">${icon}</span>`,
+					)}" data-tooltip="${escapeAttr(meta.label)}" aria-label="${escapeAttr(
+						meta.label,
+					)}">`,
+					`\t\t\t\t\t\t${iconMarkup}`,
 					`\t\t\t\t\t</a>`,
 				);
 			});
 			if (card.gallery?.length) {
 				lines.push(
-					`\t\t\t\t\t<button type="button" class="portfolio-card__icon" data-link="gallery" aria-label="Open image gallery">`,
+					`\t\t\t\t\t<button type="button" class="portfolio-card__icon portfolio-card__icon--gallery" data-link="gallery" data-tooltip="Gallery" aria-label="Gallery">`,
 					`\t\t\t\t\t\t<span class="material-icons" aria-hidden="true">collections</span>`,
 					`\t\t\t\t\t</button>`,
 				);
@@ -1702,13 +1770,16 @@
 				`\t\t\t<div class="portfolio-card__type">${escapeHtml(
 					typeLabel || "",
 				)}</div>`,
-				`\t\t\t<div class="portfolio-card__summary">`,
 			);
-			if (summaryHtml) {
+			if (hasSummary) {
+				lines.push(`\t\t\t<div class="portfolio-card__divider"></div>`);
+				lines.push(`\t\t\t<div class="portfolio-card__summary">`);
 				lines.push(indentLines(summaryHtml, 4));
+				lines.push(`\t\t\t</div>`);
 			}
-			lines.push(`\t\t\t</div>`);
-			if (card.tags?.length) {
+			if (hasTags) {
+				if (hasSummary || typeLabel)
+					lines.push(`\t\t\t<div class="portfolio-card__divider"></div>`);
 				lines.push(`\t\t\t<div class="portfolio-card__tags">`);
 				card.tags.forEach((tag) => {
 					lines.push(
@@ -1725,6 +1796,8 @@
 
 		const jsonPayload = {
 			version: 1,
+			title: normalized.title || "",
+			intro: normalized.intro || "",
 			maxVisible: normalized.maxVisible,
 			showSearch: normalized.showSearch,
 			showTypeFilters: normalized.showTypeFilters,
@@ -4551,14 +4624,33 @@
 		const toolbar = existingToolbar || buildRteToolbar();
 		let activeHandler = null;
 		let activeEditor = null;
+		const allowedByEditor = new WeakMap();
+		const toolbarButtons = () =>
+			Array.from(toolbar.querySelectorAll("button[data-cmd]"));
+
+		const updateToolbarState = () => {
+			const allowed = activeEditor ? allowedByEditor.get(activeEditor) : null;
+			toolbarButtons().forEach((btn) => {
+				const cmd = btn.getAttribute("data-cmd") || "";
+				const enabled = !allowed || allowed.has(cmd);
+				btn.disabled = !enabled;
+				btn.classList.toggle("is-disabled", !enabled);
+			});
+		};
 
 		const setActive = (editor, handler) => {
 			activeEditor = editor || null;
 			activeHandler = typeof handler === "function" ? handler : null;
+			updateToolbarState();
 		};
 
-		const registerEditor = (editor, handler) => {
+		const registerEditor = (editor, handler, options = {}) => {
 			if (!editor) return;
+			if (options.allowedCommands) {
+				allowedByEditor.set(editor, new Set(options.allowedCommands));
+			} else {
+				allowedByEditor.delete(editor);
+			}
 			const activate = () => setActive(editor, handler);
 			editor.addEventListener("focus", activate);
 			editor.addEventListener("click", activate);
@@ -4572,6 +4664,7 @@
 			if (!btn) return;
 			const cmd = btn.getAttribute("data-cmd");
 			if (!cmd) return;
+			if (btn.disabled) return;
 			if (activeHandler) activeHandler(cmd);
 		});
 
@@ -4582,7 +4675,12 @@
 		};
 	}
 
-	function buildRteEditor({ label, initialHtml, toolbarController } = {}) {
+	function buildRteEditor({
+		label,
+		initialHtml,
+		toolbarController,
+		allowedCommands,
+	} = {}) {
 		const buildAccordionMarkup = ({ styled }) => {
 			const baseId = `acc-${BUILD_TOKEN}-${makeLocalId()}`;
 			const items = [
@@ -6511,8 +6609,12 @@
 			});
 		});
 
+		const allowedSet = Array.isArray(allowedCommands)
+			? new Set(allowedCommands)
+			: null;
 		const runCommand = (cmd) => {
 			if (!cmd) return;
+			if (allowedSet && !allowedSet.has(cmd)) return;
 			restoreSelection();
 			editor.focus();
 			if (cmd === "bold") document.execCommand("bold");
@@ -6657,7 +6759,9 @@
 			}
 		};
 		if (toolbarController) {
-			toolbarController.registerEditor(editor, runCommand);
+			toolbarController.registerEditor(editor, runCommand, {
+				allowedCommands,
+			});
 		} else {
 			toolbar.addEventListener("click", (event) => {
 				const btn = event.target.closest("button");
@@ -8176,12 +8280,29 @@
 				: null;
 		if (parsed.type === "portfolioGrid") {
 			const normalized = normalizePortfolioGrid(parsed);
-			const maxVisibleInput = el("input", {
-				type: "number",
-				min: "0",
-				step: "1",
+			const titleInput = el("input", {
+				type: "text",
 				class: "cms-field__input",
-				value: String(normalized.maxVisible || 0),
+				value: normalized.title || "",
+				placeholder: "Portfolio header",
+			});
+			const introHtml = (() => {
+				const raw = String(normalized.intro || "").trim();
+				if (!raw) return "";
+				if (/<[a-z][\s\S]*>/i.test(raw)) return raw;
+				return `<p>${escapeHtml(raw)}</p>`;
+			})();
+			const introEditor = buildRteEditor({
+				label: "Intro",
+				initialHtml: introHtml,
+				toolbarController: ensureToolbar(),
+			});
+			introEditor.wrap.classList.add("cms-rte__field--intro");
+			const maxVisibleInput = el("input", {
+				type: "text",
+				class: "cms-field__input",
+				value: normalized.maxVisible > 0 ? String(normalized.maxVisible) : "*",
+				placeholder: "3",
 			});
 			const showSearchInput = el("input", {
 				type: "checkbox",
@@ -8218,6 +8339,13 @@
 				class: "cms-modal__subgroup cms-portfolio-cards",
 			});
 			const portfolioCards = [];
+			const typeOptions = new Set();
+			(normalized.cards || []).forEach((card) => {
+				const label = normalizePortfolioTypeLabel(card.type);
+				if (label) typeOptions.add(label);
+			});
+			const getTypeList = () =>
+				Array.from(typeOptions).sort((a, b) => a.localeCompare(b));
 			let imageLibraryPromise = null;
 			const getImageLibrary = () => {
 				if (!imageLibraryPromise)
@@ -8247,6 +8375,64 @@
 						});
 				});
 			};
+			const typeManagerInput = el("textarea", {
+				class: "cms-field__input cms-field__textarea",
+				placeholder: "Work, Academic, Personal",
+			});
+			const typeManagerApply = el(
+				"button",
+				{
+					type: "button",
+					class: "cms-btn cms-btn--success cms-btn--inline",
+				},
+				["Apply"],
+			);
+			const typeManagerCancel = el(
+				"button",
+				{
+					type: "button",
+					class: "cms-btn cms-btn--move cms-btn--inline",
+				},
+				["Cancel"],
+			);
+			const typeManagerWrap = el(
+				"div",
+				{ class: "cms-portfolio-type-manager" },
+				[
+					el("div", { class: "cms-modal__group-title" }, ["Manage types"]),
+					typeManagerInput,
+					el("div", { class: "cms-field__note" }, [
+						"Comma-separated list used by the type dropdown.",
+					]),
+					el("div", { class: "cms-field__row" }, [
+						typeManagerCancel,
+						typeManagerApply,
+					]),
+				],
+			);
+			typeManagerWrap.hidden = true;
+			const openTypeManager = () => {
+				typeManagerInput.value = getTypeList().join(", ");
+				typeManagerWrap.hidden = false;
+			};
+			const closeTypeManager = () => {
+				typeManagerWrap.hidden = true;
+			};
+			typeManagerCancel.addEventListener("click", (event) => {
+				event.preventDefault();
+				closeTypeManager();
+			});
+			typeManagerApply.addEventListener("click", (event) => {
+				event.preventDefault();
+				const next = typeManagerInput.value
+					.split(",")
+					.map((item) => String(item || "").trim())
+					.filter(Boolean);
+				typeOptions.clear();
+				next.forEach((item) => typeOptions.add(item));
+				syncTypeSelects();
+				closeTypeManager();
+			});
 			const syncCards = () => {
 				cardsWrap.innerHTML = "";
 				portfolioCards.forEach((item, idx) => {
@@ -8266,12 +8452,38 @@
 					value: data.title || "",
 					placeholder: "Project title",
 				});
+				const typeSelect = el("select", { class: "cms-field__select" }, [
+					el("option", { value: "" }, ["Select type"]),
+				]);
 				const typeInput = el("input", {
 					type: "text",
 					class: "cms-field__input",
 					value: data.type || "",
 					placeholder: "Type (Work, Academic, Personal...)",
 				});
+				const typeAddBtn = el(
+					"button",
+					{
+						type: "button",
+						class: "cms-btn cms-btn--success cms-btn--inline",
+					},
+					["Add"],
+				);
+				const typeInfoBtn = el(
+					"button",
+					{
+						type: "button",
+						class: "cms-btn cms-btn--inline",
+						title: "Manage type list (comma separated)",
+						"aria-label": "Manage type list",
+					},
+					["i"],
+				);
+				const typeControls = el(
+					"div",
+					{ class: "cms-portfolio-type-controls" },
+					[typeSelect, typeInput, typeAddBtn, typeInfoBtn],
+				);
 				const startInput = el("input", {
 					type: "text",
 					class: "cms-field__input",
@@ -8284,11 +8496,19 @@
 					value: data.end || "",
 					placeholder: "End (MM-YYYY or present)",
 				});
-				const summaryInput = el("textarea", {
-					class: "cms-field__input cms-field__textarea",
-					placeholder: "Short summary (plain text)",
+				const summaryRaw = String(data.summary || "").trim();
+				const summaryHtml = summaryRaw
+					? /<[a-z][\s\S]*>/i.test(summaryRaw)
+						? summaryRaw
+						: `<p>${escapeHtml(summaryRaw).replace(/\n/g, "<br />")}</p>`
+					: "";
+				const summaryEditor = buildRteEditor({
+					label: "Summary",
+					initialHtml: summaryHtml,
+					toolbarController: ensureToolbar(),
+					allowedCommands: ["bold", "italic", "underline", "ul", "ol"],
 				});
-				summaryInput.value = data.summary || "";
+				summaryEditor.wrap.classList.add("cms-portfolio-summary");
 				const tagsInput = el("input", {
 					type: "text",
 					class: "cms-field__input",
@@ -8328,9 +8548,195 @@
 					? data.gallery.slice()
 					: [];
 				galleryToggle.checked = galleryItems.length > 0;
+				const galleryInput = el("input", {
+					type: "text",
+					class: "cms-field__input",
+					placeholder: "/assets/img/...",
+				});
+				const galleryModeSelect = el("select", { class: "cms-field__select" }, [
+					el("option", { value: "existing" }, ["Use existing"]),
+					el("option", { value: "upload" }, ["Upload new"]),
+				]);
+				galleryModeSelect.value = "existing";
 				const gallerySelect = el("select", { class: "cms-field__select" }, [
 					el("option", { value: "" }, ["Select an image"]),
 				]);
+				const galleryPickBtn = el(
+					"button",
+					{
+						type: "button",
+						class: "cms-btn cms-btn--primary cms-btn--inline",
+					},
+					["Choose image"],
+				);
+				const galleryFileInput = el("input", {
+					type: "file",
+					class: "cms-field__input",
+				});
+				galleryFileInput.hidden = true;
+				const galleryNameInput = el("input", {
+					type: "text",
+					class: "cms-field__input",
+					placeholder: "Filename (e.g. hero.jpg or sub/hero.jpg)",
+				});
+				galleryNameInput.hidden = true;
+				const galleryWarning = el(
+					"div",
+					{ class: "cms-modal__note cms-note--warning" },
+					[
+						"\u26a0 Please note: Uploaded images are only stored in local memory until comitted and could be lost \u26a0",
+					],
+				);
+				galleryWarning.hidden = true;
+				let galleryUploadFile = null;
+				let galleryUploadBase64 = "";
+				let galleryUploadMime = "";
+				let galleryUploadPath = "";
+				let galleryUploadExt = "";
+				const getFileExtension = (name) => {
+					const match = String(name || "")
+						.trim()
+						.match(/(\.[A-Za-z0-9]+)$/);
+					return match ? match[1] : "";
+				};
+				const normalizeUploadName = (rawName) => {
+					const raw = String(rawName || "").trim();
+					if (!raw) {
+						if (galleryUploadExt)
+							return { name: galleryUploadExt, caret: 0, empty: true };
+						return { name: "", caret: 0, empty: true };
+					}
+					if (!galleryUploadExt) return { name: raw, caret: raw.length };
+					const lowerRaw = raw.toLowerCase();
+					const lowerExt = galleryUploadExt.toLowerCase();
+					let base = raw;
+					if (lowerRaw.endsWith(lowerExt)) {
+						base = raw.slice(0, -galleryUploadExt.length);
+					}
+					if (base.endsWith(".")) base = base.slice(0, -1);
+					return {
+						name: `${base}${galleryUploadExt}`,
+						caret: base.length,
+						empty: !base,
+					};
+				};
+				const syncUploadName = (rawName, { normalize = false } = {}) => {
+					const normalized = normalizeUploadName(rawName);
+					if (!normalized.name) return;
+					if (normalized.empty && galleryUploadExt) {
+						if (normalize && galleryNameInput) {
+							galleryNameInput.value = galleryUploadExt;
+							if (document.activeElement === galleryNameInput) {
+								galleryNameInput.setSelectionRange(0, 0);
+							}
+						}
+						return;
+					}
+					const safePath = sanitizeImagePath(
+						normalized.name,
+						galleryUploadFile?.name || "",
+					);
+					if (!safePath) return;
+					const safeName = safePath.replace(/^assets\/img\//, "");
+					if (normalize && galleryNameInput) {
+						galleryNameInput.value = safeName;
+						if (galleryUploadExt && document.activeElement === galleryNameInput) {
+							const caret = Math.max(
+								0,
+								safeName.length - galleryUploadExt.length,
+							);
+							galleryNameInput.setSelectionRange(caret, caret);
+						}
+					}
+					galleryInput.value = `/${safePath}`;
+					if (galleryUploadBase64) {
+						if (galleryUploadPath && galleryUploadPath !== safePath) {
+							state.assetUploads = (state.assetUploads || []).filter(
+								(item) => item.path !== galleryUploadPath,
+							);
+						}
+						addAssetUpload({
+							name: safeName,
+							content: galleryUploadBase64,
+							path: safePath,
+							mime: galleryUploadMime || "",
+						});
+						galleryUploadPath = safePath;
+					}
+				};
+				const stageUpload = (file, filename) => {
+					if (!file) return;
+					const safePath = sanitizeImagePath(filename, file.name || "");
+					if (!safePath) return;
+					const safeName = safePath.replace(/^assets\/img\//, "");
+					if (galleryNameInput) galleryNameInput.value = safeName;
+					const reader = new FileReader();
+					reader.onload = () => {
+						const dataUrl = String(reader.result || "");
+						const base64 = dataUrl.split(",")[1] || "";
+						galleryUploadBase64 = base64;
+						galleryUploadMime = file.type || "";
+						syncUploadName(galleryNameInput?.value.trim() || safeName, {
+							normalize: true,
+						});
+					};
+					reader.readAsDataURL(file);
+				};
+				galleryPickBtn.addEventListener("click", () => {
+					galleryFileInput?.click();
+				});
+				galleryFileInput.addEventListener("change", () => {
+					const file = galleryFileInput.files?.[0];
+					if (!file) return;
+					galleryUploadFile = file;
+					galleryUploadExt = getFileExtension(file.name || "");
+					if (galleryNameInput && !galleryNameInput.value.trim()) {
+						galleryNameInput.value = file.name || "";
+					}
+					stageUpload(file, galleryNameInput?.value.trim() || "");
+				});
+				galleryNameInput.addEventListener("input", () => {
+					syncUploadName(galleryNameInput.value.trim(), { normalize: true });
+				});
+				galleryNameInput.addEventListener("blur", () => {
+					if (!galleryUploadFile) return;
+					if (galleryUploadBase64) {
+						syncUploadName(galleryNameInput.value.trim(), { normalize: true });
+						return;
+					}
+					stageUpload(galleryUploadFile, galleryNameInput.value.trim());
+				});
+				const setGalleryMode = (mode) => {
+					const useUpload = mode === "upload";
+					gallerySelect.hidden = useUpload;
+					galleryPickBtn.hidden = !useUpload;
+					galleryNameInput.hidden = !useUpload;
+					if (galleryNameLabel) galleryNameLabel.hidden = !useUpload;
+					if (galleryNameRow) galleryNameRow.hidden = !useUpload;
+					if (galleryInput) {
+						galleryInput.disabled = useUpload;
+						galleryInput.classList.toggle("cms-field__input--muted", useUpload);
+					}
+					galleryWarning.hidden = !useUpload;
+					if (!useUpload) {
+						loadImageLibraryIntoSelect(gallerySelect)
+							.then(() => {
+								const local = getLocalAssetPath(galleryInput.value || "");
+								if (local) gallerySelect.value = local;
+							})
+							.catch((err) => console.error(err));
+					}
+				};
+				galleryModeSelect.addEventListener("change", () => {
+					setGalleryMode(galleryModeSelect.value);
+				});
+				gallerySelect.addEventListener("change", () => {
+					const path = gallerySelect.value;
+					if (!path) return;
+					const safePath = sanitizeImagePath(path, "");
+					if (!safePath) return;
+					galleryInput.value = `/${safePath}`;
+				});
 				const galleryAddBtn = el(
 					"button",
 					{
@@ -8377,30 +8783,53 @@
 					});
 				};
 				renderGallery();
+				galleryAddBtn.addEventListener("click", () => {
+					const raw = galleryInput.value.trim();
+					const safePath = sanitizeImagePath(raw, "");
+					if (!safePath) return;
+					const src = `/${safePath}`;
+					if (!galleryItems.includes(src)) galleryItems.push(src);
+					galleryInput.value = src;
+					galleryToggle.checked = true;
+					syncGalleryVisibility();
+					renderGallery();
+				});
+				let galleryNameLabel = null;
+				let galleryNameRow = null;
 				const galleryRow = el("div", { class: "cms-field__row" }, [
+					galleryInput,
+					galleryModeSelect,
 					gallerySelect,
-					galleryAddBtn,
+					galleryPickBtn,
+					galleryFileInput,
 				]);
+				let galleryInputStack = galleryRow;
+				if (galleryNameInput) {
+					galleryNameLabel = el("div", { class: "cms-field__label" }, [
+						"Filename",
+					]);
+					galleryNameRow = el("div", { class: "cms-field__row" }, [
+						galleryNameInput,
+					]);
+					galleryNameRow.hidden = galleryNameInput.hidden;
+					galleryNameLabel.hidden = galleryNameInput.hidden;
+					galleryInputStack = el("div", { class: "cms-field__stack" }, [
+						galleryRow,
+						galleryNameLabel,
+						galleryNameRow,
+					]);
+				}
 				const galleryWrap = el(
 					"div",
 					{ class: "cms-portfolio-gallery" },
-					[galleryRow, galleryList],
+					[galleryInputStack, galleryWarning, galleryAddBtn, galleryList],
 				);
 				const syncGalleryVisibility = () => {
 					galleryWrap.hidden = !galleryToggle.checked;
 				};
 				syncGalleryVisibility();
 				galleryToggle.addEventListener("change", syncGalleryVisibility);
-				galleryAddBtn.addEventListener("click", () => {
-					const raw = gallerySelect.value;
-					if (!raw) return;
-					const safePath = sanitizeImagePath(raw, "");
-					if (!safePath) return;
-					const src = `/${safePath}`;
-					if (!galleryItems.includes(src)) galleryItems.push(src);
-					gallerySelect.value = "";
-					renderGallery();
-				});
+				setGalleryMode(galleryModeSelect.value);
 				populateImageSelect(gallerySelect);
 
 				const upBtn = el(
@@ -8428,17 +8857,19 @@
 					{ class: "cms-modal__group cms-modal__group--settings" },
 					[
 						titleEl,
-						buildField({ label: "Title", input: titleInput }),
-						buildField({ label: "Type", input: typeInput }),
+						el("div", { class: "cms-portfolio-row" }, [
+							buildField({ label: "Title", input: titleInput }),
+							buildField({ label: "Type", input: typeControls }),
+						]),
 						buildField({
 							label: "Dates",
 							input: el("div", { class: "cms-field__row" }, [
 								startInput,
 								endInput,
 							]),
-							note: "Use MM-YYYY (e.g. 03-2024) or 'present'.",
+							note: "Use MM-YYYY (e.g. 03-2024) or 'on-going'.",
 						}),
-						buildField({ label: "Summary", input: summaryInput }),
+						summaryEditor.wrap,
 						buildField({ label: "Tags", input: tagsInput }),
 						buildField({
 							label: "Links",
@@ -8473,10 +8904,11 @@
 					wrap,
 					titleEl,
 					titleInput,
+					typeSelect,
 					typeInput,
 					startInput,
 					endInput,
-					summaryInput,
+					summaryEditor,
 					tagsInput,
 					siteInput,
 					githubInput,
@@ -8488,6 +8920,20 @@
 					downBtn,
 					removeBtn,
 				};
+				typeSelect.addEventListener("change", () => {
+					if (typeSelect.value) typeInput.value = typeSelect.value;
+				});
+				typeAddBtn.addEventListener("click", () => {
+					const raw = typeInput.value.trim();
+					if (!raw) return;
+					typeOptions.add(raw);
+					syncTypeSelects();
+					typeSelect.value = raw;
+				});
+				typeInfoBtn.addEventListener("click", (event) => {
+					event.preventDefault();
+					openTypeManager();
+				});
 				upBtn.addEventListener("click", () => {
 					const index = portfolioCards.indexOf(item);
 					if (index <= 0) return;
@@ -8517,6 +8963,21 @@
 				.forEach((card) => {
 					portfolioCards.push(buildCard(card));
 				});
+			const syncTypeSelects = () => {
+				const list = getTypeList();
+				portfolioCards.forEach((item) => {
+					const select = item.typeSelect;
+					if (!select) return;
+					const current = select.value || item.typeInput?.value || "";
+					select.innerHTML = "";
+					select.appendChild(el("option", { value: "" }, ["Select type"]));
+					list.forEach((type) => {
+						select.appendChild(el("option", { value: type }, [type]));
+					});
+					if (current) select.value = current;
+				});
+			};
+			syncTypeSelects();
 			syncCards();
 
 			const addCardBtn = el(
@@ -8529,21 +8990,35 @@
 			);
 			addCardBtn.addEventListener("click", () => {
 				portfolioCards.push(buildCard(normalizePortfolioCard({})));
+				syncTypeSelects();
 				syncCards();
+			});
+			const sharedToolbar = toolbarHost();
+			const topField = buildField({
+				label: "Show top",
+				input: maxVisibleInput,
+				note: "Cards shown when no filters are active. Use * for all.",
+			});
+			const filtersField = buildField({
+				label: "Filters",
+				input: toggleRow,
 			});
 
 			openModal({
 				title: "Edit block",
 				bodyNodes: [
 					buildField({
-						label: "Show top",
-						input: maxVisibleInput,
-						note: "Defaults to 3 cards when no filters are active.",
+						label: "Header",
+						input: titleInput,
+						note: "Saved as an H1 heading.",
 					}),
-					buildField({
-						label: "Filters",
-						input: toggleRow,
-					}),
+					...(sharedToolbar ? [sharedToolbar] : []),
+					introEditor.wrap,
+					el("div", { class: "cms-portfolio-controls" }, [
+						topField,
+						filtersField,
+					]),
+					typeManagerWrap,
 					el("div", { class: "cms-modal__group cms-modal__group--settings" }, [
 						el("div", { class: "cms-modal__group-title" }, ["Cards"]),
 						cardsWrap,
@@ -8575,6 +9050,8 @@
 			});
 
 			settings = {
+				portfolioTitleInput: titleInput,
+				portfolioIntroEditor: introEditor,
 				portfolioMaxInput: maxVisibleInput,
 				portfolioShowSearch: showSearchInput,
 				portfolioShowTypes: showTypesInput,
@@ -9476,19 +9953,33 @@
 				updated.imgPos = settings.posSelect?.value || "left";
 			}
 			if (settings.portfolioCards) {
-				const maxRaw = Number(settings.portfolioMaxInput?.value || 0);
-				updated.maxVisible = Number.isFinite(maxRaw)
-					? Math.max(0, Math.floor(maxRaw))
+				const maxRaw = String(settings.portfolioMaxInput?.value || "").trim();
+				let maxValue = 3;
+				if (maxRaw === "*") maxValue = 0;
+				else if (maxRaw) maxValue = Number(maxRaw);
+				updated.maxVisible = Number.isFinite(maxValue)
+					? Math.max(0, Math.floor(maxValue))
 					: 3;
 				updated.showSearch = settings.portfolioShowSearch?.checked ?? true;
 				updated.showTypeFilters = settings.portfolioShowTypes?.checked ?? true;
 				updated.showTagFilters = settings.portfolioShowTags?.checked ?? true;
+				updated.title = settings.portfolioTitleInput?.value.trim() || "";
+				updated.intro = sanitizeRteHtml(
+					settings.portfolioIntroEditor?.editor.innerHTML || "",
+					ctx,
+				);
 				updated.cards = settings.portfolioCards.map((card) => ({
 					title: card.titleInput?.value.trim() || "",
-					type: card.typeInput?.value.trim() || "",
+					type:
+						card.typeInput?.value.trim() ||
+						card.typeSelect?.value.trim() ||
+						"",
 					start: card.startInput?.value.trim() || "",
 					end: card.endInput?.value.trim() || "",
-					summary: card.summaryInput?.value.trim() || "",
+					summary: sanitizeRteHtml(
+						card.summaryEditor?.editor.innerHTML || "",
+						ctx,
+					),
 					tags: String(card.tagsInput?.value || "")
 						.split(",")
 						.map((tag) => tag.trim())
