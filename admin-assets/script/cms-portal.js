@@ -1061,6 +1061,24 @@
 		};
 	}
 
+	function isPortfolioCardEmpty(card) {
+		const safe = card && typeof card === "object" ? card : {};
+		const hasLinks =
+			safe.links && typeof safe.links === "object"
+				? Object.keys(safe.links).length > 0
+				: false;
+		return (
+			!safe.title &&
+			!safe.type &&
+			!safe.start &&
+			!safe.end &&
+			!safe.summary &&
+			!(safe.tags && safe.tags.length) &&
+			!hasLinks &&
+			!(safe.gallery && safe.gallery.length)
+		);
+	}
+
 	function normalizePortfolioGrid(raw, attrs = {}) {
 		const safe = raw && typeof raw === "object" ? raw : {};
 		const title = String(safe.title || attrs.title || "").trim();
@@ -1097,7 +1115,9 @@
 			true,
 		);
 		const cards = Array.isArray(safe.cards)
-			? safe.cards.map((card) => normalizePortfolioCard(card))
+			? safe.cards
+					.map((card) => normalizePortfolioCard(card))
+					.filter((card) => !isPortfolioCardEmpty(card))
 			: [];
 		return {
 			title,
@@ -1413,7 +1433,7 @@
 			const inner = cleanNode.querySelector(".default-div-wrapper");
 			if (inner && !inner.classList.contains("hero-override")) {
 				const headingEl = inner.querySelector("h1,h2,h3");
-				const headingTag = headingEl ? headingEl.tagName.toLowerCase() : "h1";
+				const headingTag = headingEl ? headingEl.tagName.toLowerCase() : "h2";
 				const headingStyle = headingEl?.getAttribute("style") || "";
 				let body = inner.innerHTML || "";
 				if (headingEl) {
@@ -1594,7 +1614,7 @@
 	function serializeStdContainer(block, ctx) {
 		const cmsId = getBlockCmsId(block, ctx?.index ?? 0, ctx);
 		const headingText = String(block.heading || "").trim();
-		const headingTag = (block.headingTag || "h1").toLowerCase();
+		const headingTag = (block.headingTag || "h2").toLowerCase();
 		const headingStyle = applyTextAlignStyle(
 			String(block.headingStyle || "").trim(),
 			block.headingAlign,
@@ -1711,12 +1731,18 @@
 			academic: "#dc2626",
 			personal: "#16a34a",
 		};
+		const hashPortfolioKey = (value) => {
+			const text = String(value || "");
+			let hash = 0;
+			for (let i = 0; i < text.length; i += 1) {
+				hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+			}
+			return hash;
+		};
 		const getTypeColor = (typeKey) => {
 			if (!typeKey) return "";
 			if (typeColorMap[typeKey]) return typeColorMap[typeKey];
-			const hash = hashText(typeKey);
-			const num = parseInt(hash.slice(0, 6), 16);
-			const hue = Number.isFinite(num) ? num % 360 : 210;
+			const hue = hashPortfolioKey(typeKey) % 360;
 			return `hsl(${hue} 70% 42%)`;
 		};
 
