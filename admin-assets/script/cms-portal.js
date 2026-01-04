@@ -1620,7 +1620,7 @@
 		if (normalized.title) {
 			lines.push(
 				`\t<div class="portfolio-grid__header">`,
-				`\t\t<h1>${escapeHtml(normalized.title)}</h1>`,
+				`\t\t<h2>${escapeHtml(normalized.title)}</h2>`,
 				`\t</div>`,
 			);
 		}
@@ -8298,6 +8298,7 @@
 				toolbarController: ensureToolbar(),
 			});
 			introEditor.wrap.classList.add("cms-rte__field--intro");
+			introEditor.wrap.classList.add("cms-rte__field--light");
 			const maxVisibleInput = el("input", {
 				type: "text",
 				class: "cms-field__input",
@@ -8473,8 +8474,8 @@
 					"button",
 					{
 						type: "button",
-						class: "cms-btn cms-btn--inline",
-						title: "Manage type list (comma separated)",
+						class: "cms-btn cms-btn--info cms-btn--inline",
+						"data-tooltip": "Manage type list (comma separated)",
 						"aria-label": "Manage type list",
 					},
 					["i"],
@@ -8741,7 +8742,7 @@
 					"button",
 					{
 						type: "button",
-						class: "cms-btn cms-btn--primary cms-btn--inline",
+						class: "cms-btn cms-btn--success cms-btn--inline",
 					},
 					["Add image"],
 				);
@@ -9010,7 +9011,7 @@
 					buildField({
 						label: "Header",
 						input: titleInput,
-						note: "Saved as an H1 heading.",
+						note: "Saved as an H2 heading.",
 					}),
 					...(sharedToolbar ? [sharedToolbar] : []),
 					introEditor.wrap,
@@ -9108,6 +9109,7 @@
 					initialHtml: body || "<ul><li>Point A</li><li>Point B</li></ul>",
 					toolbarController: ensureToolbar(),
 				});
+				editor.wrap.classList.add("cms-rte__field--light");
 				const upBtn = el(
 					"button",
 					{
@@ -11105,7 +11107,9 @@
 		scheduleHighlightStaticCodeBlocks();
 
 		queueMicrotask(() => {
-			mainWrap.querySelectorAll(".cms-divider-btn").forEach((btn) => {
+			mainWrap
+				.querySelectorAll(".cms-divider-btn[data-insert]")
+				.forEach((btn) => {
 				btn.addEventListener("click", () => {
 					const at = Number(btn.getAttribute("data-insert") || "0");
 					const anchorId = btn.getAttribute("data-anchor-id") || "";
