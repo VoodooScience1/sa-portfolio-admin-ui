@@ -61,6 +61,11 @@
 			partial: "/admin-assets/partials/CloudFlareCMS/square-grid.html",
 		},
 		{
+			id: "portfolio-grid",
+			label: "Portfolio grid",
+			partial: "/admin-assets/partials/CloudFlareCMS/portfolio-grid.html",
+		},
+		{
 			id: "accordion-styled",
 			label: "Accordion (styled)",
 			partial: "/admin-assets/partials/CloudFlareCMS/styled-accordion.html",
@@ -900,6 +905,233 @@
 		].join("\n");
 	}
 
+	function normalizePortfolioBool(value, fallback) {
+		if (value === undefined || value === null) return fallback;
+		if (typeof value === "string")
+			return String(value).toLowerCase() !== "false";
+		return Boolean(value);
+	}
+
+	function normalizePortfolioTypeLabel(value) {
+		return String(value || "").trim();
+	}
+
+	function normalizePortfolioTypeKey(value) {
+		const raw = normalizePortfolioTypeLabel(value).toLowerCase();
+		if (!raw) return "";
+		const key = raw
+			.replace(/[^a-z0-9]+/g, "-")
+			.replace(/^-+/, "")
+			.replace(/-+$/, "");
+		return key;
+	}
+
+	function normalizePortfolioDate(value) {
+		const raw = String(value || "").trim();
+		if (!raw) return "";
+		const lower = raw.toLowerCase();
+		if (lower === "present" || lower === "current") return "present";
+		const match = raw.match(/(\d{1,2})\D+(\d{4})/);
+		if (!match) return raw;
+		const month = Math.max(1, Math.min(12, Number(match[1] || 0)));
+		const year = Number(match[2] || 0);
+		if (!year) return raw;
+		return `${String(month).padStart(2, "0")}-${year}`;
+	}
+
+	function normalizePortfolioTags(value) {
+		const rawList = Array.isArray(value)
+			? value
+			: String(value || "").split(",");
+		const seen = new Set();
+		const output = [];
+		rawList.forEach((item) => {
+			const tag = String(item || "").trim();
+			if (!tag || seen.has(tag)) return;
+			seen.add(tag);
+			output.push(tag);
+		});
+		return output;
+	}
+
+	function normalizePortfolioLinks(value) {
+		const raw = value && typeof value === "object" ? value : {};
+		const keys = ["site", "github", "youtube", "facebook"];
+		const output = {};
+		keys.forEach((key) => {
+			const href = sanitizeHref(raw[key] || "");
+			if (href) output[key] = href;
+		});
+		return output;
+	}
+
+	function normalizePortfolioGallery(value) {
+		const rawList = Array.isArray(value) ? value : [];
+		const seen = new Set();
+		const output = [];
+		rawList.forEach((item) => {
+			const raw =
+				typeof item === "string" ? item : item?.src || item?.path || "";
+			const safePath = sanitizeImagePath(raw || "", "");
+			if (!safePath) return;
+			const src = `/${safePath}`;
+			if (seen.has(src)) return;
+			seen.add(src);
+			output.push(src);
+		});
+		return output;
+	}
+
+	function normalizePortfolioCard(raw) {
+		const safe = raw && typeof raw === "object" ? raw : {};
+		return {
+			title: String(safe.title || "").trim(),
+			type: normalizePortfolioTypeLabel(safe.type),
+			start: normalizePortfolioDate(safe.start),
+			end: normalizePortfolioDate(safe.end),
+			summary: String(safe.summary || "").trim(),
+			tags: normalizePortfolioTags(safe.tags),
+			links: normalizePortfolioLinks(safe.links),
+			gallery: normalizePortfolioGallery(safe.gallery),
+		};
+	}
+
+	function normalizePortfolioGrid(raw, attrs = {}) {
+		const safe = raw && typeof raw === "object" ? raw : {};
+		const maxFromAttrs = Number(attrs.maxVisible);
+		const maxFromData = Number(safe.maxVisible);
+		const maxRaw = Number.isFinite(maxFromData)
+			? maxFromData
+			: Number.isFinite(maxFromAttrs)
+				? maxFromAttrs
+				: 3;
+		const maxVisible = Number.isFinite(maxRaw)
+			? Math.max(0, Math.floor(maxRaw))
+			: 3;
+		const showSearch = normalizePortfolioBool(
+			safe.showSearch ?? attrs.showSearch,
+			true,
+		);
+		const showTypeFilters = normalizePortfolioBool(
+			safe.showTypeFilters ?? attrs.showTypeFilters,
+			true,
+		);
+		const showTagFilters = normalizePortfolioBool(
+			safe.showTagFilters ?? attrs.showTagFilters,
+			true,
+		);
+		const cards = Array.isArray(safe.cards)
+			? safe.cards.map((card) => normalizePortfolioCard(card))
+			: [];
+		return {
+			maxVisible,
+			showSearch,
+			showTypeFilters,
+			showTagFilters,
+			cards,
+		};
+	}
+
+	function parsePortfolioCardsFromHtml(node) {
+		const cards = Array.from(node.querySelectorAll(".portfolio-card"));
+		return cards.map((card) => {
+			const title =
+				card.querySelector(".portfolio-card__title")?.textContent?.trim() || "";
+			const type =
+				card.querySelector(".portfolio-card__type")?.textContent?.trim() ||
+				card.getAttribute("data-type-label") ||
+				"";
+			const start = card.getAttribute("data-start") || "";
+			const end = card.getAttribute("data-end") || "";
+			const summary =
+				card.querySelector(".portfolio-card__summary")?.textContent?.trim() ||
+				"";
+			let tags = Array.from(card.querySelectorAll(".portfolio-card__tag"))
+				.map((tag) => tag.textContent?.trim() || "")
+				.filter(Boolean);
+			if (!tags.length) {
+				tags = String(card.getAttribute("data-tags") || "")
+					.split(",")
+					.map((tag) => tag.trim())
+					.filter(Boolean);
+			}
+			const links = {};
+			card.querySelectorAll(".portfolio-card__icon[data-link]").forEach((el) => {
+				const key = el.getAttribute("data-link") || "";
+				if (!key || key === "gallery") return;
+				const href = el.getAttribute("href") || el.dataset.href || "";
+				if (href) links[key] = href;
+			});
+			let gallery = [];
+			const galleryRaw = card.getAttribute("data-gallery") || "";
+			if (galleryRaw) {
+				try {
+					const parsed = JSON.parse(galleryRaw);
+					if (Array.isArray(parsed)) gallery = parsed;
+				} catch {
+					gallery = galleryRaw
+						.split(",")
+						.map((item) => item.trim())
+						.filter(Boolean);
+				}
+			}
+			return {
+				title,
+				type,
+				start,
+				end,
+				summary,
+				tags,
+				links,
+				gallery,
+			};
+		});
+	}
+
+	function parsePortfolioGridNode(node) {
+		const cmsId = node.getAttribute("data-cms-id") || "";
+		const attrs = {};
+		if (node.hasAttribute("data-max-visible")) {
+			const maxVisible = Number(node.getAttribute("data-max-visible"));
+			if (Number.isFinite(maxVisible)) attrs.maxVisible = maxVisible;
+		}
+		if (node.hasAttribute("data-show-search"))
+			attrs.showSearch = node.getAttribute("data-show-search");
+		if (node.hasAttribute("data-show-types"))
+			attrs.showTypeFilters = node.getAttribute("data-show-types");
+		if (node.hasAttribute("data-show-tags"))
+			attrs.showTagFilters = node.getAttribute("data-show-tags");
+
+		let data = null;
+		const script = node.querySelector(
+			'script[type="application/json"][data-cms="portfolio"]',
+		);
+		if (script) {
+			try {
+				data = JSON.parse(script.textContent || "{}");
+			} catch {
+				data = null;
+			}
+		}
+
+		let cards = [];
+		if (!data || typeof data !== "object") {
+			data = {};
+			cards = parsePortfolioCardsFromHtml(node);
+		} else if (!Array.isArray(data.cards)) {
+			cards = parsePortfolioCardsFromHtml(node);
+		} else {
+			cards = data.cards;
+		}
+		const merged = { ...attrs, ...(data || {}), cards };
+		const normalized = normalizePortfolioGrid(merged, attrs);
+		return {
+			type: "portfolioGrid",
+			cmsId,
+			...normalized,
+		};
+	}
+
 	function parseMainBlockNode(node) {
 		if (!node || !node.classList) {
 			return { type: "legacy", raw: String(node?.outerHTML || "") };
@@ -988,6 +1220,10 @@
 				};
 			}
 			return { type: "legacy", cmsId, raw: cleanNode.outerHTML };
+		}
+
+		if (cls.contains("portfolio-grid")) {
+			return parsePortfolioGridNode(cleanNode);
 		}
 
 		if (cls.contains("grid-wrapper") && cls.contains("grid-wrapper--row")) {
@@ -1293,6 +1529,230 @@
 		return lines.join("\n");
 	}
 
+	function formatPortfolioSummaryHtml(summary) {
+		const raw = String(summary || "").replace(/\r\n/g, "\n").trim();
+		if (!raw) return "";
+		const parts = raw
+			.split(/\n{2,}/)
+			.map((part) => part.trim())
+			.filter(Boolean);
+		if (!parts.length) return "";
+		return parts
+			.map((part) => `<p>${escapeHtml(part).replace(/\n/g, "<br />")}</p>`)
+			.join("\n");
+	}
+
+	function serializePortfolioGrid(block, ctx) {
+		const cmsId = getBlockCmsId(block, ctx?.index ?? 0, ctx);
+		const normalized = normalizePortfolioGrid(block);
+		const types = Array.from(
+			new Set(
+				normalized.cards
+					.map((card) => normalizePortfolioTypeLabel(card.type))
+					.filter(Boolean),
+			),
+		).sort((a, b) => a.localeCompare(b));
+		const tags = Array.from(
+			new Set(
+				normalized.cards
+					.flatMap((card) => card.tags || [])
+					.map((tag) => String(tag || "").trim())
+					.filter(Boolean),
+			),
+		).sort((a, b) => a.localeCompare(b));
+
+		const attrs = {
+			class: "portfolio-grid",
+			"data-cms-id": cmsId,
+			"data-max-visible": String(normalized.maxVisible || 0),
+			"data-show-search": normalized.showSearch ? "true" : "false",
+			"data-show-types": normalized.showTypeFilters ? "true" : "false",
+			"data-show-tags": normalized.showTagFilters ? "true" : "false",
+		};
+		const order = [
+			"class",
+			"data-cms-id",
+			"data-max-visible",
+			"data-show-search",
+			"data-show-types",
+			"data-show-tags",
+		];
+		const lines = [`<div${serializeAttrsOrdered(attrs, order)}>`];
+		const hasControls =
+			normalized.showSearch || normalized.showTypeFilters || normalized.showTagFilters;
+
+		if (hasControls) {
+			lines.push(`\t<div class="portfolio-grid__controls">`);
+			if (normalized.showSearch) {
+				lines.push(
+					`\t\t<div class="portfolio-grid__search">`,
+					`\t\t\t<input type="search" class="portfolio-grid__search-input" placeholder="Search projects" aria-label="Search projects" />`,
+					`\t\t</div>`,
+				);
+			}
+			lines.push(`\t</div>`);
+		}
+
+		if (
+			(normalized.showTypeFilters && types.length) ||
+			(normalized.showTagFilters && tags.length)
+		) {
+			lines.push(`\t<div class="portfolio-grid__filters">`);
+			if (normalized.showTypeFilters && types.length) {
+				lines.push(`\t\t<div class="portfolio-grid__filter-group" data-filter="type">`);
+				lines.push(
+					`\t\t\t<button type="button" class="portfolio-filter-pill is-active" data-type="">All</button>`,
+				);
+				types.forEach((type) => {
+					lines.push(
+						`\t\t\t<button type="button" class="portfolio-filter-pill" data-type="${escapeAttr(
+							type,
+						)}">${escapeHtml(type)}</button>`,
+					);
+				});
+				lines.push(`\t\t</div>`);
+			}
+			if (normalized.showTagFilters && tags.length) {
+				lines.push(`\t\t<div class="portfolio-grid__filter-group" data-filter="tag">`);
+				tags.forEach((tag) => {
+					lines.push(
+						`\t\t\t<button type="button" class="portfolio-filter-pill" data-tag="${escapeAttr(
+							tag,
+						)}">${escapeHtml(tag)}</button>`,
+					);
+				});
+				lines.push(`\t\t</div>`);
+			}
+			lines.push(`\t</div>`);
+		}
+
+		lines.push(`\t<div class="portfolio-grid__cards">`);
+		normalized.cards.forEach((card) => {
+			const typeLabel = normalizePortfolioTypeLabel(card.type);
+			const typeKey = normalizePortfolioTypeKey(typeLabel);
+			const tagsValue = (card.tags || []).join(", ");
+			const galleryValue = (card.gallery || []).join(",");
+			const cardAttrs = {
+				class: "portfolio-card",
+				"data-type": typeKey,
+				"data-type-label": typeLabel,
+				"data-tags": tagsValue,
+				"data-start": card.start || "",
+				"data-end": card.end || "",
+				"data-gallery": galleryValue,
+			};
+			const cardOrder = [
+				"class",
+				"data-type",
+				"data-type-label",
+				"data-tags",
+				"data-start",
+				"data-end",
+				"data-gallery",
+			];
+			const dateText = (() => {
+				const start = card.start || "";
+				const end = card.end || "";
+				if (start && end && start !== end) return `${start} - ${end}`;
+				return start || end;
+			})();
+			const summaryHtml = formatPortfolioSummaryHtml(card.summary);
+			lines.push(
+				`\t\t<article${serializeAttrsOrdered(cardAttrs, cardOrder)}>`,
+				`\t\t\t<div class="portfolio-card__head">`,
+				`\t\t\t\t<div>`,
+				`\t\t\t\t\t<div class="portfolio-card__title">${escapeHtml(
+					card.title || "",
+				)}</div>`,
+				`\t\t\t\t\t<div class="portfolio-card__date">${escapeHtml(
+					dateText || "",
+				)}</div>`,
+				`\t\t\t\t</div>`,
+				`\t\t\t\t<div class="portfolio-card__icons">`,
+			);
+			const iconMap = {
+				site: "link",
+				github: "code",
+				youtube: "smart_display",
+				facebook: "public",
+			};
+			Object.entries(iconMap).forEach(([key, icon]) => {
+				const href = card.links?.[key] || "";
+				if (!href) return;
+				lines.push(
+					`\t\t\t\t\t<a class="portfolio-card__icon" href="${escapeAttr(
+						href,
+					)}" target="_blank" rel="noopener noreferrer" data-link="${escapeAttr(
+						key,
+					)}" aria-label="Open ${escapeAttr(key)}">`,
+					`\t\t\t\t\t\t<span class="material-icons" aria-hidden="true">${icon}</span>`,
+					`\t\t\t\t\t</a>`,
+				);
+			});
+			if (card.gallery?.length) {
+				lines.push(
+					`\t\t\t\t\t<button type="button" class="portfolio-card__icon" data-link="gallery" aria-label="Open image gallery">`,
+					`\t\t\t\t\t\t<span class="material-icons" aria-hidden="true">collections</span>`,
+					`\t\t\t\t\t</button>`,
+				);
+			}
+			lines.push(
+				`\t\t\t\t</div>`,
+				`\t\t\t</div>`,
+				`\t\t\t<div class="portfolio-card__type">${escapeHtml(
+					typeLabel || "",
+				)}</div>`,
+				`\t\t\t<div class="portfolio-card__summary">`,
+			);
+			if (summaryHtml) {
+				lines.push(indentLines(summaryHtml, 4));
+			}
+			lines.push(`\t\t\t</div>`);
+			if (card.tags?.length) {
+				lines.push(`\t\t\t<div class="portfolio-card__tags">`);
+				card.tags.forEach((tag) => {
+					lines.push(
+						`\t\t\t\t<button type="button" class="portfolio-card__tag" data-tag="${escapeAttr(
+							tag,
+						)}">${escapeHtml(tag)}</button>`,
+					);
+				});
+				lines.push(`\t\t\t</div>`);
+			}
+			lines.push(`\t\t</article>`);
+		});
+		lines.push(`\t</div>`);
+
+		const jsonPayload = {
+			version: 1,
+			maxVisible: normalized.maxVisible,
+			showSearch: normalized.showSearch,
+			showTypeFilters: normalized.showTypeFilters,
+			showTagFilters: normalized.showTagFilters,
+			cards: normalized.cards.map((card) => ({
+				title: card.title || "",
+				type: card.type || "",
+				start: card.start || "",
+				end: card.end || "",
+				summary: card.summary || "",
+				tags: card.tags || [],
+				links: card.links || {},
+				gallery: card.gallery || [],
+			})),
+		};
+		const jsonText = JSON.stringify(jsonPayload, null, 2).replace(
+			/<\/script>/gi,
+			"<\\/script>",
+		);
+		lines.push(
+			`\t<script type="application/json" class="portfolio-grid__data" data-cms="portfolio">`,
+			indentLines(jsonText, 2),
+			`\t</script>`,
+		);
+		lines.push(`</div>`);
+		return lines.join("\n");
+	}
+
 	function serializeStyledAccordion(block, ctx) {
 		const cmsId = getBlockCmsId(block, ctx?.index ?? 0, ctx);
 		const titleText = String(block.title || "").trim();
@@ -1372,6 +1832,8 @@
 					return serializeHoverCardRow(block, blockCtx);
 				if (block.type === "squareGridRow")
 					return serializeSquareGridRow(block, blockCtx);
+				if (block.type === "portfolioGrid")
+					return serializePortfolioGrid(block, blockCtx);
 				if (block.type === "styledAccordion")
 					return serializeStyledAccordion(block, blockCtx);
 				if (block.raw || block.html) {
@@ -7712,7 +8174,414 @@
 						toolbarController.toolbar,
 					])
 				: null;
-		if (parsed.type === "styledAccordion") {
+		if (parsed.type === "portfolioGrid") {
+			const normalized = normalizePortfolioGrid(parsed);
+			const maxVisibleInput = el("input", {
+				type: "number",
+				min: "0",
+				step: "1",
+				class: "cms-field__input",
+				value: String(normalized.maxVisible || 0),
+			});
+			const showSearchInput = el("input", {
+				type: "checkbox",
+				class: "cms-field__checkbox",
+			});
+			showSearchInput.checked = normalized.showSearch !== false;
+			const showTypesInput = el("input", {
+				type: "checkbox",
+				class: "cms-field__checkbox",
+			});
+			showTypesInput.checked = normalized.showTypeFilters !== false;
+			const showTagsInput = el("input", {
+				type: "checkbox",
+				class: "cms-field__checkbox",
+			});
+			showTagsInput.checked = normalized.showTagFilters !== false;
+
+			const toggleRow = el("div", { class: "cms-field__row" }, [
+				el("label", { class: "cms-field__toggle" }, [
+					showSearchInput,
+					el("span", { class: "cms-field__toggle-text" }, ["Search"]),
+				]),
+				el("label", { class: "cms-field__toggle" }, [
+					showTypesInput,
+					el("span", { class: "cms-field__toggle-text" }, ["Types"]),
+				]),
+				el("label", { class: "cms-field__toggle" }, [
+					showTagsInput,
+					el("span", { class: "cms-field__toggle-text" }, ["Tags"]),
+				]),
+			]);
+
+			const cardsWrap = el("div", {
+				class: "cms-modal__subgroup cms-portfolio-cards",
+			});
+			const portfolioCards = [];
+			let imageLibraryPromise = null;
+			const getImageLibrary = () => {
+				if (!imageLibraryPromise)
+					imageLibraryPromise = fetchImageLibrary().catch((err) => {
+						console.error(err);
+						return [];
+					});
+				return imageLibraryPromise;
+			};
+			const populateImageSelect = (select) => {
+				if (!select) return;
+				getImageLibrary().then((images) => {
+					select.innerHTML = "";
+					select.appendChild(
+						el("option", { value: "" }, ["Select an image"]),
+					);
+					images
+						.sort((a, b) => String(a.path).localeCompare(String(b.path)))
+						.forEach((item) => {
+							const label = String(item.path || "").replace(
+								/^assets\/img\//,
+								"",
+							);
+							select.appendChild(
+								el("option", { value: item.path }, [label || item.name]),
+							);
+						});
+				});
+			};
+			const syncCards = () => {
+				cardsWrap.innerHTML = "";
+				portfolioCards.forEach((item, idx) => {
+					item.titleEl.textContent = `Card ${idx + 1}`;
+					item.upBtn.disabled = idx === 0;
+					item.downBtn.disabled = idx === portfolioCards.length - 1;
+					cardsWrap.appendChild(item.wrap);
+				});
+			};
+			const buildCard = (data) => {
+				const titleEl = el("div", { class: "cms-modal__group-title" }, [
+					"Card",
+				]);
+				const titleInput = el("input", {
+					type: "text",
+					class: "cms-field__input",
+					value: data.title || "",
+					placeholder: "Project title",
+				});
+				const typeInput = el("input", {
+					type: "text",
+					class: "cms-field__input",
+					value: data.type || "",
+					placeholder: "Type (Work, Academic, Personal...)",
+				});
+				const startInput = el("input", {
+					type: "text",
+					class: "cms-field__input",
+					value: data.start || "",
+					placeholder: "Start (MM-YYYY)",
+				});
+				const endInput = el("input", {
+					type: "text",
+					class: "cms-field__input",
+					value: data.end || "",
+					placeholder: "End (MM-YYYY or present)",
+				});
+				const summaryInput = el("textarea", {
+					class: "cms-field__input cms-field__textarea",
+					placeholder: "Short summary (plain text)",
+				});
+				summaryInput.value = data.summary || "";
+				const tagsInput = el("input", {
+					type: "text",
+					class: "cms-field__input",
+					value: (data.tags || []).join(", "),
+					placeholder: "Tags (comma separated)",
+				});
+				const siteInput = el("input", {
+					type: "text",
+					class: "cms-field__input",
+					value: data.links?.site || "",
+					placeholder: "Website link",
+				});
+				const githubInput = el("input", {
+					type: "text",
+					class: "cms-field__input",
+					value: data.links?.github || "",
+					placeholder: "GitHub link",
+				});
+				const youtubeInput = el("input", {
+					type: "text",
+					class: "cms-field__input",
+					value: data.links?.youtube || "",
+					placeholder: "YouTube link",
+				});
+				const facebookInput = el("input", {
+					type: "text",
+					class: "cms-field__input",
+					value: data.links?.facebook || "",
+					placeholder: "Facebook/social link",
+				});
+
+				const galleryToggle = el("input", {
+					type: "checkbox",
+					class: "cms-field__checkbox",
+				});
+				const galleryItems = Array.isArray(data.gallery)
+					? data.gallery.slice()
+					: [];
+				galleryToggle.checked = galleryItems.length > 0;
+				const gallerySelect = el("select", { class: "cms-field__select" }, [
+					el("option", { value: "" }, ["Select an image"]),
+				]);
+				const galleryAddBtn = el(
+					"button",
+					{
+						type: "button",
+						class: "cms-btn cms-btn--primary cms-btn--inline",
+					},
+					["Add image"],
+				);
+				const galleryList = el("div", {
+					class: "cms-portfolio-gallery__list",
+				});
+				const renderGallery = () => {
+					galleryList.innerHTML = "";
+					galleryItems.forEach((src, idx) => {
+						const label = String(src || "")
+							.replace(/^\/?assets\/img\//, "")
+							.trim();
+						const thumb = el("img", {
+							class: "cms-portfolio-gallery__thumb",
+							src: src,
+							alt: label || "Gallery image",
+						});
+						const text = el("div", { class: "cms-portfolio-gallery__label" }, [
+							label || src,
+						]);
+						const removeBtn = el(
+							"button",
+							{
+								type: "button",
+								class: "cms-btn cms-btn--danger cms-btn--inline",
+							},
+							["Remove"],
+						);
+						removeBtn.addEventListener("click", () => {
+							galleryItems.splice(idx, 1);
+							renderGallery();
+						});
+						const row = el(
+							"div",
+							{ class: "cms-portfolio-gallery__item" },
+							[thumb, text, removeBtn],
+						);
+						galleryList.appendChild(row);
+					});
+				};
+				renderGallery();
+				const galleryRow = el("div", { class: "cms-field__row" }, [
+					gallerySelect,
+					galleryAddBtn,
+				]);
+				const galleryWrap = el(
+					"div",
+					{ class: "cms-portfolio-gallery" },
+					[galleryRow, galleryList],
+				);
+				const syncGalleryVisibility = () => {
+					galleryWrap.hidden = !galleryToggle.checked;
+				};
+				syncGalleryVisibility();
+				galleryToggle.addEventListener("change", syncGalleryVisibility);
+				galleryAddBtn.addEventListener("click", () => {
+					const raw = gallerySelect.value;
+					if (!raw) return;
+					const safePath = sanitizeImagePath(raw, "");
+					if (!safePath) return;
+					const src = `/${safePath}`;
+					if (!galleryItems.includes(src)) galleryItems.push(src);
+					gallerySelect.value = "";
+					renderGallery();
+				});
+				populateImageSelect(gallerySelect);
+
+				const upBtn = el(
+					"button",
+					{ type: "button", class: "cms-btn cms-btn--move" },
+					["Move up"],
+				);
+				const downBtn = el(
+					"button",
+					{ type: "button", class: "cms-btn cms-btn--move" },
+					["Move down"],
+				);
+				const removeBtn = el(
+					"button",
+					{ type: "button", class: "cms-btn cms-btn--danger" },
+					["Remove card"],
+				);
+				const actions = el(
+					"div",
+					{ class: "cms-portfolio-card__actions" },
+					[upBtn, downBtn, removeBtn],
+				);
+				const wrap = el(
+					"div",
+					{ class: "cms-modal__group cms-modal__group--settings" },
+					[
+						titleEl,
+						buildField({ label: "Title", input: titleInput }),
+						buildField({ label: "Type", input: typeInput }),
+						buildField({
+							label: "Dates",
+							input: el("div", { class: "cms-field__row" }, [
+								startInput,
+								endInput,
+							]),
+							note: "Use MM-YYYY (e.g. 03-2024) or 'present'.",
+						}),
+						buildField({ label: "Summary", input: summaryInput }),
+						buildField({ label: "Tags", input: tagsInput }),
+						buildField({
+							label: "Links",
+							input: el("div", { class: "cms-field__stack" }, [
+								el("div", { class: "cms-field__row" }, [
+									siteInput,
+									githubInput,
+								]),
+								el("div", { class: "cms-field__row" }, [
+									youtubeInput,
+									facebookInput,
+								]),
+							]),
+						}),
+						buildField({
+							label: "Gallery",
+							input: el("div", { class: "cms-field__stack" }, [
+								el("label", { class: "cms-field__toggle" }, [
+									galleryToggle,
+									el("span", { class: "cms-field__toggle-text" }, [
+										"Enable image gallery",
+									]),
+								]),
+								galleryWrap,
+							]),
+							note: "Gallery images are pulled from /assets/img.",
+						}),
+						actions,
+					],
+				);
+				const item = {
+					wrap,
+					titleEl,
+					titleInput,
+					typeInput,
+					startInput,
+					endInput,
+					summaryInput,
+					tagsInput,
+					siteInput,
+					githubInput,
+					youtubeInput,
+					facebookInput,
+					galleryItems,
+					galleryToggle,
+					upBtn,
+					downBtn,
+					removeBtn,
+				};
+				upBtn.addEventListener("click", () => {
+					const index = portfolioCards.indexOf(item);
+					if (index <= 0) return;
+					const prev = portfolioCards[index - 1];
+					portfolioCards[index - 1] = item;
+					portfolioCards[index] = prev;
+					syncCards();
+				});
+				downBtn.addEventListener("click", () => {
+					const index = portfolioCards.indexOf(item);
+					if (index < 0 || index >= portfolioCards.length - 1) return;
+					const next = portfolioCards[index + 1];
+					portfolioCards[index + 1] = item;
+					portfolioCards[index] = next;
+					syncCards();
+				});
+				removeBtn.addEventListener("click", () => {
+					const index = portfolioCards.indexOf(item);
+					if (index < 0) return;
+					portfolioCards.splice(index, 1);
+					syncCards();
+				});
+				return item;
+			};
+
+			(normalized.cards.length ? normalized.cards : [normalizePortfolioCard({})])
+				.forEach((card) => {
+					portfolioCards.push(buildCard(card));
+				});
+			syncCards();
+
+			const addCardBtn = el(
+				"button",
+				{
+					type: "button",
+					class: "cms-btn cms-btn--primary",
+				},
+				["Add card"],
+			);
+			addCardBtn.addEventListener("click", () => {
+				portfolioCards.push(buildCard(normalizePortfolioCard({})));
+				syncCards();
+			});
+
+			openModal({
+				title: "Edit block",
+				bodyNodes: [
+					buildField({
+						label: "Show top",
+						input: maxVisibleInput,
+						note: "Defaults to 3 cards when no filters are active.",
+					}),
+					buildField({
+						label: "Filters",
+						input: toggleRow,
+					}),
+					el("div", { class: "cms-modal__group cms-modal__group--settings" }, [
+						el("div", { class: "cms-modal__group-title" }, ["Cards"]),
+						cardsWrap,
+						addCardBtn,
+					]),
+				],
+				footerNodes: [
+					el(
+						"button",
+						{
+							class: "cms-btn cms-modal__action cms-btn--danger",
+							type: "button",
+							"data-close": "true",
+						},
+						["Stop Editing Block"],
+					),
+					el(
+						"button",
+						{
+							class: "cms-btn cms-modal__action cms-btn--success",
+							type: "button",
+							"data-action": "save-block",
+						},
+						["Save"],
+					),
+				],
+				pruneAssets: true,
+				onClose: openExitConfirm,
+			});
+
+			settings = {
+				portfolioMaxInput: maxVisibleInput,
+				portfolioShowSearch: showSearchInput,
+				portfolioShowTypes: showTypesInput,
+				portfolioShowTags: showTagsInput,
+				portfolioCards,
+			};
+		} else if (parsed.type === "styledAccordion") {
 			const titleInput = el("input", {
 				type: "text",
 				class: "cms-field__input",
@@ -8606,6 +9475,36 @@
 				updated.lightbox = settings.lightboxInput?.checked ? "true" : "false";
 				updated.imgPos = settings.posSelect?.value || "left";
 			}
+			if (settings.portfolioCards) {
+				const maxRaw = Number(settings.portfolioMaxInput?.value || 0);
+				updated.maxVisible = Number.isFinite(maxRaw)
+					? Math.max(0, Math.floor(maxRaw))
+					: 3;
+				updated.showSearch = settings.portfolioShowSearch?.checked ?? true;
+				updated.showTypeFilters = settings.portfolioShowTypes?.checked ?? true;
+				updated.showTagFilters = settings.portfolioShowTags?.checked ?? true;
+				updated.cards = settings.portfolioCards.map((card) => ({
+					title: card.titleInput?.value.trim() || "",
+					type: card.typeInput?.value.trim() || "",
+					start: card.startInput?.value.trim() || "",
+					end: card.endInput?.value.trim() || "",
+					summary: card.summaryInput?.value.trim() || "",
+					tags: String(card.tagsInput?.value || "")
+						.split(",")
+						.map((tag) => tag.trim())
+						.filter(Boolean),
+					links: {
+						site: card.siteInput?.value.trim() || "",
+						github: card.githubInput?.value.trim() || "",
+						youtube: card.youtubeInput?.value.trim() || "",
+						facebook: card.facebookInput?.value.trim() || "",
+					},
+					gallery:
+						card.galleryToggle?.checked && Array.isArray(card.galleryItems)
+							? card.galleryItems.slice()
+							: [],
+				}));
+			}
 			await Promise.all(
 				editors.map(async ({ key, editor }) => {
 					const raw = editor.innerHTML;
@@ -8881,6 +9780,14 @@
 		if (node.querySelector(".doc-card")) {
 			const a = node.querySelector(".doc-card__link");
 			return { type: "doc-card", summary: a?.getAttribute("href") || "Doc" };
+		}
+
+		if (cls.contains("portfolio-grid")) {
+			const count = node.querySelectorAll(".portfolio-card").length;
+			return {
+				type: "portfolio-grid",
+				summary: `Portfolio grid (${count})`,
+			};
 		}
 
 		if (cls.contains("tab") && node.querySelector("input[type=checkbox]")) {

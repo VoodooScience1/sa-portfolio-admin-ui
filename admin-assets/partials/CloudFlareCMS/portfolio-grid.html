@@ -1,0 +1,121 @@
+<!-- Portfolio grid block (data is stored in the JSON script below) -->
+<div
+	class="portfolio-grid"
+	data-max-visible="3"
+	data-show-search="true"
+	data-show-types="true"
+	data-show-tags="true"
+>
+	<div class="portfolio-grid__controls">
+		<div class="portfolio-grid__search">
+			<input
+				type="search"
+				class="portfolio-grid__search-input"
+				placeholder="Search projects"
+				aria-label="Search projects"
+			/>
+		</div>
+	</div>
+
+	<div class="portfolio-grid__filters">
+		<div class="portfolio-grid__filter-group" data-filter="type">
+			<button type="button" class="portfolio-filter-pill is-active" data-type="">
+				All
+			</button>
+			<button type="button" class="portfolio-filter-pill" data-type="Work">
+				Work
+			</button>
+			<button type="button" class="portfolio-filter-pill" data-type="Academic">
+				Academic
+			</button>
+		</div>
+		<div class="portfolio-grid__filter-group" data-filter="tag">
+			<button type="button" class="portfolio-filter-pill" data-tag="AWS">
+				AWS
+			</button>
+			<button type="button" class="portfolio-filter-pill" data-tag="React">
+				React
+			</button>
+			<button type="button" class="portfolio-filter-pill" data-tag="NodeJS">
+				NodeJS
+			</button>
+		</div>
+	</div>
+
+	<div class="portfolio-grid__cards">
+		<article
+			class="portfolio-card"
+			data-type="work"
+			data-type-label="Work"
+			data-tags="AWS,React,NodeJS"
+			data-start="01-2020"
+			data-end="12-2021"
+		>
+			<div class="portfolio-card__head">
+				<div>
+					<div class="portfolio-card__title">Architecture Spec Work</div>
+					<div class="portfolio-card__date">01-2020 - 12-2021</div>
+				</div>
+				<div class="portfolio-card__icons">
+					<a
+						class="portfolio-card__icon"
+						href="https://portfolio.tacsa.co.uk"
+						target="_blank"
+						rel="noopener noreferrer"
+						data-link="site"
+						aria-label="Open website"
+					>
+						<span class="material-icons" aria-hidden="true">link</span>
+					</a>
+					<button
+						type="button"
+						class="portfolio-card__icon"
+						data-link="gallery"
+						aria-label="Open image gallery"
+					>
+						<span class="material-icons" aria-hidden="true">collections</span>
+					</button>
+				</div>
+			</div>
+			<div class="portfolio-card__type">Work</div>
+			<div class="portfolio-card__summary">
+				<p>Short blurb about the project goes here.</p>
+			</div>
+			<div class="portfolio-card__tags">
+				<button type="button" class="portfolio-card__tag" data-tag="AWS">
+					AWS
+				</button>
+				<button type="button" class="portfolio-card__tag" data-tag="React">
+					React
+				</button>
+				<button type="button" class="portfolio-card__tag" data-tag="NodeJS">
+					NodeJS
+				</button>
+			</div>
+		</article>
+	</div>
+
+	<script type="application/json" class="portfolio-grid__data" data-cms="portfolio">
+		{
+			"version": 1,
+			"maxVisible": 3,
+			"showSearch": true,
+			"showTypeFilters": true,
+			"showTagFilters": true,
+			"cards": [
+				{
+					"title": "Architecture Spec Work",
+					"type": "Work",
+					"start": "01-2020",
+					"end": "12-2021",
+					"summary": "Short blurb about the project goes here.",
+					"tags": ["AWS", "React", "NodeJS"],
+					"links": {
+						"site": "https://portfolio.tacsa.co.uk"
+					},
+					"gallery": ["/assets/img/cover-photo-old-2.png"]
+				}
+			]
+		}
+	</script>
+</div>
