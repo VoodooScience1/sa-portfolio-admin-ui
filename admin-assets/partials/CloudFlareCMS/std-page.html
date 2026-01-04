@@ -6,16 +6,16 @@
 			Phil Cook - Engineering Manager, Developing Solutions Architect
 		</title>
 
-		<link rel="stylesheet" href="/css/style.css" />
-		<link rel="stylesheet" href="/css/accordian.css" />
-		<link rel="stylesheet" href="/css/grid-panel.css" />
-		<link rel="stylesheet" href="/css/nav.css" />
-		<link rel="stylesheet" href="/css/modal.css" />
-		<script type="text/javascript" src="/script/sections.js" defer></script>
-		<script type="text/javascript" src="/script/lightbox.js" defer></script>
-		<script type="text/javascript" src="/script/nav-close.js" defer></script>
-		<script type="text/javascript" src="/script/nav-marker.js" defer></script>
-		<script type="text/javascript" src="/script/breadcrumbs.js" defer></script>
+		<link rel="stylesheet" href="/assets/css/style.css" />
+		<link rel="stylesheet" href="/assets/css/accordian.css" />
+		<link rel="stylesheet" href="/assets/css/grid-panel.css" />
+		<link rel="stylesheet" href="/assets/css/nav.css" />
+		<link rel="stylesheet" href="/assets/css/modal.css" />
+		<script type="text/javascript" src="/assets/script/sections.js" defer></script>
+		<script type="text/javascript" src="/assets/script/lightbox.js" defer></script>
+		<script type="text/javascript" src="/assets/script/nav-close.js" defer></script>
+		<script type="text/javascript" src="/assets/script/nav-marker.js" defer></script>
+		<script type="text/javascript" src="/assets/script/breadcrumbs.js" defer></script>
 	</head>
 
 	<body>
@@ -24,7 +24,7 @@
 
 		<script>
 			window.addEventListener("DOMContentLoaded", () => {
-				fetch("/partials/nav.html")
+				fetch("/assets/partials/nav.html")
 					.then((r) => r.text())
 					.then((html) => {
 						document.getElementById("nav-placeholder").innerHTML = html;
@@ -32,7 +32,7 @@
 					})
 					.catch((err) => console.error("Nav load failed:", err));
 
-				fetch("/partials/lightbox.html")
+				fetch("/assets/partials/lightbox.html")
 					.then((r) => r.text())
 					.then((html) => {
 						document.getElementById("lightbox-placeholder").innerHTML = html;
@@ -43,7 +43,7 @@
 
 		<div class="container">
 			<div>
-				<img class="cover-img" src="/img/cover-photo.png" alt="Cover" />
+				<img class="cover-img" src="/assets/img/cover-photo.png" alt="Cover" />
 			</div>
 		</div>
 
@@ -71,19 +71,19 @@
 				<li>Please follow me using any of the following:</li>
 				<li>
 					<a href="https://www.x.com">
-						<img src="/img/twitter.png" alt="Twitter" />
+						<img src="/assets/img/twitter.png" alt="Twitter" />
 					</a>
 					<a href="https://www.facebook.com">
-						<img src="/img/facebook.png" alt="Facebook" />
+						<img src="/assets/img/facebook.png" alt="Facebook" />
 					</a>
 					<a href="https://www.instagram.com">
-						<img src="/img/instagram.png" alt="Instagram" />
+						<img src="/assets/img/instagram.png" alt="Instagram" />
 					</a>
 					<a href="https://www.youtube.com">
-						<img src="/img/youtube.png" alt="Youtube" />
+						<img src="/assets/img/youtube.png" alt="Youtube" />
 					</a>
 					<a href="https://www.linkedin.com">
-						<img src="/img/linkedin.png" alt="LinkedIn" />
+						<img src="/assets/img/linkedin.png" alt="LinkedIn" />
 					</a>
 				</li>
 			</ol>

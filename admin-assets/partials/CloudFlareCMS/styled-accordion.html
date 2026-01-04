@@ -1,6 +1,6 @@
 <!-- Styled accordion (wrapper)
      IMPORTANT: ids must be unique per page.
-     Use {{uid}} as a prefix token that the CMS replaces.
+     Use acc-{{pageSlugHash}}-{{blockIdShort}}-N for deterministic IDs.
 -->
 <div class="flex-accordion-wrapper">
 	<div class="flex-accordion-box">
@@ -8,8 +8,8 @@
 		<p>Optional intro text…</p>
 
 		<div class="tab">
-			<input type="checkbox" id="{{uid}}-acc-1" />
-			<label class="tab-label" for="{{uid}}-acc-1">Item 1</label>
+			<input type="checkbox" id="acc-{{pageSlugHash}}-{{blockIdShort}}-1" />
+			<label class="tab-label" for="acc-{{pageSlugHash}}-{{blockIdShort}}-1">Item 1</label>
 			<div class="tab-content">
 				<ul>
 					<li>Point A</li>
@@ -19,8 +19,8 @@
 		</div>
 
 		<div class="tab">
-			<input type="checkbox" id="{{uid}}-acc-2" />
-			<label class="tab-label" for="{{uid}}-acc-2">Item 2</label>
+			<input type="checkbox" id="acc-{{pageSlugHash}}-{{blockIdShort}}-2" />
+			<label class="tab-label" for="acc-{{pageSlugHash}}-{{blockIdShort}}-2">Item 2</label>
 			<div class="tab-content">
 				<ul>
 					<li>Thing 1</li>

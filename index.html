@@ -2,32 +2,34 @@
 <html>
 	<head>
 		<title>Admin</title>
-		<link rel="stylesheet" href="/assets/css/nav.css" />
+		<script>
+			document.documentElement.classList.add("cms-admin");
+		</script>
 		<link rel="stylesheet" href="/assets/css/style.css" />
-		<script src="/assets/script/nav-close.js" defer></script>
-		<script src="/assets/script/nav-marker.js" defer></script>
-		<script src="/admin-assets/script/cms-portal.js" defer></script>
+		<link rel="stylesheet" href="/assets/css/accordian.css" />
+		<link rel="stylesheet" href="/assets/css/grid-panel.css" />
+		<link rel="stylesheet" href="/assets/css/nav.css" />
+		<link rel="stylesheet" href="/assets/css/modal.css" />
+		<link
+			rel="stylesheet"
+			href="https://fonts.googleapis.com/icon?family=Material+Icons"
+		/>
+		<script src="/assets/script/dom-loader.js" defer></script>
+		<script
+			src="/admin-assets/script/cms-portal.js?v=2025-12-31-23"
+			defer
+		></script>
 	</head>
 
 	<body>
 		<div id="nav-placeholder"></div>
+		<div id="lightbox-placeholder"></div>
 		<div id="cms-status-strip"></div>
 		<div id="cms-banner"></div>
+		<nav class="breadcrumbs" aria-label="Breadcrumb"></nav>
 		<div id="cms-portal"></div>
-
-		<script>
-			window.addEventListener("DOMContentLoaded", () => {
-				fetch("/assets/partials/nav.html")
-					.then((r) => r.text())
-					.then((html) => {
-						document.getElementById("nav-placeholder").innerHTML = html;
-						if (window.setActiveNav) window.setActiveNav();
-					})
-					.catch((err) => console.error("Nav load failed:", err));
-			});
-		</script>
-
-		Can we see this edit? Testing for dev environment. Test 2 to see if it fixed
-		it (though this one worked anyway)
+		<footer>
+			<div id="footer-placeholder"></div>
+		</footer>
 	</body>
 </html>
