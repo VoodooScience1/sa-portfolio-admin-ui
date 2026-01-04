@@ -51,11 +51,6 @@
 			partial: "/admin-assets/partials/CloudFlareCMS/two-col.html",
 		},
 		{
-			id: "std-container",
-			label: "Standard container",
-			partial: "/admin-assets/partials/CloudFlareCMS/std-container.html",
-		},
-		{
 			id: "hover-cards",
 			label: "Hover cards row",
 			partial: "/admin-assets/partials/CloudFlareCMS/hover-cards.html",
@@ -1030,15 +1025,18 @@
 			const titleEl = box.querySelector("h1,h2,h3");
 			const titleTag = titleEl ? titleEl.tagName.toLowerCase() : "h2";
 			const safeTitleTag = titleTag === "h1" ? "h2" : titleTag;
-			let intro = "";
-			Array.from(box.children).some((child) => {
-				if (child.classList?.contains("tab")) return true;
-				if (child.tagName?.toLowerCase() === "p") {
-					intro = child.textContent?.trim() || "";
-					return true;
+			const introParts = [];
+			let reachedTabs = false;
+			Array.from(box.children).forEach((child) => {
+				if (reachedTabs) return;
+				if (child.classList?.contains("tab")) {
+					reachedTabs = true;
+					return;
 				}
-				return false;
+				if (titleEl && child === titleEl) return;
+				introParts.push(child.outerHTML || "");
 			});
+			const intro = introParts.join("\n").trim();
 			const items = Array.from(box.querySelectorAll(".tab")).map((tab) => {
 				const label =
 					tab.querySelector(".tab-label")?.textContent?.trim() || "";
@@ -1300,7 +1298,7 @@
 		const titleText = String(block.title || "").trim();
 		const titleTag = (block.titleTag || "h2").toLowerCase();
 		const safeTitleTag = titleTag === "h1" ? "h2" : titleTag;
-		const introText = String(block.intro || "").trim();
+		const introRaw = String(block.intro || "").trim();
 		const pageHash = ctx?.pageHash || hashText(ctx?.path || "");
 		const blockShort = ctx?.blockIdShort || hashText(ctx?.blockId || "block");
 		const items = Array.isArray(block.items) ? block.items : [];
@@ -1313,8 +1311,11 @@
 				`\t\t<${safeTitleTag}>${escapeHtml(titleText)}</${safeTitleTag}>`,
 			);
 		}
-		if (introText) {
-			lines.push(`\t\t<p>${escapeHtml(introText)}</p>`);
+		if (introRaw) {
+			const introHtml = /<[a-z][\s\S]*>/i.test(introRaw)
+				? sanitizeRteHtml(introRaw, ctx)
+				: `<p>${escapeHtml(introRaw)}</p>`;
+			if (introHtml) lines.push(indentLines(introHtml, 2));
 		}
 		items.forEach((item, idx) => {
 			const id = `acc-${pageHash}-${blockShort}-${idx + 1}`;
@@ -2472,7 +2473,7 @@
 		}
 		let canonicalHtml =
 			normalizedLocal.length > 0
-				? mergeDirtyWithBase(baseHtml || "", baseHtml || "", normalizedLocal, {
+				? mergeDirtyWithBase(baseHtml || "", html || baseHtml || "", normalizedLocal, {
 						respectRemovals: hasRemovalActions(normalizedLocal),
 						path,
 					})
@@ -3832,51 +3833,13 @@
 		return docs;
 	}
 
-	function buildRteEditor({ label, initialHtml }) {
+	function buildRteToolbar() {
 		const toolbarIcon = (name) =>
 			el(
 				"span",
 				{ class: "material-icons cms-rte__icon", "aria-hidden": "true" },
 				[name],
 			);
-		const buildAccordionMarkup = ({ styled }) => {
-			const baseId = `acc-${BUILD_TOKEN}-${makeLocalId()}`;
-			const items = [
-				{
-					id: `${baseId}-1`,
-					title: "Item 1",
-					body: "<ul><li>Point A</li><li>Point B</li></ul>",
-				},
-				{
-					id: `${baseId}-2`,
-					title: "Item 2",
-					body: "<ul><li>Thing 1</li><li>Thing 2</li></ul>",
-				},
-			];
-			const tabs = items
-				.map((item) =>
-					[
-						`<div class="tab">`,
-						`\t<input type="checkbox" id="${escapeAttr(item.id)}" />`,
-						`\t<label class="tab-label" for="${escapeAttr(item.id)}">${escapeHtml(item.title)}</label>`,
-						`\t<div class="tab-content">`,
-						`\t\t${item.body}`,
-						`\t</div>`,
-						`</div>`,
-					].join("\n"),
-				)
-				.join("\n\n");
-			if (!styled) return tabs;
-			return [
-				`<div class="flex-accordion-wrapper">`,
-				`\t<div class="flex-accordion-box">`,
-				`\t\t<h2>Accordion title</h2>`,
-				`\t\t<p>Optional intro text...</p>`,
-				`\t\t${tabs.replace(/\n/g, "\n\t\t")}`,
-				`\t</div>`,
-				`</div>`,
-			].join("\n");
-		};
 		const buildToolbarGroup = (title, actions) =>
 			el("div", { class: "cms-rte__toolbar-group" }, [
 				el("div", { class: "cms-rte__toolbar-title" }, [
@@ -3887,7 +3850,7 @@
 			]);
 		const toolbarDivider = () =>
 			el("div", { class: "cms-rte__toolbar-divider", "aria-hidden": "true" });
-		const toolbar = el("div", { class: "cms-rte__toolbar" }, [
+		return el("div", { class: "cms-rte__toolbar" }, [
 			buildToolbarGroup("Styling", [
 				el(
 					"button",
@@ -4120,6 +4083,85 @@
 				),
 			]),
 		]);
+	}
+
+	function createRteToolbarController(existingToolbar = null) {
+		const toolbar = existingToolbar || buildRteToolbar();
+		let activeHandler = null;
+		let activeEditor = null;
+
+		const setActive = (editor, handler) => {
+			activeEditor = editor || null;
+			activeHandler = typeof handler === "function" ? handler : null;
+		};
+
+		const registerEditor = (editor, handler) => {
+			if (!editor) return;
+			const activate = () => setActive(editor, handler);
+			editor.addEventListener("focus", activate);
+			editor.addEventListener("click", activate);
+			editor.addEventListener("mouseup", activate);
+			editor.addEventListener("keyup", activate);
+			if (!activeHandler) activate();
+		};
+
+		toolbar.addEventListener("click", (event) => {
+			const btn = event.target.closest("button");
+			if (!btn) return;
+			const cmd = btn.getAttribute("data-cmd");
+			if (!cmd) return;
+			if (activeHandler) activeHandler(cmd);
+		});
+
+		return {
+			toolbar,
+			registerEditor,
+			setActiveHandler: (handler) => setActive(activeEditor, handler),
+		};
+	}
+
+	function buildRteEditor({ label, initialHtml, toolbarController } = {}) {
+		const buildAccordionMarkup = ({ styled }) => {
+			const baseId = `acc-${BUILD_TOKEN}-${makeLocalId()}`;
+			const items = [
+				{
+					id: `${baseId}-1`,
+					title: "Item 1",
+					body: "<ul><li>Point A</li><li>Point B</li></ul>",
+				},
+				{
+					id: `${baseId}-2`,
+					title: "Item 2",
+					body: "<ul><li>Thing 1</li><li>Thing 2</li></ul>",
+				},
+			];
+			const tabs = items
+				.map((item) =>
+					[
+						`<div class="tab">`,
+						`\t<input type="checkbox" id="${escapeAttr(item.id)}" />`,
+						`\t<label class="tab-label" for="${escapeAttr(item.id)}">${escapeHtml(item.title)}</label>`,
+						`\t<div class="tab-content">`,
+						`\t\t${item.body}`,
+						`\t</div>`,
+						`</div>`,
+					].join("\n"),
+				)
+				.join("\n\n");
+			if (!styled) return tabs;
+			return [
+				`<div class="flex-accordion-wrapper">`,
+				`\t<div class="flex-accordion-box">`,
+				`\t\t<h2>Accordion title</h2>`,
+				`\t\t<p>Optional intro text...</p>`,
+				`\t\t${tabs.replace(/\n/g, "\n\t\t")}`,
+				`\t</div>`,
+				`</div>`,
+			].join("\n");
+		};
+		const toolbar = toolbarController
+			? toolbarController.toolbar
+			: buildRteToolbar();
 		const editor = el("div", {
 			class: "cms-rte",
 			contenteditable: "true",
@@ -4988,9 +5030,10 @@
 			videoCaptionInput.classList.remove("cms-field__input--invalid");
 		});
 
+		const toolbarNodes = toolbarController ? [] : [toolbar];
 		const wrap = el("div", { class: "cms-rte__field" }, [
 			el("div", { class: "cms-rte__label" }, [label]),
-			toolbar,
+			...toolbarNodes,
 			editor,
 			imagePanel,
 			videoPanel,
@@ -6006,10 +6049,7 @@
 			});
 		});
 
-		toolbar.addEventListener("click", (event) => {
-			const btn = event.target.closest("button");
-			if (!btn) return;
-			const cmd = btn.getAttribute("data-cmd");
+		const runCommand = (cmd) => {
 			if (!cmd) return;
 			restoreSelection();
 			editor.focus();
@@ -6153,7 +6193,17 @@
 			} else if (cmd === "doc") {
 				openDocPanel();
 			}
-		});
+		};
+		if (toolbarController) {
+			toolbarController.registerEditor(editor, runCommand);
+		} else {
+			toolbar.addEventListener("click", (event) => {
+				const btn = event.target.closest("button");
+				if (!btn) return;
+				const cmd = btn.getAttribute("data-cmd");
+				runCommand(cmd);
+			});
+		}
 		editor.addEventListener("keydown", (event) => {
 			if (event.key !== "Tab") return;
 			const selection = window.getSelection();
@@ -7044,15 +7094,89 @@
 
 		if (isHover) {
 			const cards = Array.from(root.querySelectorAll(".content.box.box-img"));
+			const buildInsertButton = (insertIndex) => {
+				const btn = el(
+					"button",
+					{
+						type: "button",
+						class: "cms-divider-btn cms-grid-insert",
+						title: "Add card",
+						"aria-label": "Add card",
+					},
+					[
+						el("span", { class: "cms-divider-line", "aria-hidden": "true" }),
+						el("span", { class: "cms-divider-plus", "aria-hidden": "true" }, [
+							"＋",
+						]),
+						el("span", { class: "cms-divider-line", "aria-hidden": "true" }),
+					],
+				);
+				btn.addEventListener("click", (event) => {
+					event.preventDefault();
+					event.stopPropagation();
+					const parsed = parseMainBlockNode(getBlockRootElement(wrapper));
+					const currentCount = parsed?.cards?.length || 0;
+					if (currentCount >= maxCards) {
+						openGridLimitWarning(maxCards);
+						return;
+					}
+					openGridItemModal({
+						type: "hover",
+						item: { lightbox: true },
+						isNew: true,
+						onSave: (next) => {
+							updateCards((model) => {
+								const nextCards = [...(model.cards || [])];
+								nextCards.splice(insertIndex, 0, {
+									src: next.src,
+									alt: next.alt,
+									lightbox: next.lightbox,
+									overlayTitle: next.overlayTitle,
+									overlayText: next.overlayText,
+								});
+								return { ...model, cards: nextCards };
+							});
+						},
+					});
+				});
+				return btn;
+			};
+			const renderInsertButtons = () => {
+				root.querySelectorAll(".cms-grid-insert").forEach((node) =>
+					node.remove(),
+				);
+				const currentCards = Array.from(
+					root.querySelectorAll(".content.box.box-img"),
+				);
+				for (let i = 0; i <= currentCards.length; i += 1) {
+					const btn = buildInsertButton(i);
+					if (i >= currentCards.length) {
+						root.appendChild(btn);
+					} else {
+						root.insertBefore(btn, currentCards[i]);
+					}
+				}
+			};
 			cards.forEach((card, idx) => {
 				if (!(card instanceof HTMLElement)) return;
 				card.classList.add("cms-grid-card");
 				if (card.querySelector(".cms-grid-actions")) return;
 				const actions = el("div", { class: "cms-grid-actions" }, []);
-				const editBtn = buildAction("edit", "Edit card");
-				const leftBtn = buildAction("chevron_left", "Move left");
-				const rightBtn = buildAction("chevron_right", "Move right");
-				const addBtn = buildAction("add", "Add card");
+				const editBtn = buildAction(
+					"edit",
+					"Edit card",
+					"cms-grid-action--edit",
+				);
+				const leftBtn = buildAction(
+					"chevron_left",
+					"Move left",
+					"cms-grid-action--move",
+				);
+				const rightBtn = buildAction(
+					"chevron_right",
+					"Move right",
+					"cms-grid-action--move",
+				);
 				const deleteBtn = buildAction(
 					"delete",
 					"Delete card",
@@ -7112,34 +7236,6 @@
 						return { ...model, cards: nextCards };
 					});
 				});
-				addBtn.addEventListener("click", (event) => {
-					event.preventDefault();
-					event.stopPropagation();
-					const parsed = parseMainBlockNode(getBlockRootElement(wrapper));
-					const currentCount = parsed?.cards?.length || 0;
-					if (currentCount >= maxCards) {
-						openGridLimitWarning(maxCards);
-						return;
-					}
-					openGridItemModal({
-						type: "hover",
-						item: { lightbox: true },
-						isNew: true,
-						onSave: (next) => {
-							updateCards((model) => {
-								const nextCards = [...(model.cards || [])];
-								nextCards.splice(idx + 1, 0, {
-									src: next.src,
-									alt: next.alt,
-									lightbox: next.lightbox,
-									overlayTitle: next.overlayTitle,
-									overlayText: next.overlayText,
-								});
-								return { ...model, cards: nextCards };
-							});
-						},
-					});
-				});
 				deleteBtn.addEventListener("click", (event) => {
 					event.preventDefault();
 					event.stopPropagation();
@@ -7155,24 +7251,94 @@
 				actions.appendChild(editBtn);
 				actions.appendChild(leftBtn);
 				actions.appendChild(rightBtn);
-				actions.appendChild(addBtn);
 				actions.appendChild(deleteBtn);
 				card.appendChild(actions);
 			});
+			renderInsertButtons();
 			return;
 		}
 
 		if (isSquare) {
 			const items = Array.from(root.querySelectorAll(".box"));
+			const buildInsertButton = (insertIndex) => {
+				const btn = el(
+					"button",
+					{
+						type: "button",
+						class: "cms-divider-btn cms-grid-insert",
+						title: "Add image",
+						"aria-label": "Add image",
+					},
+					[
+						el("span", { class: "cms-divider-line", "aria-hidden": "true" }),
+						el("span", { class: "cms-divider-plus", "aria-hidden": "true" }, [
+							"＋",
+						]),
+						el("span", { class: "cms-divider-line", "aria-hidden": "true" }),
+					],
+				);
+				btn.addEventListener("click", (event) => {
+					event.preventDefault();
+					event.stopPropagation();
+					const parsed = parseMainBlockNode(getBlockRootElement(wrapper));
+					const currentCount = parsed?.items?.length || 0;
+					if (currentCount >= maxCards) {
+						openGridLimitWarning(maxCards);
+						return;
+					}
+					openGridItemModal({
+						type: "square",
+						item: { lightbox: true },
+						isNew: true,
+						onSave: (next) => {
+							updateCards((model) => {
+								const nextItems = [...(model.items || [])];
+								nextItems.splice(insertIndex, 0, {
+									src: next.src,
+									alt: next.alt,
+									lightbox: next.lightbox,
+								});
+								return { ...model, items: nextItems };
+							});
+						},
+					});
+				});
+				return btn;
+			};
+			const renderInsertButtons = () => {
+				root.querySelectorAll(".cms-grid-insert").forEach((node) =>
+					node.remove(),
+				);
+				const currentItems = Array.from(root.querySelectorAll(".box"));
+				for (let i = 0; i <= currentItems.length; i += 1) {
+					const btn = buildInsertButton(i);
+					if (i >= currentItems.length) {
+						root.appendChild(btn);
+					} else {
+						root.insertBefore(btn, currentItems[i]);
+					}
+				}
+			};
 			items.forEach((box, idx) => {
 				if (!(box instanceof HTMLElement)) return;
 				box.classList.add("cms-grid-card", "cms-grid-card--square");
 				if (box.querySelector(".cms-grid-actions")) return;
 				const actions = el("div", { class: "cms-grid-actions" }, []);
-				const editBtn = buildAction("edit", "Edit image");
-				const leftBtn = buildAction("chevron_left", "Move left");
-				const rightBtn = buildAction("chevron_right", "Move right");
-				const addBtn = buildAction("add", "Add image");
+				const editBtn = buildAction(
+					"edit",
+					"Edit image",
+					"cms-grid-action--edit",
+				);
+				const leftBtn = buildAction(
+					"chevron_left",
+					"Move left",
+					"cms-grid-action--move",
+				);
+				const rightBtn = buildAction(
+					"chevron_right",
+					"Move right",
+					"cms-grid-action--move",
+				);
 				const deleteBtn = buildAction(
 					"delete",
 					"Delete image",
@@ -7230,32 +7396,6 @@
 						return { ...model, items: nextItems };
 					});
 				});
-				addBtn.addEventListener("click", (event) => {
-					event.preventDefault();
-					event.stopPropagation();
-					const parsed = parseMainBlockNode(getBlockRootElement(wrapper));
-					const currentCount = parsed?.items?.length || 0;
-					if (currentCount >= maxCards) {
-						openGridLimitWarning(maxCards);
-						return;
-					}
-					openGridItemModal({
-						type: "square",
-						item: { lightbox: true },
-						isNew: true,
-						onSave: (next) => {
-							updateCards((model) => {
-								const nextItems = [...(model.items || [])];
-								nextItems.splice(idx + 1, 0, {
-									src: next.src,
-									alt: next.alt,
-									lightbox: next.lightbox,
-								});
-								return { ...model, items: nextItems };
-							});
-						},
-					});
-				});
 				deleteBtn.addEventListener("click", (event) => {
 					event.preventDefault();
 					event.stopPropagation();
@@ -7271,10 +7411,10 @@
 				actions.appendChild(editBtn);
 				actions.appendChild(leftBtn);
 				actions.appendChild(rightBtn);
-				actions.appendChild(addBtn);
 				actions.appendChild(deleteBtn);
 				box.appendChild(actions);
 			});
+			renderInsertButtons();
 		}
 	}
 
@@ -7560,6 +7700,18 @@
 
 		let editors = [];
 		let settings = {};
+		let toolbarController = null;
+		const ensureToolbar = () => {
+			if (!toolbarController)
+				toolbarController = createRteToolbarController();
+			return toolbarController;
+		};
+		const toolbarHost = () =>
+			toolbarController
+				? el("div", { class: "cms-rte__toolbar-host" }, [
+						toolbarController.toolbar,
+					])
+				: null;
 		if (parsed.type === "styledAccordion") {
 			const titleInput = el("input", {
 				type: "text",
@@ -7567,11 +7719,18 @@
 				value: parsed.title || "",
 				placeholder: "Accordion title",
 			});
-			const introInput = el("textarea", {
-				class: "cms-field__input cms-field__textarea",
-				placeholder: "Optional intro text",
+			const introHtml = (() => {
+				const raw = String(parsed.intro || "").trim();
+				if (!raw) return "";
+				if (/<[a-z][\s\S]*>/i.test(raw)) return raw;
+				return `<p>${escapeHtml(raw)}</p>`;
+			})();
+			const introEditor = buildRteEditor({
+				label: "Intro",
+				initialHtml: introHtml,
+				toolbarController: ensureToolbar(),
 			});
-			introInput.value = parsed.intro || "";
+			introEditor.wrap.classList.add("cms-rte__field--intro");
 			const itemsWrap = el("div", { class: "cms-modal__subgroup" }, []);
 			const accordionItems = [];
 			const syncItems = () => {
@@ -7601,6 +7760,7 @@
 				const editor = buildRteEditor({
 					label: "Row content",
 					initialHtml: body || "<ul><li>Point A</li><li>Point B</li></ul>",
+					toolbarController: ensureToolbar(),
 				});
 				const upBtn = el(
 					"button",
@@ -7626,11 +7786,15 @@
 					},
 					["Remove row"],
 				);
-				const actionRow = el("div", { class: "cms-field__row" }, [
+				const actionRow = el(
+					"div",
+					{ class: "cms-field__row cms-accordion-actions-row" },
+					[
 					upBtn,
 					downBtn,
 					removeBtn,
-				]);
+					],
+				);
 				const wrap = el(
 					"div",
 					{ class: "cms-modal__group cms-modal__group--settings" },
@@ -7682,6 +7846,7 @@
 				accordionItems.push(buildItem({ label: "Item 1", body: "" }));
 			}
 			syncItems();
+			const sharedToolbar = toolbarHost();
 			const addBtn = el(
 				"button",
 				{
@@ -7694,6 +7859,16 @@
 				accordionItems.push(buildItem({ label: "", body: "" }));
 				syncItems();
 			});
+			const introGroup = el(
+				"div",
+				{ class: "cms-modal__group cms-modal__group--intro" },
+				[
+					introEditor.wrap,
+					el("div", { class: "cms-field__note" }, [
+						"Optional intro text above the accordion rows.",
+					]),
+				],
+			);
 
 			openModal({
 				title: "Edit block",
@@ -7702,11 +7877,8 @@
 						label: "Title",
 						input: titleInput,
 					}),
-					buildField({
-						label: "Intro",
-						input: introInput,
-						note: "Optional intro text above the accordion rows.",
-					}),
+					...(sharedToolbar ? [sharedToolbar] : []),
+					introGroup,
 					el("div", { class: "cms-modal__group cms-modal__group--settings" }, [
 						el("div", { class: "cms-modal__group-title" }, ["Accordion rows"]),
 						itemsWrap,
@@ -7739,7 +7911,7 @@
 
 			settings = {
 				accordionTitleInput: titleInput,
-				accordionIntroInput: introInput,
+				accordionIntroEditor: introEditor,
 				accordionItems,
 			};
 		} else if (parsed.type === "stdContainer") {
@@ -7752,7 +7924,9 @@
 			const body = buildRteEditor({
 				label: "Content",
 				initialHtml: parsed.body || "",
+				toolbarController: ensureToolbar(),
 			});
+			const sharedToolbar = toolbarHost();
 			editors = [{ key: "body", editor: body.editor }];
 			openModal({
 				title: "Edit block",
@@ -7762,6 +7936,7 @@
 						input: headingInput,
 						note: "Optional header for this container.",
 					}),
+					...(sharedToolbar ? [sharedToolbar] : []),
 					body.wrap,
 				],
 				footerNodes: [
@@ -7802,6 +7977,7 @@
 			const left = buildRteEditor({
 				label: "Left column",
 				initialHtml: parsed.left || "",
+				toolbarController: ensureToolbar(),
 			});
 			const headingRightInput = el("input", {
 				type: "text",
@@ -7812,7 +7988,9 @@
 			const right = buildRteEditor({
 				label: "Right column",
 				initialHtml: parsed.right || "",
+				toolbarController: ensureToolbar(),
 			});
+			const sharedToolbar = toolbarHost();
 			editors = [
 				{ key: "left", editor: left.editor },
 				{ key: "right", editor: right.editor },
@@ -7820,6 +7998,7 @@
 			openModal({
 				title: "Edit block",
 				bodyNodes: [
+					...(sharedToolbar ? [sharedToolbar] : []),
 					buildField({
 						label: "Header (left)",
 						input: headingLeftInput,
@@ -8204,7 +8383,9 @@
 			const body = buildRteEditor({
 				label: "Content",
 				initialHtml: parsed.body || "",
+				toolbarController: ensureToolbar(),
 			});
+			const sharedToolbar = toolbarHost();
 			editors = [{ key: "body", editor: body.editor }];
 
 			const settingsNodes = [];
@@ -8330,7 +8511,13 @@
 
 			openModal({
 				title: "Edit block",
-				bodyNodes: settingsWrap ? [settingsWrap, body.wrap] : [body.wrap],
+				bodyNodes: settingsWrap
+					? [
+							settingsWrap,
+							...(sharedToolbar ? [sharedToolbar] : []),
+							body.wrap,
+						]
+					: [...(sharedToolbar ? [sharedToolbar] : []), body.wrap],
 				footerNodes: [
 					el(
 						"button",
@@ -8483,6 +8670,106 @@
 				]);
 				closeModal();
 			}
+		});
+	}
+
+	function openHeroEditor() {
+		const heroModel = parseHeroInner(state.heroInner || "");
+		if (!heroModel || heroModel.type !== "hero") {
+			openModal({
+				title: "Hero editor",
+				bodyNodes: [
+					el("p", { class: "cms-modal__text" }, [
+						"Hero editing is only available for the standard hero layout.",
+					]),
+				],
+				footerNodes: [
+					el(
+						"button",
+						{
+							class: "cms-btn cms-modal__action",
+							type: "button",
+							"data-close": "true",
+						},
+						["Close Modal"],
+					),
+				],
+			});
+			return;
+		}
+
+		const titleInput = el("input", {
+			type: "text",
+			class: "cms-field__input",
+			value: heroModel.title || "",
+			placeholder: "Hero title",
+		});
+		const subtitleInput = el("textarea", {
+			class: "cms-field__input cms-field__textarea",
+			placeholder: "Hero subtitle",
+		});
+		subtitleInput.value = heroModel.subtitle || "";
+
+		const saveBtn = el(
+			"button",
+			{
+				class: "cms-btn cms-modal__action cms-btn--success",
+				type: "button",
+			},
+			["Save"],
+		);
+		saveBtn.addEventListener("click", () => {
+			const nextHero = {
+				type: "hero",
+				title: titleInput.value.trim(),
+				subtitle: subtitleInput.value.trim(),
+			};
+			const baseHero = extractRegion(state.originalHtml || "", "hero");
+			const baseHeroModel = parseHeroInner(baseHero.inner || "");
+			const unchanged =
+				baseHeroModel.type === "hero" &&
+				baseHeroModel.title === nextHero.title &&
+				baseHeroModel.subtitle === nextHero.subtitle;
+			const entry = state.dirtyPages[state.path] || {};
+			const localBlocks = entry.localBlocks || [];
+			if (unchanged && !localBlocks.length) {
+				closeModal();
+				return;
+			}
+
+			const heroHtml = serializeHeroInner(nextHero);
+			let updatedHtml = entry.html || state.originalHtml || "";
+			if (!updatedHtml) return;
+			updatedHtml = replaceRegion(updatedHtml, "hero", heroHtml);
+			setDirtyPage(state.path, updatedHtml, state.originalHtml, localBlocks);
+			applyHtmlToCurrentPage(updatedHtml);
+			renderPageSurface();
+			refreshUiStateForDirty();
+			closeModal();
+		});
+
+		openModal({
+			title: "Edit hero",
+			bodyNodes: [
+				buildField({
+					label: "Title",
+					input: titleInput,
+					note: "Hero uses a single h1 and a single subtitle line.",
+				}),
+				buildField({ label: "Subtitle", input: subtitleInput }),
+			],
+			footerNodes: [
+				el(
+					"button",
+					{
+						class: "cms-btn cms-modal__action cms-btn--danger",
+						type: "button",
+						"data-close": "true",
+					},
+					["Stop Editing Hero"],
+				),
+				saveBtn,
+			],
 		});
 	}
 
@@ -9775,6 +10062,11 @@
 			{ class: "cms-btn", id: "cms-discard", disabled: "true" },
 			["Discard"],
 		);
+		const heroBtn = el(
+			"button",
+			{ class: "cms-btn", id: "cms-edit-hero" },
+			["Edit Hero"],
+		);
 
 		const exitBtn = el("button", { class: "cms-btn", id: "cms-exit" }, [
 			"Exit Admin",
@@ -9806,6 +10098,7 @@
 				]),
 				el("div", { class: "cms-strip-right cms-controls" }, [
 					discardBtn,
+					heroBtn,
 					exitBtn,
 				]),
 			]),
@@ -10913,6 +11206,9 @@
 		});
 		qs("#cms-discard")?.addEventListener("click", () => {
 			openDiscardModal().catch((err) => console.error(err));
+		});
+		qs("#cms-edit-hero")?.addEventListener("click", () => {
+			openHeroEditor();
 		});
 		qs("#cms-debug-pill")?.addEventListener("click", () => {
 			setDebugEnabled(!state.debug);
