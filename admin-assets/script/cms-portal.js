@@ -61,6 +61,11 @@
 			partial: "/admin-assets/partials/CloudFlareCMS/square-grid.html",
 		},
 		{
+			id: "portfolio-grid",
+			label: "Portfolio grid",
+			partial: "/admin-assets/partials/CloudFlareCMS/portfolio-grid.html",
+		},
+		{
 			id: "accordion-styled",
 			label: "Accordion (styled)",
 			partial: "/admin-assets/partials/CloudFlareCMS/styled-accordion.html",
@@ -827,7 +832,7 @@
 			}
 
 			if (tag === "li") {
-				const inner = serializeChildren(node);
+				const inner = serializeChildren(node).trim();
 				return `<li>${inner}</li>`;
 			}
 
@@ -879,9 +884,20 @@
 		if (!hero) {
 			return { type: "legacy", raw: innerHtml || "" };
 		}
-		const title = hero.querySelector("h1")?.textContent?.trim() || "";
-		const subtitle = hero.querySelector("p")?.textContent?.trim() || "";
-		return { type: "hero", title, subtitle };
+		const titleEl = hero.querySelector("h1");
+		const subtitleEl = hero.querySelector("p");
+		const titleStyle = titleEl?.getAttribute("style") || "";
+		const subtitleStyle = subtitleEl?.getAttribute("style") || "";
+		const titleAlign = /text-align\s*:/i.test(titleStyle)
+			? normalizeHeadingAlign(getHeadingAlignFromStyle(titleStyle), "center")
+			: "center";
+		const subtitleAlign = /text-align\s*:/i.test(subtitleStyle)
+			? normalizeHeadingAlign(getHeadingAlignFromStyle(subtitleStyle), titleAlign)
+			: titleAlign;
+		const align = normalizeHeadingAlign(subtitleAlign || titleAlign, "center");
+		const title = titleEl?.textContent?.trim() || "";
+		const subtitle = subtitleEl?.textContent?.trim() || "";
+		return { type: "hero", title, subtitle, align };
 	}
 
 	function serializeHeroInner(model) {
@@ -890,14 +906,373 @@
 		}
 		const title = escapeHtml(model.title || "");
 		const subtitle = escapeHtml(model.subtitle || "");
+		const align = normalizeHeadingAlign(model.align, "center");
+		const titleStyle = applyTextAlignStyle("", align);
+		const subtitleStyle = applyTextAlignStyle("", align);
+		const titleAttr = titleStyle ? ` style="${escapeAttr(titleStyle)}"` : "";
+		const subtitleAttr = subtitleStyle
+			? ` style="${escapeAttr(subtitleStyle)}"`
+			: "";
 		return [
 			`<div class="div-wrapper">`,
 			`\t<div class="default-div-wrapper hero-override">`,
-			`\t\t<h1 style="text-align: center">${title}</h1>`,
-			`\t\t<p style="text-align: center">${subtitle}</p>`,
+			`\t\t<h1${titleAttr}>${title}</h1>`,
+			`\t\t<p${subtitleAttr}>${subtitle}</p>`,
 			`\t</div>`,
 			`</div>`,
 		].join("\n");
+	}
+
+	function heroModelsEqual(a, b) {
+		if (!a || !b) return false;
+		if (a.type !== b.type) return false;
+		if (a.type === "hero") {
+			return (
+				a.title === b.title &&
+				a.subtitle === b.subtitle &&
+				normalizeHeadingAlign(a.align, "center") ===
+					normalizeHeadingAlign(b.align, "center")
+			);
+		}
+		return String(a.raw || "").trim() === String(b.raw || "").trim();
+	}
+
+	function applyHeroRegion(html, innerHtml) {
+		const trimmed = String(innerHtml || "").trim();
+		if (!trimmed) return html;
+		const hero = extractRegion(html || "", "hero");
+		if (!hero.found) return html;
+		return replaceRegion(html, "hero", trimmed);
+	}
+
+	function normalizePortfolioBool(value, fallback) {
+		if (value === undefined || value === null) return fallback;
+		if (typeof value === "string")
+			return String(value).toLowerCase() !== "false";
+		return Boolean(value);
+	}
+
+	function normalizePortfolioTypeLabel(value) {
+		return String(value || "").trim();
+	}
+
+	function normalizePortfolioTypeKey(value) {
+		const raw = normalizePortfolioTypeLabel(value).toLowerCase();
+		if (!raw) return "";
+		const key = raw
+			.replace(/[^a-z0-9]+/g, "-")
+			.replace(/^-+/, "")
+			.replace(/-+$/, "");
+		return key;
+	}
+
+	function normalizeHeadingAlign(value, fallback = "left") {
+		const raw = String(value || "").toLowerCase();
+		if (raw === "center") return "center";
+		if (raw === "left") return "left";
+		return fallback;
+	}
+
+	function getHeadingAlignFromStyle(style) {
+		const match = String(style || "").match(/text-align\s*:\s*(left|center)/i);
+		return match ? match[1].toLowerCase() : "left";
+	}
+
+	function applyTextAlignStyle(style, align) {
+		const rawStyle = String(style || "");
+		const hasAlign = /text-align\s*:/i.test(rawStyle);
+		const cleaned = rawStyle
+			.split(";")
+			.map((part) => part.trim())
+			.filter(Boolean)
+			.filter((part) => !/^text-align\s*:/i.test(part))
+			.join("; ");
+		const normalizedAlign = normalizeHeadingAlign(align, "left");
+		if (normalizedAlign === "center") {
+			return cleaned ? `${cleaned}; text-align: center;` : "text-align: center;";
+		}
+		if (normalizedAlign === "left") {
+			if (!hasAlign) return cleaned;
+			return cleaned ? `${cleaned}; text-align: left;` : "text-align: left;";
+		}
+		return cleaned;
+	}
+
+	function buildHeadingHtml({ tag, text, align, style }) {
+		const headingText = String(text || "").trim();
+		if (!headingText) return "";
+		const safeTag = String(tag || "h2").toLowerCase();
+		const mergedStyle = applyTextAlignStyle(style || "", align);
+		const styleAttr = mergedStyle ? ` style="${escapeAttr(mergedStyle)}"` : "";
+		return `<${safeTag}${styleAttr}>${escapeHtml(headingText)}</${safeTag}>`;
+	}
+
+	function normalizePortfolioDate(value) {
+		const raw = String(value || "").trim();
+		if (!raw) return "";
+		const lower = raw.toLowerCase();
+		if (
+			lower === "present" ||
+			lower === "current" ||
+			lower === "on-going" ||
+			lower === "ongoing"
+		)
+			return "present";
+		const match = raw.match(/(\d{1,2})\D+(\d{4})/);
+		if (!match) return raw;
+		const month = Math.max(1, Math.min(12, Number(match[1] || 0)));
+		const year = Number(match[2] || 0);
+		if (!year) return raw;
+		return `${String(month).padStart(2, "0")}-${year}`;
+	}
+
+	function normalizePortfolioTags(value) {
+		const rawList = Array.isArray(value)
+			? value
+			: String(value || "").split(",");
+		const seen = new Set();
+		const output = [];
+		rawList.forEach((item) => {
+			const tag = String(item || "").trim();
+			if (!tag || seen.has(tag)) return;
+			seen.add(tag);
+			output.push(tag);
+		});
+		return output;
+	}
+
+	function normalizePortfolioLinks(value) {
+		const raw = value && typeof value === "object" ? value : {};
+		const keys = ["site", "github", "youtube", "facebook"];
+		const output = {};
+		keys.forEach((key) => {
+			const href = sanitizeHref(raw[key] || "");
+			if (href) output[key] = href;
+		});
+		return output;
+	}
+
+	function normalizePortfolioGallery(value) {
+		const rawList = Array.isArray(value) ? value : [];
+		const seen = new Set();
+		const output = [];
+		rawList.forEach((item) => {
+			const raw =
+				typeof item === "string" ? item : item?.src || item?.path || "";
+			const safePath = sanitizeImagePath(raw || "", "");
+			if (!safePath) return;
+			const src = `/${safePath}`;
+			if (seen.has(src)) return;
+			seen.add(src);
+			output.push(src);
+		});
+		return output;
+	}
+
+	function normalizePortfolioCard(raw) {
+		const safe = raw && typeof raw === "object" ? raw : {};
+		return {
+			title: String(safe.title || "").trim(),
+			type: normalizePortfolioTypeLabel(safe.type),
+			start: normalizePortfolioDate(safe.start),
+			end: normalizePortfolioDate(safe.end),
+			summary: String(safe.summary || "").trim(),
+			tags: normalizePortfolioTags(safe.tags),
+			links: normalizePortfolioLinks(safe.links),
+			gallery: normalizePortfolioGallery(safe.gallery),
+		};
+	}
+
+	function isPortfolioCardEmpty(card) {
+		const safe = card && typeof card === "object" ? card : {};
+		const hasLinks =
+			safe.links && typeof safe.links === "object"
+				? Object.keys(safe.links).length > 0
+				: false;
+		return (
+			!safe.title &&
+			!safe.type &&
+			!safe.start &&
+			!safe.end &&
+			!safe.summary &&
+			!(safe.tags && safe.tags.length) &&
+			!hasLinks &&
+			!(safe.gallery && safe.gallery.length)
+		);
+	}
+
+	function normalizePortfolioGrid(raw, attrs = {}) {
+		const safe = raw && typeof raw === "object" ? raw : {};
+		const title = String(safe.title || attrs.title || "").trim();
+		const rawAlign =
+			typeof safe.titleAlign === "string" || typeof safe.titleAlign === "number"
+				? String(safe.titleAlign)
+				: typeof attrs.titleAlign === "string"
+					? attrs.titleAlign
+					: "";
+		const titleAlign = rawAlign
+			? normalizeHeadingAlign(rawAlign, "center")
+			: "";
+		const intro = String(safe.intro || attrs.intro || "").trim();
+		const maxFromAttrs = Number(attrs.maxVisible);
+		const maxFromData = Number(safe.maxVisible);
+		const maxRaw = Number.isFinite(maxFromData)
+			? maxFromData
+			: Number.isFinite(maxFromAttrs)
+				? maxFromAttrs
+				: 3;
+		const maxVisible = Number.isFinite(maxRaw)
+			? Math.max(0, Math.floor(maxRaw))
+			: 3;
+		const showSearch = normalizePortfolioBool(
+			safe.showSearch ?? attrs.showSearch,
+			true,
+		);
+	const showTypeFilters = normalizePortfolioBool(
+		safe.showTypeFilters ?? attrs.showTypeFilters,
+		true,
+	);
+	const showTagFilters = normalizePortfolioBool(
+		safe.showTagFilters ?? attrs.showTagFilters,
+		true,
+	);
+	const showLinkFilters = normalizePortfolioBool(
+		safe.showLinkFilters ?? attrs.showLinkFilters,
+		true,
+	);
+	const cards = Array.isArray(safe.cards)
+		? safe.cards
+				.map((card) => normalizePortfolioCard(card))
+				.filter((card) => !isPortfolioCardEmpty(card))
+			: [];
+		return {
+			title,
+			titleAlign,
+		intro,
+		maxVisible,
+		showSearch,
+		showTypeFilters,
+		showTagFilters,
+		showLinkFilters,
+		cards,
+	};
+}
+
+	function parsePortfolioCardsFromHtml(node) {
+		const cards = Array.from(node.querySelectorAll(".portfolio-card"));
+		return cards.map((card) => {
+			const title =
+				card.querySelector(".portfolio-card__title")?.textContent?.trim() || "";
+			const type =
+				card.querySelector(".portfolio-card__type")?.textContent?.trim() ||
+				card.getAttribute("data-type-label") ||
+				"";
+			const start = card.getAttribute("data-start") || "";
+			const end = card.getAttribute("data-end") || "";
+			const summary =
+				card.querySelector(".portfolio-card__summary")?.innerHTML?.trim() || "";
+			let tags = Array.from(card.querySelectorAll(".portfolio-card__tag"))
+				.map((tag) => tag.textContent?.trim() || "")
+				.filter(Boolean);
+			if (!tags.length) {
+				tags = String(card.getAttribute("data-tags") || "")
+					.split(",")
+					.map((tag) => tag.trim())
+					.filter(Boolean);
+			}
+			const links = {};
+			card.querySelectorAll(".portfolio-card__icon[data-link]").forEach((el) => {
+				const key = el.getAttribute("data-link") || "";
+				if (!key || key === "gallery") return;
+				const href = el.getAttribute("href") || el.dataset.href || "";
+				if (href) links[key] = href;
+			});
+			let gallery = [];
+			const galleryRaw = card.getAttribute("data-gallery") || "";
+			if (galleryRaw) {
+				try {
+					const parsed = JSON.parse(galleryRaw);
+					if (Array.isArray(parsed)) gallery = parsed;
+				} catch {
+					gallery = galleryRaw
+						.split(",")
+						.map((item) => item.trim())
+						.filter(Boolean);
+				}
+			}
+			return {
+				title,
+				type,
+				start,
+				end,
+				summary,
+				tags,
+				links,
+				gallery,
+			};
+		});
+	}
+
+	function parsePortfolioGridNode(node) {
+		const cmsId = node.getAttribute("data-cms-id") || "";
+		const attrs = {};
+		if (node.hasAttribute("data-max-visible")) {
+			const maxVisible = Number(node.getAttribute("data-max-visible"));
+			if (Number.isFinite(maxVisible)) attrs.maxVisible = maxVisible;
+		}
+		if (node.hasAttribute("data-show-search"))
+			attrs.showSearch = node.getAttribute("data-show-search");
+		if (node.hasAttribute("data-show-types"))
+			attrs.showTypeFilters = node.getAttribute("data-show-types");
+	if (node.hasAttribute("data-show-tags"))
+		attrs.showTagFilters = node.getAttribute("data-show-tags");
+	if (node.hasAttribute("data-show-links"))
+		attrs.showLinkFilters = node.getAttribute("data-show-links");
+		const headerEl = node.querySelector(".portfolio-grid__header h1,h2,h3");
+		const headerText = headerEl?.textContent?.trim() || "";
+		const headerStyle = headerEl?.getAttribute("style") || "";
+		if (/text-align\s*:/i.test(headerStyle)) {
+			attrs.titleAlign = normalizeHeadingAlign(
+				getHeadingAlignFromStyle(headerStyle),
+				"center",
+			);
+		}
+		const introHtml = node.querySelector(".portfolio-grid__intro")?.innerHTML || "";
+
+		let data = null;
+		const script = node.querySelector(
+			'script[type="application/json"][data-cms="portfolio"]',
+		);
+		if (script) {
+			try {
+				data = JSON.parse(script.textContent || "{}");
+			} catch {
+				data = null;
+			}
+		}
+
+		let cards = [];
+		if (!data || typeof data !== "object") {
+			data = {};
+			cards = parsePortfolioCardsFromHtml(node);
+		} else if (!Array.isArray(data.cards)) {
+			cards = parsePortfolioCardsFromHtml(node);
+		} else {
+			cards = data.cards;
+		}
+		const merged = {
+			...attrs,
+			title: data?.title ?? headerText,
+			intro: data?.intro ?? introHtml,
+			...(data || {}),
+			cards,
+		};
+		const normalized = normalizePortfolioGrid(merged, attrs);
+		return {
+			type: "portfolioGrid",
+			cmsId,
+			...normalized,
+		};
 	}
 
 	function parseMainBlockNode(node) {
@@ -932,6 +1307,16 @@
 					leftHeadingTag === "h1" ? "h2" : leftHeadingTag;
 				const safeRightHeadingTag =
 					rightHeadingTag === "h1" ? "h2" : rightHeadingTag;
+				const leftHeadingStyle = leftHeadingEl?.getAttribute("style") || "";
+				const rightHeadingStyle = rightHeadingEl?.getAttribute("style") || "";
+				const leftHeadingAlign = normalizeHeadingAlign(
+					getHeadingAlignFromStyle(leftHeadingStyle),
+					"left",
+				);
+				const rightHeadingAlign = normalizeHeadingAlign(
+					getHeadingAlignFromStyle(rightHeadingStyle),
+					"left",
+				);
 				let leftHtml = leftNode?.innerHTML || "";
 				if (leftHeadingEl && leftNode) {
 					const clone = leftNode.cloneNode(true);
@@ -953,8 +1338,12 @@
 					headingTag: safeLeftHeadingTag,
 					leftHeading: leftHeadingEl?.textContent?.trim() || "",
 					leftHeadingTag: safeLeftHeadingTag,
+					leftHeadingStyle,
+					leftHeadingAlign,
 					rightHeading: rightHeadingEl?.textContent?.trim() || "",
 					rightHeadingTag: safeRightHeadingTag,
+					rightHeadingStyle,
+					rightHeadingAlign,
 					left: leftHtml,
 					right: rightHtml,
 				};
@@ -963,6 +1352,11 @@
 				const headingEl = cleanNode.querySelector("h1,h2,h3");
 				const headingTag = headingEl ? headingEl.tagName.toLowerCase() : "h2";
 				const safeHeadingTag = headingTag === "h1" ? "h2" : headingTag;
+				const headingStyle = headingEl?.getAttribute("style") || "";
+				const headingAlign = normalizeHeadingAlign(
+					getHeadingAlignFromStyle(headingStyle),
+					"left",
+				);
 				const overlayEnabled =
 					cleanNode.getAttribute("data-overlay") !== "false";
 				let body = cleanNode.innerHTML || "";
@@ -984,10 +1378,16 @@
 					overlayText: cleanNode.getAttribute("data-overlay-text") || "",
 					heading: headingEl?.textContent?.trim() || "",
 					headingTag: safeHeadingTag,
+					headingStyle,
+					headingAlign,
 					body,
 				};
 			}
 			return { type: "legacy", cmsId, raw: cleanNode.outerHTML };
+		}
+
+		if (cls.contains("portfolio-grid")) {
+			return parsePortfolioGridNode(cleanNode);
 		}
 
 		if (cls.contains("grid-wrapper") && cls.contains("grid-wrapper--row")) {
@@ -1048,6 +1448,11 @@
 				cmsId,
 				title: titleEl?.textContent?.trim() || "",
 				titleTag: safeTitleTag,
+				titleStyle: titleEl?.getAttribute("style") || "",
+				titleAlign: normalizeHeadingAlign(
+					getHeadingAlignFromStyle(titleEl?.getAttribute("style") || ""),
+					"left",
+				),
 				intro,
 				items,
 			};
@@ -1057,7 +1462,7 @@
 			const inner = cleanNode.querySelector(".default-div-wrapper");
 			if (inner && !inner.classList.contains("hero-override")) {
 				const headingEl = inner.querySelector("h1,h2,h3");
-				const headingTag = headingEl ? headingEl.tagName.toLowerCase() : "h1";
+				const headingTag = headingEl ? headingEl.tagName.toLowerCase() : "h2";
 				const headingStyle = headingEl?.getAttribute("style") || "";
 				let body = inner.innerHTML || "";
 				if (headingEl) {
@@ -1072,6 +1477,10 @@
 					heading: headingEl?.textContent?.trim() || "",
 					headingTag,
 					headingStyle,
+					headingAlign: normalizeHeadingAlign(
+						getHeadingAlignFromStyle(headingStyle),
+						"left",
+					),
 					body,
 				};
 			}
@@ -1165,7 +1574,12 @@
 		const headingText = (block.heading || "").trim();
 		const headingTag = (block.headingTag || "h2").toLowerCase();
 		const headingHtml = headingText
-			? `<${headingTag}>${escapeHtml(headingText)}</${headingTag}>`
+			? buildHeadingHtml({
+					tag: headingTag,
+					text: headingText,
+					align: block.headingAlign,
+					style: block.headingStyle,
+				})
 			: "";
 		const body = sanitizeRteHtml(block.body || "", ctx);
 		const content = headingHtml
@@ -1192,10 +1606,20 @@
 			"h2"
 		).toLowerCase();
 		const leftHeadingHtml = leftHeadingText
-			? `<${leftHeadingTag}>${escapeHtml(leftHeadingText)}</${leftHeadingTag}>`
+			? buildHeadingHtml({
+					tag: leftHeadingTag,
+					text: leftHeadingText,
+					align: block.leftHeadingAlign,
+					style: block.leftHeadingStyle,
+				})
 			: "";
 		const rightHeadingHtml = rightHeadingText
-			? `<${rightHeadingTag}>${escapeHtml(rightHeadingText)}</${rightHeadingTag}>`
+			? buildHeadingHtml({
+					tag: rightHeadingTag,
+					text: rightHeadingText,
+					align: block.rightHeadingAlign,
+					style: block.rightHeadingStyle,
+				})
 			: "";
 		const left = sanitizeRteHtml(block.left || "", ctx);
 		const right = sanitizeRteHtml(block.right || "", ctx);
@@ -1219,8 +1643,11 @@
 	function serializeStdContainer(block, ctx) {
 		const cmsId = getBlockCmsId(block, ctx?.index ?? 0, ctx);
 		const headingText = String(block.heading || "").trim();
-		const headingTag = (block.headingTag || "h1").toLowerCase();
-		const headingStyle = String(block.headingStyle || "").trim();
+		const headingTag = (block.headingTag || "h2").toLowerCase();
+		const headingStyle = applyTextAlignStyle(
+			String(block.headingStyle || "").trim(),
+			block.headingAlign,
+		);
 		const styleAttr = headingStyle
 			? ` style="${escapeAttr(headingStyle)}"`
 			: "";
@@ -1293,11 +1720,369 @@
 		return lines.join("\n");
 	}
 
+	function formatPortfolioSummaryHtml(summary, ctx) {
+		const raw = String(summary || "").replace(/\r\n/g, "\n").trim();
+		if (!raw) return "";
+		if (/<[a-z][\s\S]*>/i.test(raw)) {
+			return sanitizeRteHtml(raw, ctx);
+		}
+		const parts = raw
+			.split(/\n{2,}/)
+			.map((part) => part.trim())
+			.filter(Boolean);
+		if (!parts.length) return "";
+		return parts
+			.map((part) => `<p>${escapeHtml(part).replace(/\n/g, "<br />")}</p>`)
+			.join("\n");
+	}
+
+	function serializePortfolioGrid(block, ctx) {
+		const cmsId = getBlockCmsId(block, ctx?.index ?? 0, ctx);
+		const normalized = normalizePortfolioGrid(block);
+		const types = Array.from(
+			new Set(
+				normalized.cards
+					.map((card) => normalizePortfolioTypeLabel(card.type))
+					.filter(Boolean),
+			),
+		).sort((a, b) => a.localeCompare(b));
+	const tags = Array.from(
+		new Set(
+			normalized.cards
+				.flatMap((card) => card.tags || [])
+				.map((tag) => String(tag || "").trim())
+				.filter(Boolean),
+		),
+	).sort((a, b) => a.localeCompare(b));
+	const linkOrder = ["site", "github", "youtube", "facebook", "gallery"];
+	const linkFilters = linkOrder.filter((key) =>
+		normalized.cards.some((card) => {
+			if (key === "gallery") return Boolean(card.gallery?.length);
+			return Boolean(card.links?.[key]);
+		}),
+	);
+
+	const typeColorMap = {
+		work: "#2563eb",
+		academic: "#dc2626",
+		personal: "#16a34a",
+	};
+	const hashPortfolioKey = (value) => {
+		const text = String(value || "");
+		let hash = 0;
+		for (let i = 0; i < text.length; i += 1) {
+			hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+		}
+		return hash;
+	};
+	const getTypeColor = (typeKey) => {
+		if (!typeKey) return "";
+		if (typeColorMap[typeKey]) return typeColorMap[typeKey];
+		const hue = hashPortfolioKey(typeKey) % 360;
+		return `hsl(${hue} 70% 42%)`;
+	};
+	const showLinkFilters =
+		Boolean(normalized.showLinkFilters) && Boolean(linkFilters.length);
+	const githubSvg =
+		'<svg class="portfolio-icon portfolio-icon--github" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0.3c-6.6 0-12 5.4-12 12 0 5.3 3.4 9.8 8.2 11.4 0.6 0.1 0.8-0.3 0.8-0.6v-2.2c-3.3 0.7-4-1.4-4-1.4-0.5-1.3-1.2-1.7-1.2-1.7-1-0.7 0.1-0.7 0.1-0.7 1.1 0.1 1.7 1.2 1.7 1.2 1 1.7 2.6 1.2 3.2 0.9 0.1-0.7 0.4-1.2 0.7-1.5-2.6-0.3-5.4-1.3-5.4-5.9 0-1.3 0.5-2.4 1.2-3.2-0.1-0.3-0.5-1.5 0.1-3.1 0 0 1-0.3 3.3 1.2 1-0.3 2-0.4 3-0.4s2.1 0.1 3 0.4c2.3-1.5 3.3-1.2 3.3-1.2 0.6 1.6 0.2 2.8 0.1 3.1 0.8 0.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.4 5.9 0.4 0.4 0.8 1 0.8 2v3c0 0.3 0.2 0.7 0.8 0.6 4.8-1.6 8.2-6.1 8.2-11.4 0-6.6-5.4-12-12-12z"/></svg>';
+
+	const attrs = {
+		class: "portfolio-grid",
+		"data-cms-id": cmsId,
+		"data-max-visible": String(normalized.maxVisible || 0),
+		"data-show-search": normalized.showSearch ? "true" : "false",
+		"data-show-types": normalized.showTypeFilters ? "true" : "false",
+		"data-show-tags": normalized.showTagFilters ? "true" : "false",
+		"data-show-links": normalized.showLinkFilters ? "true" : "false",
+	};
+	const order = [
+		"class",
+		"data-cms-id",
+		"data-max-visible",
+		"data-show-search",
+		"data-show-types",
+		"data-show-tags",
+		"data-show-links",
+	];
+	const lines = [`<div${serializeAttrsOrdered(attrs, order)}>`];
+	const hasControls =
+		normalized.showSearch || normalized.showTypeFilters || normalized.showTagFilters;
+
+		if (normalized.title) {
+			const titleAlign = normalized.titleAlign || "";
+			const alignValue = normalizeHeadingAlign(titleAlign, "center");
+			const alignStyle = titleAlign
+				? alignValue === "left"
+					? "text-align: left;"
+					: "text-align: center;"
+				: "";
+			const alignAttr = alignStyle ? ` style="${escapeAttr(alignStyle)}"` : "";
+			lines.push(
+				`\t<div class="portfolio-grid__header">`,
+				`\t\t<h2${alignAttr}>${escapeHtml(normalized.title)}</h2>`,
+				`\t</div>`,
+			);
+		}
+		if (normalized.intro) {
+			const introHtml = /<[a-z][\s\S]*>/i.test(normalized.intro)
+				? sanitizeRteHtml(normalized.intro, ctx)
+				: `<p>${escapeHtml(normalized.intro)}</p>`;
+			lines.push(`\t<div class="portfolio-grid__intro">`);
+			if (introHtml) lines.push(indentLines(introHtml, 2));
+			lines.push(`\t</div>`);
+		}
+		if (normalized.title || normalized.intro) {
+			lines.push(`\t<div class="portfolio-grid__divider"></div>`);
+		}
+
+		if (hasControls) {
+			lines.push(`\t<div class="portfolio-grid__controls">`);
+			if (normalized.showSearch) {
+				lines.push(
+					`\t\t<div class="portfolio-grid__search">`,
+					`\t\t\t<input type="search" class="portfolio-grid__search-input" placeholder="Search projects" aria-label="Search projects" />`,
+					`\t\t</div>`,
+				);
+			}
+			lines.push(`\t</div>`);
+		}
+
+		const hasFilters =
+			(normalized.showTypeFilters && types.length) ||
+			(normalized.showTagFilters && tags.length) ||
+			showLinkFilters;
+
+		if (hasFilters) {
+			lines.push(`\t<div class="portfolio-grid__filters">`);
+			lines.push(`\t\t<div class="portfolio-grid__filters-title">Filters</div>`);
+			if (normalized.showTypeFilters && types.length) {
+				lines.push(
+					`\t\t<div class="portfolio-grid__filter-row" data-filter-row="type">`,
+					`\t\t\t<div class="portfolio-grid__filter-label">Categories</div>`,
+					`\t\t\t<div class="portfolio-grid__filter-group" data-filter="type">`,
+					`\t\t\t\t<button type="button" class="portfolio-filter-pill is-active" data-type="">All</button>`,
+				);
+				types.forEach((type) => {
+					lines.push(
+						`\t\t\t\t<button type="button" class="portfolio-filter-pill" data-type="${escapeAttr(
+							type,
+						)}">${escapeHtml(type)}</button>`,
+					);
+				});
+				lines.push(`\t\t\t</div>`, `\t\t</div>`);
+			}
+			if (normalized.showTagFilters && tags.length) {
+				lines.push(
+					`\t\t<div class="portfolio-grid__filter-row" data-filter-row="tag">`,
+					`\t\t\t<div class="portfolio-grid__filter-label">Skills</div>`,
+					`\t\t\t<div class="portfolio-grid__filter-group" data-filter="tag">`,
+				);
+				tags.forEach((tag) => {
+					lines.push(
+						`\t\t\t\t<button type="button" class="portfolio-filter-pill" data-tag="${escapeAttr(
+							tag,
+						)}">${escapeHtml(tag)}</button>`,
+					);
+				});
+				lines.push(`\t\t\t</div>`, `\t\t</div>`);
+			}
+			if (showLinkFilters) {
+				const linkIconMap = {
+					site: { icon: "link", label: "Website" },
+					github: { icon: "github", label: "GitHub" },
+					youtube: { icon: "smart_display", label: "YouTube" },
+					facebook: { icon: "chat_bubble", label: "Message" },
+					gallery: { icon: "collections", label: "Gallery" },
+				};
+				lines.push(
+					`\t\t<div class="portfolio-grid__filter-row" data-filter-row="link">`,
+					`\t\t\t<div class="portfolio-grid__filter-label">Links</div>`,
+					`\t\t\t<div class="portfolio-grid__filter-group" data-filter="link">`,
+				);
+				linkFilters.forEach((key) => {
+					const meta = linkIconMap[key];
+					if (!meta) return;
+					const iconMarkup =
+						meta.icon === "github"
+							? githubSvg
+							: `<span class="material-icons" aria-hidden="true">${meta.icon}</span>`;
+					lines.push(
+						`\t\t\t\t<button type="button" class="portfolio-filter-icon portfolio-filter-icon--${escapeAttr(
+							key,
+						)}" data-link="${escapeAttr(
+							key,
+						)}" data-tooltip="${escapeAttr(
+							meta.label,
+						)}" aria-label="${escapeAttr(meta.label)}">`,
+						`\t\t\t\t\t${iconMarkup}`,
+						`\t\t\t\t</button>`,
+					);
+				});
+				lines.push(`\t\t\t</div>`, `\t\t</div>`);
+			}
+			lines.push(`\t</div>`);
+		}
+
+		lines.push(`\t<div class="portfolio-grid__cards">`);
+		normalized.cards.forEach((card) => {
+			const typeLabel = normalizePortfolioTypeLabel(card.type);
+			const typeKey = normalizePortfolioTypeKey(typeLabel);
+			const tagsValue = (card.tags || []).join(", ");
+			const galleryValue = (card.gallery || []).join(",");
+			const typeColor = getTypeColor(typeKey);
+			const cardAttrs = {
+				class: "portfolio-card",
+				"data-type": typeKey,
+				"data-type-label": typeLabel,
+				"data-tags": tagsValue,
+				"data-start": card.start || "",
+				"data-end": card.end || "",
+				"data-gallery": galleryValue,
+				style: typeColor ? `--portfolio-type-bg:${typeColor};` : "",
+			};
+			const cardOrder = [
+				"class",
+				"data-type",
+				"data-type-label",
+				"data-tags",
+				"data-start",
+				"data-end",
+				"data-gallery",
+				"style",
+			];
+			const dateText = (() => {
+				const start = card.start || "";
+				const end = card.end || "";
+				if (start && end && start !== end) return `${start} - ${end}`;
+				return start || end;
+			})();
+			const summaryHtml = formatPortfolioSummaryHtml(card.summary, ctx);
+			const hasSummary = Boolean(summaryHtml);
+			const hasTags = Boolean(card.tags?.length);
+			lines.push(
+				`\t\t<article${serializeAttrsOrdered(cardAttrs, cardOrder)}>`,
+				`\t\t\t<div class="portfolio-card__head">`,
+				`\t\t\t\t<div>`,
+				`\t\t\t\t\t<div class="portfolio-card__title">${escapeHtml(
+					card.title || "",
+				)}</div>`,
+				`\t\t\t\t\t<div class="portfolio-card__date">${escapeHtml(
+					dateText || "",
+				)}</div>`,
+				`\t\t\t\t</div>`,
+				`\t\t\t\t<div class="portfolio-card__icons">`,
+			);
+			const iconMap = {
+				site: { icon: "link", label: "Website" },
+				github: { icon: "github", label: "GitHub" },
+				youtube: { icon: "smart_display", label: "YouTube" },
+				facebook: { icon: "chat_bubble", label: "Message" },
+			};
+			Object.entries(iconMap).forEach(([key, meta]) => {
+				const href = card.links?.[key] || "";
+				if (!href) return;
+				const iconMarkup =
+					meta.icon === "github"
+						? githubSvg
+						: `<span class="material-icons" aria-hidden="true">${meta.icon}</span>`;
+				lines.push(
+					`\t\t\t\t\t<a class="portfolio-card__icon portfolio-card__icon--${escapeAttr(
+						key,
+					)}" href="${escapeAttr(
+						href,
+					)}" target="_blank" rel="noopener noreferrer" data-link="${escapeAttr(
+						key,
+					)}" data-tooltip="${escapeAttr(meta.label)}" aria-label="${escapeAttr(
+						meta.label,
+					)}">`,
+					`\t\t\t\t\t\t${iconMarkup}`,
+					`\t\t\t\t\t</a>`,
+				);
+			});
+			if (card.gallery?.length) {
+				lines.push(
+					`\t\t\t\t\t<button type="button" class="portfolio-card__icon portfolio-card__icon--gallery" data-link="gallery" data-tooltip="Gallery" aria-label="Gallery">`,
+					`\t\t\t\t\t\t<span class="material-icons" aria-hidden="true">collections</span>`,
+					`\t\t\t\t\t</button>`,
+				);
+			}
+			lines.push(
+				`\t\t\t\t</div>`,
+				`\t\t\t</div>`,
+				`\t\t\t<div class="portfolio-card__type">${escapeHtml(
+					typeLabel || "",
+				)}</div>`,
+			);
+			if (hasSummary) {
+				lines.push(`\t\t\t<div class="portfolio-card__divider"></div>`);
+				lines.push(`\t\t\t<div class="portfolio-card__summary">`);
+				lines.push(indentLines(summaryHtml, 4));
+				lines.push(`\t\t\t</div>`);
+			}
+			if (hasTags) {
+				if (hasSummary || typeLabel)
+					lines.push(`\t\t\t<div class="portfolio-card__divider"></div>`);
+				lines.push(`\t\t\t<div class="portfolio-card__tags">`);
+				card.tags.forEach((tag) => {
+					lines.push(
+						`\t\t\t\t<button type="button" class="portfolio-card__tag" data-tag="${escapeAttr(
+							tag,
+						)}">${escapeHtml(tag)}</button>`,
+					);
+				});
+				lines.push(`\t\t\t</div>`);
+			}
+			lines.push(`\t\t</article>`);
+		});
+		lines.push(`\t</div>`);
+
+		const jsonPayload = {
+			version: 1,
+			title: normalized.title || "",
+			titleAlign: normalized.titleAlign || "",
+			intro: normalized.intro || "",
+			maxVisible: normalized.maxVisible,
+			showSearch: normalized.showSearch,
+			showTypeFilters: normalized.showTypeFilters,
+			showTagFilters: normalized.showTagFilters,
+			showLinkFilters: normalized.showLinkFilters,
+			cards: normalized.cards.map((card) => ({
+				title: card.title || "",
+				type: card.type || "",
+				start: card.start || "",
+				end: card.end || "",
+				summary: card.summary || "",
+				tags: card.tags || [],
+				links: card.links || {},
+				gallery: card.gallery || [],
+			})),
+		};
+		const jsonText = JSON.stringify(jsonPayload, null, 2).replace(
+			/<\/script>/gi,
+			"<\\/script>",
+		);
+		lines.push(
+			`\t<script type="application/json" class="portfolio-grid__data" data-cms="portfolio">`,
+			indentLines(jsonText, 2),
+			`\t</script>`,
+		);
+		lines.push(`</div>`);
+		return lines.join("\n");
+	}
+
 	function serializeStyledAccordion(block, ctx) {
 		const cmsId = getBlockCmsId(block, ctx?.index ?? 0, ctx);
 		const titleText = String(block.title || "").trim();
 		const titleTag = (block.titleTag || "h2").toLowerCase();
 		const safeTitleTag = titleTag === "h1" ? "h2" : titleTag;
+		const titleHtml = titleText
+			? buildHeadingHtml({
+					tag: safeTitleTag,
+					text: titleText,
+					align: block.titleAlign,
+					style: block.titleStyle,
+				})
+			: "";
 		const introRaw = String(block.intro || "").trim();
 		const pageHash = ctx?.pageHash || hashText(ctx?.path || "");
 		const blockShort = ctx?.blockIdShort || hashText(ctx?.blockId || "block");
@@ -1306,11 +2091,7 @@
 			`<div class="flex-accordion-wrapper" data-cms-id="${escapeAttr(cmsId)}">`,
 			`\t<div class="flex-accordion-box">`,
 		];
-		if (titleText) {
-			lines.push(
-				`\t\t<${safeTitleTag}>${escapeHtml(titleText)}</${safeTitleTag}>`,
-			);
-		}
+		if (titleHtml) lines.push(`\t\t${titleHtml}`);
 		if (introRaw) {
 			const introHtml = /<[a-z][\s\S]*>/i.test(introRaw)
 				? sanitizeRteHtml(introRaw, ctx)
@@ -1372,6 +2153,8 @@
 					return serializeHoverCardRow(block, blockCtx);
 				if (block.type === "squareGridRow")
 					return serializeSquareGridRow(block, blockCtx);
+				if (block.type === "portfolioGrid")
+					return serializePortfolioGrid(block, blockCtx);
 				if (block.type === "styledAccordion")
 					return serializeStyledAccordion(block, blockCtx);
 				if (block.raw || block.html) {
@@ -1522,8 +2305,15 @@
 		footerNodes,
 		pruneAssets = false,
 		onClose,
+		scrollTarget = null,
 	}) {
 		const root = ensureModalRoot();
+		const scrollTop = document.scrollingElement
+			? document.scrollingElement.scrollTop
+			: window.scrollY || 0;
+		root.dataset.scrollY = String(scrollTop);
+		root._scrollTarget =
+			scrollTarget instanceof HTMLElement ? scrollTarget : null;
 		qs("#cms-modal-title").textContent = title || "Modal";
 		const body = qs("#cms-modal-body");
 		const footer = qs("#cms-modal-footer");
@@ -1537,7 +2327,14 @@
 		document.body.classList.add("cms-lock");
 
 		const closeHandler = typeof onClose === "function" ? onClose : closeModal;
-		root.querySelectorAll("[data-close='true']").forEach((btn) => {
+		const closeButtons = Array.from(
+			root.querySelectorAll("[data-close='true']"),
+		).map((btn) => {
+			const clone = btn.cloneNode(true);
+			btn.replaceWith(clone);
+			return clone;
+		});
+		closeButtons.forEach((btn) => {
 			btn.addEventListener(
 				"click",
 				() => {
@@ -1552,11 +2349,26 @@
 		const root = qs("#cms-modal");
 		if (!root) return;
 		const pruneAssets = root.dataset.pruneAssets === "true";
+		const scrollY = Number(root.dataset.scrollY);
+		const scrollTarget = root._scrollTarget || null;
 		root.dataset.pruneAssets = "false";
+		root.dataset.scrollY = "";
+		root._scrollTarget = null;
 		root.classList.remove("is-open");
 		document.documentElement.classList.remove("cms-lock");
 		document.body.classList.remove("cms-lock");
 		if (pruneAssets) pruneUnusedAssetUploads();
+		requestAnimationFrame(() => {
+			if (scrollTarget && scrollTarget.isConnected) {
+				scrollTarget.scrollIntoView({ block: "center", behavior: "smooth" });
+				return;
+			}
+			if (Number.isFinite(scrollY)) {
+				const scroller = document.scrollingElement;
+				if (scroller) scroller.scrollTop = scrollY;
+				else window.scrollTo({ top: scrollY, left: 0, behavior: "auto" });
+			}
+		});
 	}
 
 	function openLoadingModal(title = "Loading…") {
@@ -2810,6 +3622,26 @@
 							.map((item) => anchorKey(item.anchor))
 							.filter(Boolean),
 					);
+					const heroSource = mergedForList || dirtyHtml || baseHtml || "";
+					const baseHero = extractRegion(baseHtml, "hero");
+					const dirtyHero = extractRegion(heroSource, "hero");
+					const baseHeroModel = parseHeroInner(baseHero.inner || "");
+					const dirtyHeroModel = parseHeroInner(dirtyHero.inner || "");
+					const heroChanged =
+						baseHero.found &&
+						dirtyHero.found &&
+						!heroModelsEqual(baseHeroModel, dirtyHeroModel);
+					const heroEntry = heroChanged
+						? {
+								id: `${path}::hero`,
+								baseInner: baseHero.inner || "",
+								dirtyInner: dirtyHero.inner || "",
+								summary:
+									dirtyHeroModel.type === "hero" && dirtyHeroModel.title
+										? `Hero: ${dirtyHeroModel.title}`
+										: "Hero",
+							}
+						: null;
 
 					const summarize = (html) => {
 						const doc = new DOMParser().parseFromString(
@@ -2899,6 +3731,23 @@
 						modified.push(item);
 					});
 
+					if (heroEntry) {
+						const heroItem = {
+							id: heroEntry.id,
+							idx: -1,
+							html: String(heroEntry.dirtyInner || "").trim(),
+							summary: heroEntry.summary || "Hero",
+							selectable: true,
+							localStatus: "staged",
+							prNumber: null,
+							localId: null,
+							baseId: "hero",
+							removed: false,
+							kind: "hero",
+						};
+						modified.unshift(heroItem);
+					}
+
 					all.push(...added, ...modified, ...removed);
 
 					blockMap[path] = {
@@ -2906,6 +3755,7 @@
 						baseHtml,
 						dirtyHtml: mergedForList,
 						localBlocks,
+						hero: heroEntry,
 						all,
 						added,
 						modified,
@@ -3004,15 +3854,6 @@
 					const entryText = normalizeForDirtyCompare(merged || "", path);
 					if (
 						!cleanedLocal.length &&
-						!normalizeLocalBlocks(entry.localBlocks || []).length
-					) {
-						if (remoteText && entryText && remoteText !== entryText) {
-							clearDirtyPage(path);
-							return;
-						}
-					}
-					if (
-						!cleanedLocal.length &&
 						remoteText &&
 						entryText &&
 						remoteText === entryText
@@ -3059,6 +3900,11 @@
 	function buildHtmlForSelection(entry, selectedIds, action) {
 		const baseHtml = entry?.baseHtml || entry?.dirtyHtml || "";
 		if (!baseHtml) return "";
+		const heroInfo = entry?.hero || null;
+		const heroSelected =
+			heroInfo && selectedIds ? selectedIds.has(heroInfo.id) : false;
+		const heroBase = heroInfo?.baseInner || "";
+		const heroDirty = heroInfo?.dirtyInner || "";
 		const localBlocks = normalizeLocalBlocks(entry?.localBlocks || []);
 		if (!selectedIds || !selectedIds.size) {
 			const result =
@@ -3068,7 +3914,18 @@
 							respectRemovals: true,
 							path: entry?.path || state.path,
 						});
-			return canonicalizeFullHtml(result, entry?.path || state.path);
+			const heroInner =
+				action === "commit"
+					? heroSelected
+						? heroDirty
+						: heroBase
+					: heroSelected
+						? heroBase
+						: heroDirty;
+			const withHero = heroInfo
+				? applyHeroRegion(result, heroInner)
+				: result;
+			return canonicalizeFullHtml(withHero, entry?.path || state.path);
 		}
 		const selectedLocalIds = getSelectedLocalIds(entry, selectedIds);
 		const selectedLocal = localBlocks
@@ -3084,7 +3941,10 @@
 				respectRemovals: true,
 				path: entry?.path || state.path,
 			});
-			return canonicalizeFullHtml(result, entry?.path || state.path);
+			const withHero = heroInfo
+				? applyHeroRegion(result, heroSelected ? heroDirty : heroBase)
+				: result;
+			return canonicalizeFullHtml(withHero, entry?.path || state.path);
 		}
 		const remainingLocal = localBlocks.filter(
 			(item) => !selectedLocalIds.has(item.id),
@@ -3093,7 +3953,10 @@
 			respectRemovals: hasRemovalActions(remainingLocal),
 			path: entry?.path || state.path,
 		});
-		return canonicalizeFullHtml(result, entry?.path || state.path);
+		const withHero = heroInfo
+			? applyHeroRegion(result, heroSelected ? heroBase : heroDirty)
+			: result;
+		return canonicalizeFullHtml(withHero, entry?.path || state.path);
 	}
 
 	function applyHtmlToCurrentPage(updatedHtml) {
@@ -4089,14 +4952,33 @@
 		const toolbar = existingToolbar || buildRteToolbar();
 		let activeHandler = null;
 		let activeEditor = null;
+		const allowedByEditor = new WeakMap();
+		const toolbarButtons = () =>
+			Array.from(toolbar.querySelectorAll("button[data-cmd]"));
+
+		const updateToolbarState = () => {
+			const allowed = activeEditor ? allowedByEditor.get(activeEditor) : null;
+			toolbarButtons().forEach((btn) => {
+				const cmd = btn.getAttribute("data-cmd") || "";
+				const enabled = !allowed || allowed.has(cmd);
+				btn.disabled = !enabled;
+				btn.classList.toggle("is-disabled", !enabled);
+			});
+		};
 
 		const setActive = (editor, handler) => {
 			activeEditor = editor || null;
 			activeHandler = typeof handler === "function" ? handler : null;
+			updateToolbarState();
 		};
 
-		const registerEditor = (editor, handler) => {
+		const registerEditor = (editor, handler, options = {}) => {
 			if (!editor) return;
+			if (options.allowedCommands) {
+				allowedByEditor.set(editor, new Set(options.allowedCommands));
+			} else {
+				allowedByEditor.delete(editor);
+			}
 			const activate = () => setActive(editor, handler);
 			editor.addEventListener("focus", activate);
 			editor.addEventListener("click", activate);
@@ -4110,6 +4992,7 @@
 			if (!btn) return;
 			const cmd = btn.getAttribute("data-cmd");
 			if (!cmd) return;
+			if (btn.disabled) return;
 			if (activeHandler) activeHandler(cmd);
 		});
 
@@ -4120,7 +5003,12 @@
 		};
 	}
 
-	function buildRteEditor({ label, initialHtml, toolbarController } = {}) {
+	function buildRteEditor({
+		label,
+		initialHtml,
+		toolbarController,
+		allowedCommands,
+	} = {}) {
 		const buildAccordionMarkup = ({ styled }) => {
 			const baseId = `acc-${BUILD_TOKEN}-${makeLocalId()}`;
 			const items = [
@@ -6049,8 +6937,12 @@
 			});
 		});
 
+		const allowedSet = Array.isArray(allowedCommands)
+			? new Set(allowedCommands)
+			: null;
 		const runCommand = (cmd) => {
 			if (!cmd) return;
+			if (allowedSet && !allowedSet.has(cmd)) return;
 			restoreSelection();
 			editor.focus();
 			if (cmd === "bold") document.execCommand("bold");
@@ -6195,7 +7087,9 @@
 			}
 		};
 		if (toolbarController) {
-			toolbarController.registerEditor(editor, runCommand);
+			toolbarController.registerEditor(editor, runCommand, {
+				allowedCommands,
+			});
 		} else {
 			toolbar.addEventListener("click", (event) => {
 				const btn = event.target.closest("button");
@@ -6336,6 +7230,63 @@
 		const nodes = [el("div", { class: "cms-field__label" }, [label]), input];
 		if (note) nodes.push(el("div", { class: "cms-field__note" }, [note]));
 		return el("div", { class: "cms-field" }, nodes);
+	}
+
+	function buildHeadingField({ label, input, align, note }) {
+		const row = el(
+			"div",
+			{ class: "cms-field__row cms-field__row--heading" },
+			[input, align].filter(Boolean),
+		);
+		return buildField({ label, input: row, note });
+	}
+
+	function buildAlignSelect(value, fallback = "left") {
+		const wrap = el("div", {
+			class: "cms-align-toggle",
+			role: "group",
+			"aria-label": "Heading alignment",
+		});
+		const alignValue = normalizeHeadingAlign(value, fallback);
+		const buildBtn = (align, icon, label) => {
+			const btn = el(
+				"button",
+				{
+					type: "button",
+					class: "cms-align-toggle__btn",
+					"data-align": align,
+					"aria-label": label,
+					"data-tooltip": label,
+				},
+				[el("span", { class: "material-icons", "aria-hidden": "true" }, [icon])],
+			);
+			btn.addEventListener("click", (event) => {
+				event.preventDefault();
+				wrap.value = align;
+			});
+			return btn;
+		};
+		const leftBtn = buildBtn("left", "format_align_left", "Align left");
+		const centerBtn = buildBtn("center", "format_align_center", "Align center");
+		wrap.appendChild(leftBtn);
+		wrap.appendChild(centerBtn);
+
+		const setValue = (next) => {
+			const normalized = normalizeHeadingAlign(next, fallback);
+			wrap.dataset.value = normalized;
+			leftBtn.classList.toggle("is-active", normalized === "left");
+			centerBtn.classList.toggle("is-active", normalized === "center");
+		};
+		Object.defineProperty(wrap, "value", {
+			get() {
+				return wrap.dataset.value || fallback;
+			},
+			set(next) {
+				setValue(next);
+			},
+		});
+		setValue(alignValue);
+		return wrap;
 	}
 
 	function buildBlockNoopSignature(html) {
@@ -6591,6 +7542,7 @@
 		isNew = false,
 		onSave,
 		onDelete,
+		scrollTarget = null,
 	}) {
 		const isHover = type === "hover";
 		const itemLabel = isHover ? "card" : "image";
@@ -7022,6 +7974,7 @@
 			footerNodes: onDelete
 				? [cancelBtn, deleteBtn, saveBtn]
 				: [cancelBtn, saveBtn],
+			scrollTarget,
 		});
 	}
 
@@ -7124,6 +8077,7 @@
 						type: "hover",
 						item: { lightbox: true },
 						isNew: true,
+						scrollTarget: root,
 						onSave: (next) => {
 							updateCards((model) => {
 								const nextCards = [...(model.cards || [])];
@@ -7192,6 +8146,7 @@
 						type: "hover",
 						item: current,
 						isNew: false,
+						scrollTarget: card,
 						onSave: (next) => {
 							updateCards((model) => {
 								const nextCards = [...(model.cards || [])];
@@ -7290,6 +8245,7 @@
 						type: "square",
 						item: { lightbox: true },
 						isNew: true,
+						scrollTarget: root,
 						onSave: (next) => {
 							updateCards((model) => {
 								const nextItems = [...(model.items || [])];
@@ -7354,6 +8310,7 @@
 						type: "square",
 						item: current,
 						isNew: false,
+						scrollTarget: box,
 						onSave: (next) => {
 							updateCards((model) => {
 								const nextItems = [...(model.items || [])];
@@ -7558,6 +8515,7 @@
 			closeModal();
 			queueMicrotask(() => scrollToEditedBlock());
 		};
+		let getEditorChangeState = async () => false;
 		const bindModalCloseHandler = (closeHandler) => {
 			const root = qs("#cms-modal");
 			if (!root) return;
@@ -7571,11 +8529,16 @@
 				);
 			});
 		};
-		const openExitConfirm = () => {
+		const openExitConfirm = async () => {
 			const root = qs("#cms-modal");
 			if (!root) return;
 			const existing = root.querySelector(".cms-modal__confirm");
 			if (existing) return;
+			const hasChanges = await getEditorChangeState().catch(() => true);
+			if (!hasChanges) {
+				handleExitEdit();
+				return;
+			}
 			let overlay = null;
 			const closeConfirm = () => {
 				if (overlay) overlay.remove();
@@ -7629,7 +8592,7 @@
 				"div",
 				{ class: "cms-modal__note cms-note--warning" },
 				[
-					"\u26a0 Are you sure you want to close? All unsaved changes will be lost. \u26a0",
+					"\u26a0 You have unsaved changes. Are you sure you want to exit? \u26a0",
 				],
 			);
 			const panel = el("div", { class: "cms-modal__confirm-panel" }, [
@@ -7712,13 +8675,818 @@
 						toolbarController.toolbar,
 					])
 				: null;
-		if (parsed.type === "styledAccordion") {
+		if (parsed.type === "portfolioGrid") {
+			const normalized = normalizePortfolioGrid(parsed);
+			const titleInput = el("input", {
+				type: "text",
+				class: "cms-field__input",
+				value: normalized.title || "",
+				placeholder: "Portfolio header",
+			});
+			const titleAlignSelect = buildAlignSelect(
+				normalized.titleAlign || "center",
+				"center",
+			);
+			const introHtml = (() => {
+				const raw = String(normalized.intro || "").trim();
+				if (!raw) return "";
+				if (/<[a-z][\s\S]*>/i.test(raw)) return raw;
+				return `<p>${escapeHtml(raw)}</p>`;
+			})();
+			const introEditor = buildRteEditor({
+				label: "Intro",
+				initialHtml: introHtml,
+				toolbarController: ensureToolbar(),
+			});
+			introEditor.wrap.classList.add("cms-rte__field--intro");
+			introEditor.wrap.classList.add("cms-rte__field--light");
+			const maxVisibleInput = el("input", {
+				type: "text",
+				class: "cms-field__input",
+				value: normalized.maxVisible > 0 ? String(normalized.maxVisible) : "*",
+				placeholder: "3",
+			});
+			const showSearchInput = el("input", {
+				type: "checkbox",
+				class: "cms-field__checkbox",
+			});
+			showSearchInput.checked = normalized.showSearch !== false;
+			const showTypesInput = el("input", {
+				type: "checkbox",
+				class: "cms-field__checkbox",
+			});
+			showTypesInput.checked = normalized.showTypeFilters !== false;
+			const showTagsInput = el("input", {
+				type: "checkbox",
+				class: "cms-field__checkbox",
+			});
+			showTagsInput.checked = normalized.showTagFilters !== false;
+			const showLinksInput = el("input", {
+				type: "checkbox",
+				class: "cms-field__checkbox",
+			});
+			showLinksInput.checked = normalized.showLinkFilters !== false;
+
+			const toggleRow = el("div", { class: "cms-field__row" }, [
+				el("label", { class: "cms-field__toggle" }, [
+					showSearchInput,
+					el("span", { class: "cms-field__toggle-text" }, ["Search"]),
+				]),
+				el("label", { class: "cms-field__toggle" }, [
+					showTypesInput,
+					el("span", { class: "cms-field__toggle-text" }, ["Categories"]),
+				]),
+				el("label", { class: "cms-field__toggle" }, [
+					showTagsInput,
+					el("span", { class: "cms-field__toggle-text" }, ["Tags"]),
+				]),
+				el("label", { class: "cms-field__toggle" }, [
+					showLinksInput,
+					el("span", { class: "cms-field__toggle-text" }, ["Links"]),
+				]),
+			]);
+
+			const cardsWrap = el("div", {
+				class: "cms-modal__subgroup cms-portfolio-cards",
+			});
+			const portfolioCards = [];
+			const typeOptions = new Set();
+			(normalized.cards || []).forEach((card) => {
+				const label = normalizePortfolioTypeLabel(card.type);
+				if (label) typeOptions.add(label);
+			});
+			const getTypeList = () =>
+				Array.from(typeOptions).sort((a, b) => a.localeCompare(b));
+			let imageLibraryPromise = null;
+			const getImageLibrary = () => {
+				if (!imageLibraryPromise)
+					imageLibraryPromise = fetchImageLibrary().catch((err) => {
+						console.error(err);
+						return [];
+					});
+				return imageLibraryPromise;
+			};
+			const populateImageSelect = (select) => {
+				if (!select) return;
+				getImageLibrary().then((images) => {
+					select.innerHTML = "";
+					select.appendChild(
+						el("option", { value: "" }, ["Select an image"]),
+					);
+					images
+						.sort((a, b) => String(a.path).localeCompare(String(b.path)))
+						.forEach((item) => {
+							const label = String(item.path || "").replace(
+								/^assets\/img\//,
+								"",
+							);
+							select.appendChild(
+								el("option", { value: item.path }, [label || item.name]),
+							);
+						});
+				});
+			};
+			const typeManagerInput = el("textarea", {
+				class: "cms-field__input cms-field__textarea",
+				placeholder: "Work, Academic, Personal",
+			});
+			const typeManagerApply = el(
+				"button",
+				{
+					type: "button",
+					class: "cms-btn cms-btn--success cms-btn--inline",
+				},
+				["Apply"],
+			);
+			const typeManagerCancel = el(
+				"button",
+				{
+					type: "button",
+					class: "cms-btn cms-btn--move cms-btn--inline",
+				},
+				["Cancel"],
+			);
+			const typeManagerWrap = el(
+				"div",
+				{ class: "cms-portfolio-type-manager" },
+				[
+					el("div", { class: "cms-modal__group-title" }, ["Manage categories"]),
+					typeManagerInput,
+					el("div", { class: "cms-field__note" }, [
+						"Comma-separated list used by the category dropdown.",
+					]),
+					el("div", { class: "cms-field__row" }, [
+						typeManagerCancel,
+						typeManagerApply,
+					]),
+				],
+			);
+			typeManagerWrap.hidden = true;
+			const openTypeManager = () => {
+				typeManagerInput.value = getTypeList().join(", ");
+				typeManagerWrap.hidden = false;
+			};
+			const closeTypeManager = () => {
+				typeManagerWrap.hidden = true;
+			};
+			typeManagerCancel.addEventListener("click", (event) => {
+				event.preventDefault();
+				closeTypeManager();
+			});
+			typeManagerApply.addEventListener("click", (event) => {
+				event.preventDefault();
+				const next = typeManagerInput.value
+					.split(",")
+					.map((item) => String(item || "").trim())
+					.filter(Boolean);
+				typeOptions.clear();
+				next.forEach((item) => typeOptions.add(item));
+				syncTypeSelects();
+				closeTypeManager();
+			});
+			const syncCards = () => {
+				cardsWrap.innerHTML = "";
+				portfolioCards.forEach((item, idx) => {
+					item.titleEl.textContent = `Card ${idx + 1}`;
+					item.upBtn.disabled = idx === 0;
+					item.downBtn.disabled = idx === portfolioCards.length - 1;
+					cardsWrap.appendChild(item.wrap);
+				});
+			};
+			const buildCard = (data) => {
+				const titleEl = el("div", { class: "cms-modal__group-title" }, [
+					"Card",
+				]);
+				const titleInput = el("input", {
+					type: "text",
+					class: "cms-field__input cms-field__input--title",
+					value: data.title || "",
+					placeholder: "Project title",
+				});
+				const typeSelect = el("select", { class: "cms-field__select" }, [
+					el("option", { value: "" }, ["Select category"]),
+				]);
+				const typeInput = el("input", {
+					type: "text",
+					class: "cms-field__input cms-field__input--category",
+					value: data.type || "",
+					placeholder: "New category",
+				});
+				const typeAddBtn = el(
+					"button",
+					{
+						type: "button",
+						class: "cms-btn cms-btn--success cms-btn--inline",
+						"data-tooltip": "Add to category list",
+						"aria-label": "Add category to list",
+					},
+					["Add"],
+				);
+				const typeInfoBtn = el(
+					"button",
+					{
+						type: "button",
+						class: "cms-btn cms-btn--info cms-btn--inline",
+						"data-tooltip": "Manage category list (comma separated)",
+						"aria-label": "Manage category list",
+					},
+					["i"],
+				);
+				const typeRow = el("div", { class: "cms-portfolio-type-row" }, [
+					titleInput,
+					typeSelect,
+					typeInput,
+					typeAddBtn,
+					typeInfoBtn,
+				]);
+				const startInput = el("input", {
+					type: "text",
+					class: "cms-field__input",
+					value: data.start || "",
+					placeholder: "Start (MM-YYYY)",
+				});
+				const endInput = el("input", {
+					type: "text",
+					class: "cms-field__input",
+					value: data.end || "",
+					placeholder: "End (MM-YYYY or present)",
+				});
+				const summaryRaw = String(data.summary || "").trim();
+				const summaryHtml = summaryRaw
+					? /<[a-z][\s\S]*>/i.test(summaryRaw)
+						? summaryRaw
+						: `<p>${escapeHtml(summaryRaw).replace(/\n/g, "<br />")}</p>`
+					: "";
+				const summaryEditor = buildRteEditor({
+					label: "Summary",
+					initialHtml: summaryHtml,
+					toolbarController: ensureToolbar(),
+					allowedCommands: ["bold", "italic", "underline", "ul", "ol"],
+				});
+				summaryEditor.wrap.classList.add("cms-portfolio-summary");
+				const tagsInput = el("input", {
+					type: "text",
+					class: "cms-field__input",
+					value: (data.tags || []).join(", "),
+					placeholder: "Tags (comma separated)",
+				});
+				const siteInput = el("input", {
+					type: "text",
+					class: "cms-field__input",
+					value: data.links?.site || "",
+					placeholder: "Website link",
+				});
+				const githubInput = el("input", {
+					type: "text",
+					class: "cms-field__input",
+					value: data.links?.github || "",
+					placeholder: "GitHub link",
+				});
+				const youtubeInput = el("input", {
+					type: "text",
+					class: "cms-field__input",
+					value: data.links?.youtube || "",
+					placeholder: "YouTube link",
+				});
+				const facebookInput = el("input", {
+					type: "text",
+					class: "cms-field__input",
+					value: data.links?.facebook || "",
+					placeholder: "Facebook/social link",
+				});
+
+				const galleryToggle = el("input", {
+					type: "checkbox",
+					class: "cms-field__checkbox",
+				});
+				const galleryItems = Array.isArray(data.gallery)
+					? data.gallery.slice()
+					: [];
+				galleryToggle.checked = galleryItems.length > 0;
+				const galleryInput = el("input", {
+					type: "text",
+					class: "cms-field__input",
+					placeholder: "/assets/img/...",
+				});
+				const galleryModeSelect = el("select", { class: "cms-field__select" }, [
+					el("option", { value: "existing" }, ["Use existing"]),
+					el("option", { value: "upload" }, ["Upload new"]),
+				]);
+				galleryModeSelect.value = "existing";
+				const gallerySelect = el("select", { class: "cms-field__select" }, [
+					el("option", { value: "" }, ["Select an image"]),
+				]);
+				const galleryPickBtn = el(
+					"button",
+					{
+						type: "button",
+						class: "cms-btn cms-btn--primary cms-btn--inline",
+					},
+					["Choose image"],
+				);
+				const galleryFileInput = el("input", {
+					type: "file",
+					class: "cms-field__input",
+				});
+				galleryFileInput.hidden = true;
+				const galleryNameInput = el("input", {
+					type: "text",
+					class: "cms-field__input",
+					placeholder: "Filename (e.g. hero.jpg or sub/hero.jpg)",
+				});
+				galleryNameInput.hidden = true;
+				const galleryWarning = el(
+					"div",
+					{ class: "cms-modal__note cms-note--warning" },
+					[
+						"\u26a0 Please note: Uploaded images are only stored in local memory until comitted and could be lost \u26a0",
+					],
+				);
+				galleryWarning.hidden = true;
+				let galleryUploadFile = null;
+				let galleryUploadBase64 = "";
+				let galleryUploadMime = "";
+				let galleryUploadPath = "";
+				let galleryUploadExt = "";
+				const getFileExtension = (name) => {
+					const match = String(name || "")
+						.trim()
+						.match(/(\.[A-Za-z0-9]+)$/);
+					return match ? match[1] : "";
+				};
+				const normalizeUploadName = (rawName) => {
+					const raw = String(rawName || "").trim();
+					if (!raw) {
+						if (galleryUploadExt)
+							return { name: galleryUploadExt, caret: 0, empty: true };
+						return { name: "", caret: 0, empty: true };
+					}
+					if (!galleryUploadExt) return { name: raw, caret: raw.length };
+					const lowerRaw = raw.toLowerCase();
+					const lowerExt = galleryUploadExt.toLowerCase();
+					let base = raw;
+					if (lowerRaw.endsWith(lowerExt)) {
+						base = raw.slice(0, -galleryUploadExt.length);
+					}
+					if (base.endsWith(".")) base = base.slice(0, -1);
+					return {
+						name: `${base}${galleryUploadExt}`,
+						caret: base.length,
+						empty: !base,
+					};
+				};
+				const syncUploadName = (rawName, { normalize = false } = {}) => {
+					const normalized = normalizeUploadName(rawName);
+					if (!normalized.name) return;
+					if (normalized.empty && galleryUploadExt) {
+						if (normalize && galleryNameInput) {
+							galleryNameInput.value = galleryUploadExt;
+							if (document.activeElement === galleryNameInput) {
+								galleryNameInput.setSelectionRange(0, 0);
+							}
+						}
+						return;
+					}
+					const safePath = sanitizeImagePath(
+						normalized.name,
+						galleryUploadFile?.name || "",
+					);
+					if (!safePath) return;
+					const safeName = safePath.replace(/^assets\/img\//, "");
+					if (normalize && galleryNameInput) {
+						galleryNameInput.value = safeName;
+						if (galleryUploadExt && document.activeElement === galleryNameInput) {
+							const caret = Math.max(
+								0,
+								safeName.length - galleryUploadExt.length,
+							);
+							galleryNameInput.setSelectionRange(caret, caret);
+						}
+					}
+					galleryInput.value = `/${safePath}`;
+					if (galleryUploadBase64) {
+						if (galleryUploadPath && galleryUploadPath !== safePath) {
+							state.assetUploads = (state.assetUploads || []).filter(
+								(item) => item.path !== galleryUploadPath,
+							);
+						}
+						addAssetUpload({
+							name: safeName,
+							content: galleryUploadBase64,
+							path: safePath,
+							mime: galleryUploadMime || "",
+						});
+						galleryUploadPath = safePath;
+					}
+				};
+				const stageUpload = (file, filename) => {
+					if (!file) return;
+					const safePath = sanitizeImagePath(filename, file.name || "");
+					if (!safePath) return;
+					const safeName = safePath.replace(/^assets\/img\//, "");
+					if (galleryNameInput) galleryNameInput.value = safeName;
+					const reader = new FileReader();
+					reader.onload = () => {
+						const dataUrl = String(reader.result || "");
+						const base64 = dataUrl.split(",")[1] || "";
+						galleryUploadBase64 = base64;
+						galleryUploadMime = file.type || "";
+						syncUploadName(galleryNameInput?.value.trim() || safeName, {
+							normalize: true,
+						});
+					};
+					reader.readAsDataURL(file);
+				};
+				galleryPickBtn.addEventListener("click", () => {
+					galleryFileInput?.click();
+				});
+				galleryFileInput.addEventListener("change", () => {
+					const file = galleryFileInput.files?.[0];
+					if (!file) return;
+					galleryUploadFile = file;
+					galleryUploadExt = getFileExtension(file.name || "");
+					if (galleryNameInput && !galleryNameInput.value.trim()) {
+						galleryNameInput.value = file.name || "";
+					}
+					stageUpload(file, galleryNameInput?.value.trim() || "");
+				});
+				galleryNameInput.addEventListener("input", () => {
+					syncUploadName(galleryNameInput.value.trim(), { normalize: true });
+				});
+				galleryNameInput.addEventListener("blur", () => {
+					if (!galleryUploadFile) return;
+					if (galleryUploadBase64) {
+						syncUploadName(galleryNameInput.value.trim(), { normalize: true });
+						return;
+					}
+					stageUpload(galleryUploadFile, galleryNameInput.value.trim());
+				});
+				const setGalleryMode = (mode) => {
+					const useUpload = mode === "upload";
+					gallerySelect.hidden = useUpload;
+					galleryPickBtn.hidden = !useUpload;
+					galleryNameInput.hidden = !useUpload;
+					if (galleryNameLabel) galleryNameLabel.hidden = !useUpload;
+					if (galleryNameRow) galleryNameRow.hidden = !useUpload;
+					if (galleryInput) {
+						galleryInput.disabled = useUpload;
+						galleryInput.classList.toggle("cms-field__input--muted", useUpload);
+					}
+					galleryWarning.hidden = !useUpload;
+					if (!useUpload) {
+						loadImageLibraryIntoSelect(gallerySelect)
+							.then(() => {
+								const local = getLocalAssetPath(galleryInput.value || "");
+								if (local) gallerySelect.value = local;
+							})
+							.catch((err) => console.error(err));
+					}
+				};
+				galleryModeSelect.addEventListener("change", () => {
+					setGalleryMode(galleryModeSelect.value);
+				});
+				gallerySelect.addEventListener("change", () => {
+					const path = gallerySelect.value;
+					if (!path) return;
+					const safePath = sanitizeImagePath(path, "");
+					if (!safePath) return;
+					galleryInput.value = `/${safePath}`;
+				});
+				const galleryAddBtn = el(
+					"button",
+					{
+						type: "button",
+						class: "cms-btn cms-btn--success cms-btn--inline",
+					},
+					["Add image"],
+				);
+				const galleryList = el("div", {
+					class: "cms-portfolio-gallery__list",
+				});
+				const renderGallery = () => {
+					galleryList.innerHTML = "";
+					galleryItems.forEach((src, idx) => {
+						const label = String(src || "")
+							.replace(/^\/?assets\/img\//, "")
+							.trim();
+						const thumb = el("img", {
+							class: "cms-portfolio-gallery__thumb",
+							src: src,
+							alt: label || "Gallery image",
+						});
+						const text = el("div", { class: "cms-portfolio-gallery__label" }, [
+							label || src,
+						]);
+						const removeBtn = el(
+							"button",
+							{
+								type: "button",
+								class: "cms-btn cms-btn--danger cms-btn--inline",
+							},
+							["Remove"],
+						);
+						removeBtn.addEventListener("click", () => {
+							galleryItems.splice(idx, 1);
+							renderGallery();
+						});
+						const row = el(
+							"div",
+							{ class: "cms-portfolio-gallery__item" },
+							[thumb, text, removeBtn],
+						);
+						galleryList.appendChild(row);
+					});
+				};
+				renderGallery();
+				galleryAddBtn.addEventListener("click", () => {
+					const raw = galleryInput.value.trim();
+					const safePath = sanitizeImagePath(raw, "");
+					if (!safePath) return;
+					const src = `/${safePath}`;
+					if (!galleryItems.includes(src)) galleryItems.push(src);
+					galleryInput.value = src;
+					galleryToggle.checked = true;
+					syncGalleryVisibility();
+					renderGallery();
+				});
+				let galleryNameLabel = null;
+				let galleryNameRow = null;
+				const galleryRow = el("div", { class: "cms-field__row" }, [
+					galleryInput,
+					galleryModeSelect,
+					gallerySelect,
+					galleryPickBtn,
+					galleryFileInput,
+				]);
+				let galleryInputStack = galleryRow;
+				if (galleryNameInput) {
+					galleryNameLabel = el("div", { class: "cms-field__label" }, [
+						"Filename",
+					]);
+					galleryNameRow = el("div", { class: "cms-field__row" }, [
+						galleryNameInput,
+					]);
+					galleryNameRow.hidden = galleryNameInput.hidden;
+					galleryNameLabel.hidden = galleryNameInput.hidden;
+					galleryInputStack = el("div", { class: "cms-field__stack" }, [
+						galleryRow,
+						galleryNameLabel,
+						galleryNameRow,
+					]);
+				}
+				const galleryWrap = el(
+					"div",
+					{ class: "cms-portfolio-gallery" },
+					[galleryInputStack, galleryWarning, galleryAddBtn, galleryList],
+				);
+				const syncGalleryVisibility = () => {
+					galleryWrap.hidden = !galleryToggle.checked;
+				};
+				syncGalleryVisibility();
+				galleryToggle.addEventListener("change", syncGalleryVisibility);
+				setGalleryMode(galleryModeSelect.value);
+				populateImageSelect(gallerySelect);
+
+				const upBtn = el(
+					"button",
+					{ type: "button", class: "cms-btn cms-btn--move" },
+					["Move up"],
+				);
+				const downBtn = el(
+					"button",
+					{ type: "button", class: "cms-btn cms-btn--move" },
+					["Move down"],
+				);
+				const removeBtn = el(
+					"button",
+					{ type: "button", class: "cms-btn cms-btn--danger" },
+					["Remove card"],
+				);
+				const actions = el(
+					"div",
+					{ class: "cms-portfolio-card__actions" },
+					[upBtn, downBtn, removeBtn],
+				);
+				const wrap = el(
+					"div",
+					{ class: "cms-modal__group cms-modal__group--settings" },
+					[
+						titleEl,
+						buildField({
+							label: "Title / Category",
+							input: typeRow,
+						}),
+						buildField({
+							label: "Dates",
+							input: el("div", { class: "cms-field__row" }, [
+								startInput,
+								endInput,
+							]),
+							note: "Use MM-YYYY (e.g. 03-2024) or 'on-going'.",
+						}),
+						summaryEditor.wrap,
+						buildField({ label: "Tags", input: tagsInput }),
+						buildField({
+							label: "Links",
+							input: el("div", { class: "cms-field__stack" }, [
+								el("div", { class: "cms-field__row" }, [
+									siteInput,
+									githubInput,
+								]),
+								el("div", { class: "cms-field__row" }, [
+									youtubeInput,
+									facebookInput,
+								]),
+							]),
+						}),
+						buildField({
+							label: "Gallery",
+							input: el("div", { class: "cms-field__stack" }, [
+								el("label", { class: "cms-field__toggle" }, [
+									galleryToggle,
+									el("span", { class: "cms-field__toggle-text" }, [
+										"Enable image gallery",
+									]),
+								]),
+								galleryWrap,
+							]),
+							note: "Gallery images are pulled from /assets/img.",
+						}),
+						actions,
+					],
+				);
+				const item = {
+					wrap,
+					titleEl,
+					titleInput,
+					typeSelect,
+					typeInput,
+					startInput,
+					endInput,
+					summaryEditor,
+					tagsInput,
+					siteInput,
+					githubInput,
+					youtubeInput,
+					facebookInput,
+					galleryItems,
+					galleryToggle,
+					upBtn,
+					downBtn,
+					removeBtn,
+				};
+				typeSelect.addEventListener("change", () => {
+					if (typeSelect.value) typeInput.value = typeSelect.value;
+				});
+				typeAddBtn.addEventListener("click", () => {
+					const raw = typeInput.value.trim();
+					if (!raw) return;
+					typeOptions.add(raw);
+					syncTypeSelects();
+					typeSelect.value = raw;
+				});
+				typeInfoBtn.addEventListener("click", (event) => {
+					event.preventDefault();
+					openTypeManager();
+				});
+				upBtn.addEventListener("click", () => {
+					const index = portfolioCards.indexOf(item);
+					if (index <= 0) return;
+					const prev = portfolioCards[index - 1];
+					portfolioCards[index - 1] = item;
+					portfolioCards[index] = prev;
+					syncCards();
+				});
+				downBtn.addEventListener("click", () => {
+					const index = portfolioCards.indexOf(item);
+					if (index < 0 || index >= portfolioCards.length - 1) return;
+					const next = portfolioCards[index + 1];
+					portfolioCards[index + 1] = item;
+					portfolioCards[index] = next;
+					syncCards();
+				});
+				removeBtn.addEventListener("click", () => {
+					const index = portfolioCards.indexOf(item);
+					if (index < 0) return;
+					portfolioCards.splice(index, 1);
+					syncCards();
+				});
+				return item;
+			};
+
+			(normalized.cards.length ? normalized.cards : [normalizePortfolioCard({})])
+				.forEach((card) => {
+					portfolioCards.push(buildCard(card));
+				});
+			const syncTypeSelects = () => {
+				const list = getTypeList();
+				portfolioCards.forEach((item) => {
+					const select = item.typeSelect;
+					if (!select) return;
+					const current = select.value || item.typeInput?.value || "";
+					select.innerHTML = "";
+					select.appendChild(el("option", { value: "" }, ["Select type"]));
+					list.forEach((type) => {
+						select.appendChild(el("option", { value: type }, [type]));
+					});
+					if (current) select.value = current;
+				});
+			};
+			syncTypeSelects();
+			syncCards();
+
+			const addCardBtn = el(
+				"button",
+				{
+					type: "button",
+					class: "cms-btn cms-btn--primary",
+					"data-tooltip": "Add a new portfolio card",
+					"aria-label": "Add a new portfolio card",
+				},
+				["Add card"],
+			);
+			addCardBtn.addEventListener("click", () => {
+				portfolioCards.push(buildCard(normalizePortfolioCard({})));
+				syncTypeSelects();
+				syncCards();
+			});
+			const sharedToolbar = toolbarHost();
+			const topField = buildField({
+				label: "How many items do you want showing?",
+				input: maxVisibleInput,
+				note: "Displays the number of cards specified when no filters are active. Use * for all. Sorts based on most recent.",
+			});
+			const filtersField = buildField({
+				label: "Filters",
+				input: toggleRow,
+			});
+
+			openModal({
+				title: "Edit block",
+				bodyNodes: [
+					buildHeadingField({
+						label: "Header",
+						input: titleInput,
+						align: titleAlignSelect,
+						note: "Saved as an H2 heading.",
+					}),
+					...(sharedToolbar ? [sharedToolbar] : []),
+					introEditor.wrap,
+					el("div", { class: "cms-portfolio-controls" }, [
+						topField,
+						filtersField,
+					]),
+					typeManagerWrap,
+					el("div", { class: "cms-modal__group cms-modal__group--settings" }, [
+						el("div", { class: "cms-modal__group-title" }, ["Cards"]),
+						cardsWrap,
+						addCardBtn,
+					]),
+				],
+				footerNodes: [
+					el(
+						"button",
+						{
+							class: "cms-btn cms-modal__action cms-btn--danger",
+							type: "button",
+							"data-close": "true",
+						},
+						["Stop Editing Block"],
+					),
+					el(
+						"button",
+						{
+							class: "cms-btn cms-modal__action cms-btn--success",
+							type: "button",
+							"data-action": "save-block",
+						},
+						["Save"],
+					),
+				],
+				pruneAssets: true,
+				onClose: openExitConfirm,
+			});
+
+			settings = {
+				portfolioTitleInput: titleInput,
+				portfolioTitleAlignSelect: titleAlignSelect,
+				portfolioTitleAlignDefault: normalized.titleAlign || "",
+				portfolioIntroEditor: introEditor,
+				portfolioMaxInput: maxVisibleInput,
+				portfolioShowSearch: showSearchInput,
+				portfolioShowTypes: showTypesInput,
+				portfolioShowTags: showTagsInput,
+				portfolioShowLinks: showLinksInput,
+				portfolioCards,
+			};
+		} else if (parsed.type === "styledAccordion") {
 			const titleInput = el("input", {
 				type: "text",
 				class: "cms-field__input",
 				value: parsed.title || "",
 				placeholder: "Accordion title",
 			});
+			const titleAlignSelect = buildAlignSelect(parsed.titleAlign, "left");
 			const introHtml = (() => {
 				const raw = String(parsed.intro || "").trim();
 				if (!raw) return "";
@@ -7731,6 +9499,7 @@
 				toolbarController: ensureToolbar(),
 			});
 			introEditor.wrap.classList.add("cms-rte__field--intro");
+			introEditor.wrap.classList.add("cms-rte__field--light");
 			const itemsWrap = el("div", { class: "cms-modal__subgroup" }, []);
 			const accordionItems = [];
 			const syncItems = () => {
@@ -7762,6 +9531,7 @@
 					initialHtml: body || "<ul><li>Point A</li><li>Point B</li></ul>",
 					toolbarController: ensureToolbar(),
 				});
+				editor.wrap.classList.add("cms-rte__field--light");
 				const upBtn = el(
 					"button",
 					{
@@ -7873,9 +9643,10 @@
 			openModal({
 				title: "Edit block",
 				bodyNodes: [
-					buildField({
+					buildHeadingField({
 						label: "Title",
 						input: titleInput,
+						align: titleAlignSelect,
 					}),
 					...(sharedToolbar ? [sharedToolbar] : []),
 					introGroup,
@@ -7911,6 +9682,8 @@
 
 			settings = {
 				accordionTitleInput: titleInput,
+				accordionTitleAlignSelect: titleAlignSelect,
+				accordionTitleStyle: parsed.titleStyle || "",
 				accordionIntroEditor: introEditor,
 				accordionItems,
 			};
@@ -7921,6 +9694,7 @@
 				value: parsed.heading || "",
 				placeholder: "Header text",
 			});
+			const headingAlignSelect = buildAlignSelect(parsed.headingAlign, "left");
 			const body = buildRteEditor({
 				label: "Content",
 				initialHtml: parsed.body || "",
@@ -7931,9 +9705,10 @@
 			openModal({
 				title: "Edit block",
 				bodyNodes: [
-					buildField({
+					buildHeadingField({
 						label: "Header",
 						input: headingInput,
+						align: headingAlignSelect,
 						note: "Optional header for this container.",
 					}),
 					...(sharedToolbar ? [sharedToolbar] : []),
@@ -7964,8 +9739,9 @@
 			});
 			settings = {
 				stdHeadingInput: headingInput,
-				stdHeadingTag: parsed.headingTag || "h1",
+				stdHeadingTag: parsed.headingTag || "h2",
 				stdHeadingStyle: parsed.headingStyle || "",
+				stdHeadingAlignSelect: headingAlignSelect,
 			};
 		} else if (parsed.type === "twoCol") {
 			const headingLeftInput = el("input", {
@@ -7974,6 +9750,7 @@
 				value: parsed.leftHeading || parsed.heading || "",
 				placeholder: "Left header",
 			});
+			const leftAlignSelect = buildAlignSelect(parsed.leftHeadingAlign, "left");
 			const left = buildRteEditor({
 				label: "Left column",
 				initialHtml: parsed.left || "",
@@ -7985,6 +9762,7 @@
 				value: parsed.rightHeading || "",
 				placeholder: "Right header",
 			});
+			const rightAlignSelect = buildAlignSelect(parsed.rightHeadingAlign, "left");
 			const right = buildRteEditor({
 				label: "Right column",
 				initialHtml: parsed.right || "",
@@ -7999,15 +9777,17 @@
 				title: "Edit block",
 				bodyNodes: [
 					...(sharedToolbar ? [sharedToolbar] : []),
-					buildField({
+					buildHeadingField({
 						label: "Header (left)",
 						input: headingLeftInput,
+						align: leftAlignSelect,
 						note: "Optional left column header.",
 					}),
 					left.wrap,
-					buildField({
+					buildHeadingField({
 						label: "Header (right)",
 						input: headingRightInput,
+						align: rightAlignSelect,
 						note: "Optional right column header.",
 					}),
 					right.wrap,
@@ -8040,9 +9820,15 @@
 				rightHeadingInput: headingRightInput,
 				leftHeadingTag: parsed.leftHeadingTag || parsed.headingTag || "h2",
 				rightHeadingTag: parsed.rightHeadingTag || "h2",
+				leftHeadingStyle: parsed.leftHeadingStyle || "",
+				rightHeadingStyle: parsed.rightHeadingStyle || "",
+				leftHeadingAlignSelect: leftAlignSelect,
+				rightHeadingAlignSelect: rightAlignSelect,
 			};
 		} else {
 			let headingInput = null;
+			let headingAlignSelect = null;
+			let headingStyle = "";
 			let imgInput = null;
 			let imagePickBtn = null;
 			let imageModeSelect = null;
@@ -8077,6 +9863,8 @@
 					value: parsed.heading || "",
 					placeholder: "Heading",
 				});
+				headingAlignSelect = buildAlignSelect(parsed.headingAlign, "left");
+				headingStyle = parsed.headingStyle || "";
 				imgInput = el("input", {
 					type: "text",
 					class: "cms-field__input",
@@ -8391,9 +10179,10 @@
 			const settingsNodes = [];
 			if (headingInput) {
 				settingsNodes.push(
-					buildField({
+					buildHeadingField({
 						label: "Heading",
 						input: headingInput,
+						align: headingAlignSelect,
 						note: "Controls the block title styling.",
 					}),
 				);
@@ -8544,6 +10333,8 @@
 
 			settings = {
 				headingInput,
+				headingAlignSelect,
+				headingStyle,
 				imgInput,
 				imagePickBtn,
 				captionInput,
@@ -8561,11 +10352,14 @@
 		);
 		if (!saveBtn) return;
 
-		saveBtn.addEventListener("click", async () => {
+		const buildUpdatedHtmlFromSettings = async () => {
 			const updated = { ...parsed };
 			if (settings.accordionItems) {
 				updated.title = settings.accordionTitleInput?.value.trim() || "";
 				updated.titleTag = parsed.titleTag || "h2";
+				updated.titleAlign =
+					settings.accordionTitleAlignSelect?.value || parsed.titleAlign || "";
+				updated.titleStyle = settings.accordionTitleStyle || "";
 				updated.intro = sanitizeRteHtml(
 					settings.accordionIntroEditor?.editor.innerHTML || "",
 					ctx,
@@ -8577,18 +10371,33 @@
 			}
 			if (settings.stdHeadingInput) {
 				updated.heading = settings.stdHeadingInput.value.trim();
-				updated.headingTag = settings.stdHeadingTag || "h1";
+				updated.headingTag = settings.stdHeadingTag || "h2";
 				updated.headingStyle = settings.stdHeadingStyle || "";
+				updated.headingAlign =
+					settings.stdHeadingAlignSelect?.value || parsed.headingAlign || "";
 			}
 			if (settings.headingInput) {
 				updated.heading = settings.headingInput.value.trim();
 				updated.headingTag = parsed.headingTag || "h2";
+				updated.headingAlign =
+					settings.headingAlignSelect?.value || parsed.headingAlign || "";
+				updated.headingStyle = settings.headingStyle || parsed.headingStyle || "";
 			}
 			if (settings.leftHeadingInput) {
 				updated.leftHeading = settings.leftHeadingInput.value.trim();
 				updated.leftHeadingTag = settings.leftHeadingTag || "h2";
+				updated.leftHeadingStyle = settings.leftHeadingStyle || "";
+				updated.leftHeadingAlign =
+					settings.leftHeadingAlignSelect?.value ||
+					parsed.leftHeadingAlign ||
+					"";
 				updated.rightHeading = settings.rightHeadingInput?.value.trim() || "";
 				updated.rightHeadingTag = settings.rightHeadingTag || "h2";
+				updated.rightHeadingStyle = settings.rightHeadingStyle || "";
+				updated.rightHeadingAlign =
+					settings.rightHeadingAlignSelect?.value ||
+					parsed.rightHeadingAlign ||
+					"";
 				updated.heading = updated.leftHeading;
 				updated.headingTag = updated.leftHeadingTag;
 			}
@@ -8606,6 +10415,62 @@
 				updated.lightbox = settings.lightboxInput?.checked ? "true" : "false";
 				updated.imgPos = settings.posSelect?.value || "left";
 			}
+			if (settings.portfolioCards) {
+				const maxRaw = String(settings.portfolioMaxInput?.value || "").trim();
+				let maxValue = 3;
+				if (maxRaw === "*") maxValue = 0;
+				else if (maxRaw) maxValue = Number(maxRaw);
+				updated.maxVisible = Number.isFinite(maxValue)
+					? Math.max(0, Math.floor(maxValue))
+					: 3;
+				updated.showSearch = settings.portfolioShowSearch?.checked ?? true;
+				updated.showTypeFilters = settings.portfolioShowTypes?.checked ?? true;
+				updated.showTagFilters = settings.portfolioShowTags?.checked ?? true;
+				updated.showLinkFilters = settings.portfolioShowLinks?.checked ?? true;
+				updated.title = settings.portfolioTitleInput?.value.trim() || "";
+				const alignValue = normalizeHeadingAlign(
+					settings.portfolioTitleAlignSelect?.value,
+					"center",
+				);
+				const baseAlign = settings.portfolioTitleAlignDefault || "";
+				updated.titleAlign =
+					alignValue === "center"
+						? baseAlign === "center"
+							? "center"
+							: ""
+						: "left";
+				updated.intro = sanitizeRteHtml(
+					settings.portfolioIntroEditor?.editor.innerHTML || "",
+					ctx,
+				);
+				updated.cards = settings.portfolioCards.map((card) => ({
+					title: card.titleInput?.value.trim() || "",
+					type:
+						card.typeInput?.value.trim() ||
+						card.typeSelect?.value.trim() ||
+						"",
+					start: card.startInput?.value.trim() || "",
+					end: card.endInput?.value.trim() || "",
+					summary: sanitizeRteHtml(
+						card.summaryEditor?.editor.innerHTML || "",
+						ctx,
+					),
+					tags: String(card.tagsInput?.value || "")
+						.split(",")
+						.map((tag) => tag.trim())
+						.filter(Boolean),
+					links: {
+						site: card.siteInput?.value.trim() || "",
+						github: card.githubInput?.value.trim() || "",
+						youtube: card.youtubeInput?.value.trim() || "",
+						facebook: card.facebookInput?.value.trim() || "",
+					},
+					gallery:
+						card.galleryToggle?.checked && Array.isArray(card.galleryItems)
+							? card.galleryItems.slice()
+							: [],
+				}));
+			}
 			await Promise.all(
 				editors.map(async ({ key, editor }) => {
 					const raw = editor.innerHTML;
@@ -8614,9 +10479,20 @@
 					else updated.body = sanitizeRteHtml(raw, ctx);
 				}),
 			);
-			const updatedHtml = serializeMainBlocks([updated], {
+			return serializeMainBlocks([updated], {
 				path: state.path,
 			}).trim();
+		};
+
+		getEditorChangeState = async () => {
+			const updatedHtml = await buildUpdatedHtmlFromSettings();
+			if (!updatedHtml) return false;
+			const updatedSig = buildNoopSignature(updatedHtml);
+			return updatedSig !== baseSig;
+		};
+
+		saveBtn.addEventListener("click", async () => {
+			const updatedHtml = await buildUpdatedHtmlFromSettings();
 			if (!updatedHtml) return;
 			const updatedSig = buildNoopSignature(updatedHtml);
 			if (updatedSig === baseSig) {
@@ -8723,13 +10599,16 @@
 				type: "hero",
 				title: titleInput.value.trim(),
 				subtitle: subtitleInput.value.trim(),
+				align: heroModel.align,
 			};
 			const baseHero = extractRegion(state.originalHtml || "", "hero");
 			const baseHeroModel = parseHeroInner(baseHero.inner || "");
 			const unchanged =
 				baseHeroModel.type === "hero" &&
 				baseHeroModel.title === nextHero.title &&
-				baseHeroModel.subtitle === nextHero.subtitle;
+				baseHeroModel.subtitle === nextHero.subtitle &&
+				normalizeHeadingAlign(baseHeroModel.align, "center") ===
+					normalizeHeadingAlign(nextHero.align, "center");
 			const entry = state.dirtyPages[state.path] || {};
 			const localBlocks = entry.localBlocks || [];
 			if (unchanged && !localBlocks.length) {
@@ -8883,6 +10762,14 @@
 			return { type: "doc-card", summary: a?.getAttribute("href") || "Doc" };
 		}
 
+		if (cls.contains("portfolio-grid")) {
+			const count = node.querySelectorAll(".portfolio-card").length;
+			return {
+				type: "portfolio-grid",
+				summary: `Portfolio grid (${count})`,
+			};
+		}
+
 		if (cls.contains("tab") && node.querySelector("input[type=checkbox]")) {
 			const label = node.querySelector(".tab-label");
 			return {
@@ -8975,6 +10862,7 @@
 
 		uiState: "loading",
 		uiStateLabel: "LOADING / INITIALISING",
+		uiErrorDetail: null,
 	};
 	window.__CMS_STATE__ = state;
 	if (state.debug) {
@@ -9123,9 +11011,12 @@
 	// -------------------------
 	// Render helpers
 	// -------------------------
-	function setUiState(kind, label) {
+	function setUiState(kind, label, options = {}) {
 		state.uiState = kind;
 		state.uiStateLabel = label;
+		if (kind !== "error" || !options.keepErrorDetail) {
+			state.uiErrorDetail = null;
+		}
 		updateStatusStrip();
 		if (typeof state._updateNavCommitState === "function")
 			state._updateNavCommitState();
@@ -9193,6 +11084,26 @@
 				alt: "Dev portal status banner",
 			}),
 		);
+	}
+
+	function buildAccessErrorDetail(path) {
+		const apiPath = `/api/repo/file?path=${encodeURIComponent(
+			path || DEFAULT_PAGE,
+		)}`;
+		return {
+			title: "Access login required",
+			body:
+				"The CMS API request was redirected to Cloudflare Access. This happens when /api/* is protected by a separate Access app.",
+			hint: "Open the API endpoint in a tab to complete Access login, then reload.",
+			actionLabel: "Open API login",
+			actionHref: apiPath,
+		};
+	}
+
+	function setAccessError(path) {
+		state.uiErrorDetail = buildAccessErrorDetail(path);
+		setUiState("error", "ACCESS REQUIRED", { keepErrorDetail: true });
+		renderPageSurface();
 	}
 
 	// Builds state.rebuiltHtml from originalHtml + current blocks.
@@ -9303,6 +11214,28 @@
 			"text/html",
 		).body;
 		Array.from(heroDoc.children).forEach((n) => root.appendChild(n));
+		const heroWrap = root.querySelector(".default-div-wrapper.hero-override");
+		if (heroWrap) {
+			heroWrap.classList.add("cms-hero-editable");
+			let heroBtn = heroWrap.querySelector(".cms-hero-edit");
+			if (!heroBtn) {
+				heroBtn = el(
+					"button",
+					{
+						type: "button",
+						class: "cms-block__btn cms-block__btn--edit cms-hero-edit",
+						title: "Edit hero",
+						"aria-label": "Edit hero",
+					},
+					[buildPenIcon(), "Edit"],
+				);
+				heroBtn.addEventListener("click", (event) => {
+					event.preventDefault();
+					openHeroEditor();
+				});
+				heroWrap.appendChild(heroBtn);
+			}
+		}
 
 		// Main
 		const mainWrap = el("div", { id: "cms-main" }, []);
@@ -9312,6 +11245,52 @@
 				el("div", { class: "cms-empty" }, [
 					el("div", { class: "cms-empty-title" }, ["Loading page…"]),
 				]),
+			);
+			root.appendChild(mainWrap);
+			return;
+		}
+
+		if (state.uiState === "error" && state.uiErrorDetail) {
+			const detail = state.uiErrorDetail;
+			const actions = [];
+			if (detail.actionHref) {
+				actions.push(
+					el(
+						"a",
+						{
+							class: "cms-btn cms-btn--move",
+							href: detail.actionHref,
+							target: "_blank",
+							rel: "noopener noreferrer",
+						},
+						[detail.actionLabel || "Open API login"],
+					),
+				);
+			}
+			actions.push(
+				el(
+					"button",
+					{
+						class: "cms-btn",
+						type: "button",
+						onclick: () => location.reload(),
+					},
+					["Reload page"],
+				),
+			);
+			mainWrap.appendChild(
+				el("div", { class: "cms-empty" }, [
+					el("div", { class: "cms-empty-title" }, [
+						detail.title || "Access required",
+					]),
+					detail.body
+						? el("p", { class: "cms-modal__text" }, [detail.body])
+						: null,
+					detail.hint
+						? el("p", { class: "cms-modal__text" }, [detail.hint])
+						: null,
+					el("div", { class: "cms-field__row" }, actions),
+				].filter(Boolean)),
 			);
 			root.appendChild(mainWrap);
 			return;
@@ -9707,7 +11686,9 @@
 		scheduleHighlightStaticCodeBlocks();
 
 		queueMicrotask(() => {
-			mainWrap.querySelectorAll(".cms-divider-btn").forEach((btn) => {
+			mainWrap
+				.querySelectorAll(".cms-divider-btn[data-insert]")
+				.forEach((btn) => {
 				btn.addEventListener("click", () => {
 					const at = Number(btn.getAttribute("data-insert") || "0");
 					const anchorId = btn.getAttribute("data-anchor-id") || "";
@@ -10062,12 +12043,6 @@
 			{ class: "cms-btn", id: "cms-discard", disabled: "true" },
 			["Discard"],
 		);
-		const heroBtn = el(
-			"button",
-			{ class: "cms-btn", id: "cms-edit-hero" },
-			["Edit Hero"],
-		);
-
 		const exitBtn = el("button", { class: "cms-btn", id: "cms-exit" }, [
 			"Exit Admin",
 		]);
@@ -10098,7 +12073,6 @@
 				]),
 				el("div", { class: "cms-strip-right cms-controls" }, [
 					discardBtn,
-					heroBtn,
 					exitBtn,
 				]),
 			]),
@@ -10392,7 +12366,28 @@
 		renderPageSurface();
 
 		const url = `/api/repo/file?path=${encodeURIComponent(state.path)}`;
-		const res = await fetch(url, { headers: { Accept: "application/json" } });
+		let res = null;
+		try {
+			res = await fetch(url, {
+				headers: { Accept: "application/json" },
+				redirect: "manual",
+			});
+		} catch (err) {
+			if (err?.name === "TypeError") {
+				setAccessError(state.path);
+				return;
+			}
+			throw err;
+		}
+		if (res.type === "opaqueredirect") {
+			setAccessError(state.path);
+			return;
+		}
+		const contentType = res.headers.get("content-type") || "";
+		if (!contentType.includes("application/json")) {
+			setAccessError(state.path);
+			return;
+		}
 		if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
 		const data = await res.json();
@@ -10520,7 +12515,7 @@
 		const blockData = await buildBlockDataMap(paths);
 		const selectedPages = new Set();
 		const selectedBlocks = new Map();
-		let activeModes = new Set(["new"]);
+		let activeModes = new Set(["all"]);
 		let list = null;
 
 		const selectAll = el("input", { type: "checkbox", id: "cms-select-all" });
@@ -10669,6 +12664,9 @@
 			pathsToProcess.forEach((path) => {
 				const entry = blockData[path];
 				const selectedIds = selectedBlocks.get(path) || new Set();
+				const heroInfo = entry.hero || null;
+				const heroSelected =
+					heroInfo && selectedIds ? selectedIds.has(heroInfo.id) : false;
 				const localIdsToDrop = new Set();
 				(entry.all || []).forEach((block) => {
 					if (!selectedIds.has(block.id)) return;
@@ -10696,7 +12694,22 @@
 					return true;
 				});
 				const baseHtml = entry.baseHtml || entry.dirtyHtml || "";
+				const keepHero = heroInfo && !heroSelected;
+				const dropHero = heroInfo && heroSelected;
 				if (!remainingLocal.length) {
+					if (keepHero) {
+						const updatedHtml = applyHeroRegion(
+							baseHtml,
+							heroInfo.dirtyInner,
+						);
+						setDirtyPage(path, updatedHtml, entry.baseHtml, []);
+						if (path === state.path) {
+							state.lastReorderLocal = null;
+							applyHtmlToCurrentPage(updatedHtml);
+							renderPageSurface();
+						}
+						return;
+					}
 					clearDirtyPage(path);
 					if (path === state.path) {
 						state.lastReorderLocal = null;
@@ -10705,7 +12718,7 @@
 					}
 					return;
 				}
-				const updatedHtml = mergeDirtyWithBase(
+				let updatedHtml = mergeDirtyWithBase(
 					baseHtml,
 					baseHtml,
 					remainingLocal,
@@ -10714,6 +12727,12 @@
 						path,
 					},
 				);
+				if (heroInfo) {
+					updatedHtml = applyHeroRegion(
+						updatedHtml,
+						dropHero ? heroInfo.baseInner : heroInfo.dirtyInner,
+					);
+				}
 				const remappedLocal = assignAnchorsFromHtml(
 					baseHtml,
 					updatedHtml,
@@ -10908,7 +12927,7 @@
 		const blockData = await buildBlockDataMap(dirtyPaths);
 		const selectedPages = new Set();
 		const selectedBlocks = new Map();
-		let activeModes = new Set(["new"]);
+		let activeModes = new Set(["all"]);
 		let list = null;
 
 		const selectAll = el("input", {
@@ -11077,6 +13096,9 @@
 			pathsToProcess.forEach((path) => {
 				const entry = blockData[path];
 				const selectedIds = selectedBlocks.get(path) || new Set();
+				const heroInfo = entry.hero || null;
+				const heroSelected =
+					heroInfo && selectedIds ? selectedIds.has(heroInfo.id) : false;
 				commitSelections.push({ path, entry, selectedIds });
 				const commitHtml = buildHtmlForSelection(entry, selectedIds, "commit");
 				const localById = new Map(
@@ -11105,7 +13127,7 @@
 					});
 				});
 				const remainingBase = entry.baseHtml || entry.dirtyHtml || "";
-				const remainingHtml = mergeDirtyWithBase(
+				let remainingHtml = mergeDirtyWithBase(
 					remainingBase,
 					remainingBase,
 					remainingLocal,
@@ -11114,6 +13136,12 @@
 						path,
 					},
 				);
+				if (heroInfo) {
+					remainingHtml = applyHeroRegion(
+						remainingHtml,
+						heroSelected ? heroInfo.baseInner : heroInfo.dirtyInner,
+					);
+				}
 				const remappedLocal = assignAnchorsFromHtml(
 					remainingBase,
 					remainingHtml,
@@ -11153,7 +13181,9 @@
 			if (!pr?.number) return;
 			commitSelections.forEach(({ path, entry, selectedIds }) => {
 				const selectedBlocks = (entry.all || [])
-					.filter((block) => selectedIds.has(block.id))
+					.filter(
+						(block) => selectedIds.has(block.id) && block.kind !== "hero",
+					)
 					.map((block) => ({
 						html: block.html,
 						pos: block.idx,
@@ -11206,9 +13236,6 @@
 		});
 		qs("#cms-discard")?.addEventListener("click", () => {
 			openDiscardModal().catch((err) => console.error(err));
-		});
-		qs("#cms-edit-hero")?.addEventListener("click", () => {
-			openHeroEditor();
 		});
 		qs("#cms-debug-pill")?.addEventListener("click", () => {
 			setDebugEnabled(!state.debug);
