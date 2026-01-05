@@ -11030,6 +11030,28 @@
 			"text/html",
 		).body;
 		Array.from(heroDoc.children).forEach((n) => root.appendChild(n));
+		const heroWrap = root.querySelector(".default-div-wrapper.hero-override");
+		if (heroWrap) {
+			heroWrap.classList.add("cms-hero-editable");
+			let heroBtn = heroWrap.querySelector(".cms-hero-edit");
+			if (!heroBtn) {
+				heroBtn = el(
+					"button",
+					{
+						type: "button",
+						class: "cms-block__btn cms-block__btn--edit cms-hero-edit",
+						title: "Edit hero",
+						"aria-label": "Edit hero",
+					},
+					[buildPenIcon(), "Edit"],
+				);
+				heroBtn.addEventListener("click", (event) => {
+					event.preventDefault();
+					openHeroEditor();
+				});
+				heroWrap.appendChild(heroBtn);
+			}
+		}
 
 		// Main
 		const mainWrap = el("div", { id: "cms-main" }, []);
@@ -11791,12 +11813,6 @@
 			{ class: "cms-btn", id: "cms-discard", disabled: "true" },
 			["Discard"],
 		);
-		const heroBtn = el(
-			"button",
-			{ class: "cms-btn", id: "cms-edit-hero" },
-			["Edit Hero"],
-		);
-
 		const exitBtn = el("button", { class: "cms-btn", id: "cms-exit" }, [
 			"Exit Admin",
 		]);
@@ -11827,7 +11843,6 @@
 				]),
 				el("div", { class: "cms-strip-right cms-controls" }, [
 					discardBtn,
-					heroBtn,
 					exitBtn,
 				]),
 			]),
@@ -12935,9 +12950,6 @@
 		});
 		qs("#cms-discard")?.addEventListener("click", () => {
 			openDiscardModal().catch((err) => console.error(err));
-		});
-		qs("#cms-edit-hero")?.addEventListener("click", () => {
-			openHeroEditor();
 		});
 		qs("#cms-debug-pill")?.addEventListener("click", () => {
 			setDebugEnabled(!state.debug);
