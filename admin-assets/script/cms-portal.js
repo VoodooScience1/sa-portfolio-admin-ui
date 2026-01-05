@@ -3794,7 +3794,9 @@
 		Object.keys(state.dirtyPages || {}).forEach((path) => {
 			const entry = state.dirtyPages[path];
 			if (!entry) return;
+			const hasLocal = normalizeLocalBlocks(entry.localBlocks || []).length > 0;
 			if (
+				!hasLocal &&
 				entry.baseHash &&
 				entry.dirtyHash &&
 				entry.baseHash === entry.dirtyHash
@@ -3802,7 +3804,7 @@
 				clearDirtyPage(path);
 				return;
 			}
-			if (normalizeLocalBlocks(entry.localBlocks || []).length) return;
+			if (hasLocal) return;
 			if (path === state.path) {
 				const baseNow = state.originalHtml || "";
 				const dirtyNow = entry.html || "";
@@ -3979,7 +3981,7 @@
 		modes,
 		onSelectionChange,
 	}) {
-		const wrap = el("div", { class: "cms-modal__list" }, []);
+		const wrap = el("div", { class: "cms-modal__list cms-modal__list--scroll" }, []);
 		const paths = Object.keys(state.dirtyPages || {}).sort();
 		paths.forEach((path, idx) => {
 			const id = `cms-page-${idx}`;
