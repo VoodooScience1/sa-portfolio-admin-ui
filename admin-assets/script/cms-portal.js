@@ -10425,7 +10425,6 @@
 			placeholder: "Hero subtitle",
 		});
 		subtitleInput.value = heroModel.subtitle || "";
-		const alignSelect = buildAlignSelect(heroModel.align, "center");
 
 		const saveBtn = el(
 			"button",
@@ -10440,7 +10439,7 @@
 				type: "hero",
 				title: titleInput.value.trim(),
 				subtitle: subtitleInput.value.trim(),
-				align: alignSelect.value,
+				align: heroModel.align,
 			};
 			const baseHero = extractRegion(state.originalHtml || "", "hero");
 			const baseHeroModel = parseHeroInner(baseHero.inner || "");
@@ -10471,10 +10470,9 @@
 		openModal({
 			title: "Edit hero",
 			bodyNodes: [
-				buildHeadingField({
+				buildField({
 					label: "Title",
 					input: titleInput,
-					align: alignSelect,
 					note: "Hero uses a single h1 and a single subtitle line.",
 				}),
 				buildField({ label: "Subtitle", input: subtitleInput }),
