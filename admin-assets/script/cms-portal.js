@@ -1128,30 +1128,35 @@
 			safe.showSearch ?? attrs.showSearch,
 			true,
 		);
-		const showTypeFilters = normalizePortfolioBool(
-			safe.showTypeFilters ?? attrs.showTypeFilters,
-			true,
-		);
-		const showTagFilters = normalizePortfolioBool(
-			safe.showTagFilters ?? attrs.showTagFilters,
-			true,
-		);
-		const cards = Array.isArray(safe.cards)
-			? safe.cards
-					.map((card) => normalizePortfolioCard(card))
-					.filter((card) => !isPortfolioCardEmpty(card))
+	const showTypeFilters = normalizePortfolioBool(
+		safe.showTypeFilters ?? attrs.showTypeFilters,
+		true,
+	);
+	const showTagFilters = normalizePortfolioBool(
+		safe.showTagFilters ?? attrs.showTagFilters,
+		true,
+	);
+	const showLinkFilters = normalizePortfolioBool(
+		safe.showLinkFilters ?? attrs.showLinkFilters,
+		true,
+	);
+	const cards = Array.isArray(safe.cards)
+		? safe.cards
+				.map((card) => normalizePortfolioCard(card))
+				.filter((card) => !isPortfolioCardEmpty(card))
 			: [];
 		return {
 			title,
 			titleAlign,
-			intro,
-			maxVisible,
-			showSearch,
-			showTypeFilters,
-			showTagFilters,
-			cards,
-		};
-	}
+		intro,
+		maxVisible,
+		showSearch,
+		showTypeFilters,
+		showTagFilters,
+		showLinkFilters,
+		cards,
+	};
+}
 
 	function parsePortfolioCardsFromHtml(node) {
 		const cards = Array.from(node.querySelectorAll(".portfolio-card"));
@@ -1219,8 +1224,10 @@
 			attrs.showSearch = node.getAttribute("data-show-search");
 		if (node.hasAttribute("data-show-types"))
 			attrs.showTypeFilters = node.getAttribute("data-show-types");
-		if (node.hasAttribute("data-show-tags"))
-			attrs.showTagFilters = node.getAttribute("data-show-tags");
+	if (node.hasAttribute("data-show-tags"))
+		attrs.showTagFilters = node.getAttribute("data-show-tags");
+	if (node.hasAttribute("data-show-links"))
+		attrs.showLinkFilters = node.getAttribute("data-show-links");
 		const headerEl = node.querySelector(".portfolio-grid__header h1,h2,h3");
 		const headerText = headerEl?.textContent?.trim() || "";
 		const headerStyle = headerEl?.getAttribute("style") || "";
@@ -1739,54 +1746,67 @@
 					.filter(Boolean),
 			),
 		).sort((a, b) => a.localeCompare(b));
-		const tags = Array.from(
-			new Set(
-				normalized.cards
-					.flatMap((card) => card.tags || [])
-					.map((tag) => String(tag || "").trim())
-					.filter(Boolean),
-			),
-		).sort((a, b) => a.localeCompare(b));
+	const tags = Array.from(
+		new Set(
+			normalized.cards
+				.flatMap((card) => card.tags || [])
+				.map((tag) => String(tag || "").trim())
+				.filter(Boolean),
+		),
+	).sort((a, b) => a.localeCompare(b));
+	const linkOrder = ["site", "github", "youtube", "facebook", "gallery"];
+	const linkFilters = linkOrder.filter((key) =>
+		normalized.cards.some((card) => {
+			if (key === "gallery") return Boolean(card.gallery?.length);
+			return Boolean(card.links?.[key]);
+		}),
+	);
 
-		const typeColorMap = {
-			work: "#2563eb",
-			academic: "#dc2626",
-			personal: "#16a34a",
-		};
-		const hashPortfolioKey = (value) => {
-			const text = String(value || "");
-			let hash = 0;
-			for (let i = 0; i < text.length; i += 1) {
-				hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
-			}
-			return hash;
-		};
-		const getTypeColor = (typeKey) => {
-			if (!typeKey) return "";
-			if (typeColorMap[typeKey]) return typeColorMap[typeKey];
-			const hue = hashPortfolioKey(typeKey) % 360;
-			return `hsl(${hue} 70% 42%)`;
-		};
+	const typeColorMap = {
+		work: "#2563eb",
+		academic: "#dc2626",
+		personal: "#16a34a",
+	};
+	const hashPortfolioKey = (value) => {
+		const text = String(value || "");
+		let hash = 0;
+		for (let i = 0; i < text.length; i += 1) {
+			hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+		}
+		return hash;
+	};
+	const getTypeColor = (typeKey) => {
+		if (!typeKey) return "";
+		if (typeColorMap[typeKey]) return typeColorMap[typeKey];
+		const hue = hashPortfolioKey(typeKey) % 360;
+		return `hsl(${hue} 70% 42%)`;
+	};
+	const showLinkFilters =
+		Boolean(normalized.showLinkFilters) && Boolean(linkFilters.length);
+	const githubSvg =
+		'<svg class="portfolio-icon portfolio-icon--github" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0.3c-6.6 0-12 5.4-12 12 0 5.3 3.4 9.8 8.2 11.4 0.6 0.1 0.8-0.3 0.8-0.6v-2.2c-3.3 0.7-4-1.4-4-1.4-0.5-1.3-1.2-1.7-1.2-1.7-1-0.7 0.1-0.7 0.1-0.7 1.1 0.1 1.7 1.2 1.7 1.2 1 1.7 2.6 1.2 3.2 0.9 0.1-0.7 0.4-1.2 0.7-1.5-2.6-0.3-5.4-1.3-5.4-5.9 0-1.3 0.5-2.4 1.2-3.2-0.1-0.3-0.5-1.5 0.1-3.1 0 0 1-0.3 3.3 1.2 1-0.3 2-0.4 3-0.4s2.1 0.1 3 0.4c2.3-1.5 3.3-1.2 3.3-1.2 0.6 1.6 0.2 2.8 0.1 3.1 0.8 0.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.4 5.9 0.4 0.4 0.8 1 0.8 2v3c0 0.3 0.2 0.7 0.8 0.6 4.8-1.6 8.2-6.1 8.2-11.4 0-6.6-5.4-12-12-12z"/></svg>';
 
-		const attrs = {
-			class: "portfolio-grid",
-			"data-cms-id": cmsId,
-			"data-max-visible": String(normalized.maxVisible || 0),
-			"data-show-search": normalized.showSearch ? "true" : "false",
-			"data-show-types": normalized.showTypeFilters ? "true" : "false",
-			"data-show-tags": normalized.showTagFilters ? "true" : "false",
-		};
-		const order = [
-			"class",
-			"data-cms-id",
-			"data-max-visible",
-			"data-show-search",
-			"data-show-types",
-			"data-show-tags",
-		];
-		const lines = [`<div${serializeAttrsOrdered(attrs, order)}>`];
-		const hasControls =
-			normalized.showSearch || normalized.showTypeFilters || normalized.showTagFilters;
+	const attrs = {
+		class: "portfolio-grid",
+		"data-cms-id": cmsId,
+		"data-max-visible": String(normalized.maxVisible || 0),
+		"data-show-search": normalized.showSearch ? "true" : "false",
+		"data-show-types": normalized.showTypeFilters ? "true" : "false",
+		"data-show-tags": normalized.showTagFilters ? "true" : "false",
+		"data-show-links": normalized.showLinkFilters ? "true" : "false",
+	};
+	const order = [
+		"class",
+		"data-cms-id",
+		"data-max-visible",
+		"data-show-search",
+		"data-show-types",
+		"data-show-tags",
+		"data-show-links",
+	];
+	const lines = [`<div${serializeAttrsOrdered(attrs, order)}>`];
+	const hasControls =
+		normalized.showSearch || normalized.showTypeFilters || normalized.showTagFilters;
 
 		if (normalized.title) {
 			const titleAlign = normalized.titleAlign || "";
@@ -1827,35 +1847,78 @@
 			lines.push(`\t</div>`);
 		}
 
-		if (
+		const hasFilters =
 			(normalized.showTypeFilters && types.length) ||
-			(normalized.showTagFilters && tags.length)
-		) {
+			(normalized.showTagFilters && tags.length) ||
+			showLinkFilters;
+
+		if (hasFilters) {
 			lines.push(`\t<div class="portfolio-grid__filters">`);
+			lines.push(`\t\t<div class="portfolio-grid__filters-title">Filters</div>`);
 			if (normalized.showTypeFilters && types.length) {
-				lines.push(`\t\t<div class="portfolio-grid__filter-group" data-filter="type">`);
 				lines.push(
-					`\t\t\t<button type="button" class="portfolio-filter-pill is-active" data-type="">All</button>`,
+					`\t\t<div class="portfolio-grid__filter-row" data-filter-row="type">`,
+					`\t\t\t<div class="portfolio-grid__filter-label">Categories</div>`,
+					`\t\t\t<div class="portfolio-grid__filter-group" data-filter="type">`,
+					`\t\t\t\t<button type="button" class="portfolio-filter-pill is-active" data-type="">All</button>`,
 				);
 				types.forEach((type) => {
 					lines.push(
-						`\t\t\t<button type="button" class="portfolio-filter-pill" data-type="${escapeAttr(
+						`\t\t\t\t<button type="button" class="portfolio-filter-pill" data-type="${escapeAttr(
 							type,
 						)}">${escapeHtml(type)}</button>`,
 					);
 				});
-				lines.push(`\t\t</div>`);
+				lines.push(`\t\t\t</div>`, `\t\t</div>`);
 			}
 			if (normalized.showTagFilters && tags.length) {
-				lines.push(`\t\t<div class="portfolio-grid__filter-group" data-filter="tag">`);
+				lines.push(
+					`\t\t<div class="portfolio-grid__filter-row" data-filter-row="tag">`,
+					`\t\t\t<div class="portfolio-grid__filter-label">Skills</div>`,
+					`\t\t\t<div class="portfolio-grid__filter-group" data-filter="tag">`,
+				);
 				tags.forEach((tag) => {
 					lines.push(
-						`\t\t\t<button type="button" class="portfolio-filter-pill" data-tag="${escapeAttr(
+						`\t\t\t\t<button type="button" class="portfolio-filter-pill" data-tag="${escapeAttr(
 							tag,
 						)}">${escapeHtml(tag)}</button>`,
 					);
 				});
-				lines.push(`\t\t</div>`);
+				lines.push(`\t\t\t</div>`, `\t\t</div>`);
+			}
+			if (showLinkFilters) {
+				const linkIconMap = {
+					site: { icon: "link", label: "Website" },
+					github: { icon: "github", label: "GitHub" },
+					youtube: { icon: "smart_display", label: "YouTube" },
+					facebook: { icon: "chat_bubble", label: "Message" },
+					gallery: { icon: "collections", label: "Gallery" },
+				};
+				lines.push(
+					`\t\t<div class="portfolio-grid__filter-row" data-filter-row="link">`,
+					`\t\t\t<div class="portfolio-grid__filter-label">Links</div>`,
+					`\t\t\t<div class="portfolio-grid__filter-group" data-filter="link">`,
+				);
+				linkFilters.forEach((key) => {
+					const meta = linkIconMap[key];
+					if (!meta) return;
+					const iconMarkup =
+						meta.icon === "github"
+							? githubSvg
+							: `<span class="material-icons" aria-hidden="true">${meta.icon}</span>`;
+					lines.push(
+						`\t\t\t\t<button type="button" class="portfolio-filter-icon portfolio-filter-icon--${escapeAttr(
+							key,
+						)}" data-link="${escapeAttr(
+							key,
+						)}" data-tooltip="${escapeAttr(
+							meta.label,
+						)}" aria-label="${escapeAttr(meta.label)}">`,
+						`\t\t\t\t\t${iconMarkup}`,
+						`\t\t\t\t</button>`,
+					);
+				});
+				lines.push(`\t\t\t</div>`, `\t\t</div>`);
 			}
 			lines.push(`\t</div>`);
 		}
@@ -1920,7 +1983,7 @@
 				if (!href) return;
 				const iconMarkup =
 					meta.icon === "github"
-						? `<svg class="portfolio-icon portfolio-icon--github" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0.3c-6.6 0-12 5.4-12 12 0 5.3 3.4 9.8 8.2 11.4 0.6 0.1 0.8-0.3 0.8-0.6v-2.2c-3.3 0.7-4-1.4-4-1.4-0.5-1.3-1.2-1.7-1.2-1.7-1-0.7 0.1-0.7 0.1-0.7 1.1 0.1 1.7 1.2 1.7 1.2 1 1.7 2.6 1.2 3.2 0.9 0.1-0.7 0.4-1.2 0.7-1.5-2.6-0.3-5.4-1.3-5.4-5.9 0-1.3 0.5-2.4 1.2-3.2-0.1-0.3-0.5-1.5 0.1-3.1 0 0 1-0.3 3.3 1.2 1-0.3 2-0.4 3-0.4s2.1 0.1 3 0.4c2.3-1.5 3.3-1.2 3.3-1.2 0.6 1.6 0.2 2.8 0.1 3.1 0.8 0.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.4 5.9 0.4 0.4 0.8 1 0.8 2v3c0 0.3 0.2 0.7 0.8 0.6 4.8-1.6 8.2-6.1 8.2-11.4 0-6.6-5.4-12-12-12z"/></svg>`
+						? githubSvg
 						: `<span class="material-icons" aria-hidden="true">${meta.icon}</span>`;
 				lines.push(
 					`\t\t\t\t\t<a class="portfolio-card__icon portfolio-card__icon--${escapeAttr(
@@ -1982,6 +2045,7 @@
 			showSearch: normalized.showSearch,
 			showTypeFilters: normalized.showTypeFilters,
 			showTagFilters: normalized.showTagFilters,
+			showLinkFilters: normalized.showLinkFilters,
 			cards: normalized.cards.map((card) => ({
 				title: card.title || "",
 				type: card.type || "",
@@ -3788,15 +3852,6 @@
 							: [];
 					const remoteText = normalizeForDirtyCompare(data.text || "", path);
 					const entryText = normalizeForDirtyCompare(merged || "", path);
-					if (
-						!cleanedLocal.length &&
-						!normalizeLocalBlocks(entry.localBlocks || []).length
-					) {
-						if (remoteText && entryText && remoteText !== entryText) {
-							clearDirtyPage(path);
-							return;
-						}
-					}
 					if (
 						!cleanedLocal.length &&
 						remoteText &&
@@ -8666,6 +8721,11 @@
 				class: "cms-field__checkbox",
 			});
 			showTagsInput.checked = normalized.showTagFilters !== false;
+			const showLinksInput = el("input", {
+				type: "checkbox",
+				class: "cms-field__checkbox",
+			});
+			showLinksInput.checked = normalized.showLinkFilters !== false;
 
 			const toggleRow = el("div", { class: "cms-field__row" }, [
 				el("label", { class: "cms-field__toggle" }, [
@@ -8679,6 +8739,10 @@
 				el("label", { class: "cms-field__toggle" }, [
 					showTagsInput,
 					el("span", { class: "cms-field__toggle-text" }, ["Tags"]),
+				]),
+				el("label", { class: "cms-field__toggle" }, [
+					showLinksInput,
+					el("span", { class: "cms-field__toggle-text" }, ["Links"]),
 				]),
 			]);
 
@@ -9412,6 +9476,7 @@
 				portfolioShowSearch: showSearchInput,
 				portfolioShowTypes: showTypesInput,
 				portfolioShowTags: showTagsInput,
+				portfolioShowLinks: showLinksInput,
 				portfolioCards,
 			};
 		} else if (parsed.type === "styledAccordion") {
@@ -10361,6 +10426,7 @@
 				updated.showSearch = settings.portfolioShowSearch?.checked ?? true;
 				updated.showTypeFilters = settings.portfolioShowTypes?.checked ?? true;
 				updated.showTagFilters = settings.portfolioShowTags?.checked ?? true;
+				updated.showLinkFilters = settings.portfolioShowLinks?.checked ?? true;
 				updated.title = settings.portfolioTitleInput?.value.trim() || "";
 				const alignValue = normalizeHeadingAlign(
 					settings.portfolioTitleAlignSelect?.value,
@@ -12358,7 +12424,7 @@
 		const blockData = await buildBlockDataMap(paths);
 		const selectedPages = new Set();
 		const selectedBlocks = new Map();
-		let activeModes = new Set(["new"]);
+		let activeModes = new Set(["all"]);
 		let list = null;
 
 		const selectAll = el("input", { type: "checkbox", id: "cms-select-all" });
@@ -12770,7 +12836,7 @@
 		const blockData = await buildBlockDataMap(dirtyPaths);
 		const selectedPages = new Set();
 		const selectedBlocks = new Map();
-		let activeModes = new Set(["new"]);
+		let activeModes = new Set(["all"]);
 		let list = null;
 
 		const selectAll = el("input", {
