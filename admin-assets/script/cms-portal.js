@@ -10862,6 +10862,7 @@
 
 		uiState: "loading",
 		uiStateLabel: "LOADING / INITIALISING",
+		uiErrorDetail: null,
 	};
 	window.__CMS_STATE__ = state;
 	if (state.debug) {
@@ -11010,9 +11011,12 @@
 	// -------------------------
 	// Render helpers
 	// -------------------------
-	function setUiState(kind, label) {
+	function setUiState(kind, label, options = {}) {
 		state.uiState = kind;
 		state.uiStateLabel = label;
+		if (kind !== "error" || !options.keepErrorDetail) {
+			state.uiErrorDetail = null;
+		}
 		updateStatusStrip();
 		if (typeof state._updateNavCommitState === "function")
 			state._updateNavCommitState();
@@ -11080,6 +11084,26 @@
 				alt: "Dev portal status banner",
 			}),
 		);
+	}
+
+	function buildAccessErrorDetail(path) {
+		const apiPath = `/api/repo/file?path=${encodeURIComponent(
+			path || DEFAULT_PAGE,
+		)}`;
+		return {
+			title: "Access login required",
+			body:
+				"The CMS API request was redirected to Cloudflare Access. This happens when /api/* is protected by a separate Access app.",
+			hint: "Open the API endpoint in a tab to complete Access login, then reload.",
+			actionLabel: "Open API login",
+			actionHref: apiPath,
+		};
+	}
+
+	function setAccessError(path) {
+		state.uiErrorDetail = buildAccessErrorDetail(path);
+		setUiState("error", "ACCESS REQUIRED", { keepErrorDetail: true });
+		renderPageSurface();
 	}
 
 	// Builds state.rebuiltHtml from originalHtml + current blocks.
@@ -11221,6 +11245,52 @@
 				el("div", { class: "cms-empty" }, [
 					el("div", { class: "cms-empty-title" }, ["Loading page…"]),
 				]),
+			);
+			root.appendChild(mainWrap);
+			return;
+		}
+
+		if (state.uiState === "error" && state.uiErrorDetail) {
+			const detail = state.uiErrorDetail;
+			const actions = [];
+			if (detail.actionHref) {
+				actions.push(
+					el(
+						"a",
+						{
+							class: "cms-btn cms-btn--move",
+							href: detail.actionHref,
+							target: "_blank",
+							rel: "noopener noreferrer",
+						},
+						[detail.actionLabel || "Open API login"],
+					),
+				);
+			}
+			actions.push(
+				el(
+					"button",
+					{
+						class: "cms-btn",
+						type: "button",
+						onclick: () => location.reload(),
+					},
+					["Reload page"],
+				),
+			);
+			mainWrap.appendChild(
+				el("div", { class: "cms-empty" }, [
+					el("div", { class: "cms-empty-title" }, [
+						detail.title || "Access required",
+					]),
+					detail.body
+						? el("p", { class: "cms-modal__text" }, [detail.body])
+						: null,
+					detail.hint
+						? el("p", { class: "cms-modal__text" }, [detail.hint])
+						: null,
+					el("div", { class: "cms-field__row" }, actions),
+				].filter(Boolean)),
 			);
 			root.appendChild(mainWrap);
 			return;
@@ -12296,7 +12366,28 @@
 		renderPageSurface();
 
 		const url = `/api/repo/file?path=${encodeURIComponent(state.path)}`;
-		const res = await fetch(url, { headers: { Accept: "application/json" } });
+		let res = null;
+		try {
+			res = await fetch(url, {
+				headers: { Accept: "application/json" },
+				redirect: "manual",
+			});
+		} catch (err) {
+			if (err?.name === "TypeError") {
+				setAccessError(state.path);
+				return;
+			}
+			throw err;
+		}
+		if (res.type === "opaqueredirect") {
+			setAccessError(state.path);
+			return;
+		}
+		const contentType = res.headers.get("content-type") || "";
+		if (!contentType.includes("application/json")) {
+			setAccessError(state.path);
+			return;
+		}
 		if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
 		const data = await res.json();

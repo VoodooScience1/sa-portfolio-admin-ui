@@ -16,6 +16,7 @@ export async function onRequest(context) {
 	}
 
 	const CMS_API_KEY = String(env.CMS_API_KEY || "").trim();
+	const CMS_READ_KEY = String(env.CMS_READ_KEY || "").trim();
 
 	const incoming = new URL(request.url);
 	const path = Array.isArray(params.path)
@@ -32,6 +33,22 @@ export async function onRequest(context) {
 	// (dev Pages project sets GITHUB_DEFAULT_BRANCH=dev, prod sets =main)
 	const branch = String(env.GITHUB_DEFAULT_BRANCH || "").trim();
 	if (branch) headers.set("x-cms-branch", branch);
+
+	const isReadEndpoint = upstream.pathname.startsWith("/api/repo/");
+	if (isReadEndpoint) {
+		if (!CMS_READ_KEY) {
+			return new Response(
+				JSON.stringify({ error: "Missing CMS_READ_KEY (Pages env)" }, null, 2),
+				{
+					status: 500,
+					headers: { "content-type": "application/json; charset=utf-8" },
+				},
+			);
+		}
+		headers.set("x-cms-read-key", CMS_READ_KEY);
+	} else if (CMS_READ_KEY) {
+		headers.set("x-cms-read-key", CMS_READ_KEY);
+	}
 
 	// Only attach the key server-side for PR writes
 	if (upstream.pathname === "/api/pr") {
