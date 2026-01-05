@@ -832,7 +832,7 @@
 			}
 
 			if (tag === "li") {
-				const inner = serializeChildren(node);
+				const inner = serializeChildren(node).trim();
 				return `<li>${inner}</li>`;
 			}
 
@@ -921,6 +921,28 @@
 			`\t</div>`,
 			`</div>`,
 		].join("\n");
+	}
+
+	function heroModelsEqual(a, b) {
+		if (!a || !b) return false;
+		if (a.type !== b.type) return false;
+		if (a.type === "hero") {
+			return (
+				a.title === b.title &&
+				a.subtitle === b.subtitle &&
+				normalizeHeadingAlign(a.align, "center") ===
+					normalizeHeadingAlign(b.align, "center")
+			);
+		}
+		return String(a.raw || "").trim() === String(b.raw || "").trim();
+	}
+
+	function applyHeroRegion(html, innerHtml) {
+		const trimmed = String(innerHtml || "").trim();
+		if (!trimmed) return html;
+		const hero = extractRegion(html || "", "hero");
+		if (!hero.found) return html;
+		return replaceRegion(html, "hero", trimmed);
 	}
 
 	function normalizePortfolioBool(value, fallback) {
@@ -2222,7 +2244,10 @@
 		scrollTarget = null,
 	}) {
 		const root = ensureModalRoot();
-		root.dataset.scrollY = String(window.scrollY || 0);
+		const scrollTop = document.scrollingElement
+			? document.scrollingElement.scrollTop
+			: window.scrollY || 0;
+		root.dataset.scrollY = String(scrollTop);
 		root._scrollTarget =
 			scrollTarget instanceof HTMLElement ? scrollTarget : null;
 		qs("#cms-modal-title").textContent = title || "Modal";
@@ -2238,7 +2263,14 @@
 		document.body.classList.add("cms-lock");
 
 		const closeHandler = typeof onClose === "function" ? onClose : closeModal;
-		root.querySelectorAll("[data-close='true']").forEach((btn) => {
+		const closeButtons = Array.from(
+			root.querySelectorAll("[data-close='true']"),
+		).map((btn) => {
+			const clone = btn.cloneNode(true);
+			btn.replaceWith(clone);
+			return clone;
+		});
+		closeButtons.forEach((btn) => {
 			btn.addEventListener(
 				"click",
 				() => {
@@ -2268,7 +2300,9 @@
 				return;
 			}
 			if (Number.isFinite(scrollY)) {
-				window.scrollTo({ top: scrollY, left: 0, behavior: "auto" });
+				const scroller = document.scrollingElement;
+				if (scroller) scroller.scrollTop = scrollY;
+				else window.scrollTo({ top: scrollY, left: 0, behavior: "auto" });
 			}
 		});
 	}
@@ -3524,6 +3558,26 @@
 							.map((item) => anchorKey(item.anchor))
 							.filter(Boolean),
 					);
+					const heroSource = mergedForList || dirtyHtml || baseHtml || "";
+					const baseHero = extractRegion(baseHtml, "hero");
+					const dirtyHero = extractRegion(heroSource, "hero");
+					const baseHeroModel = parseHeroInner(baseHero.inner || "");
+					const dirtyHeroModel = parseHeroInner(dirtyHero.inner || "");
+					const heroChanged =
+						baseHero.found &&
+						dirtyHero.found &&
+						!heroModelsEqual(baseHeroModel, dirtyHeroModel);
+					const heroEntry = heroChanged
+						? {
+								id: `${path}::hero`,
+								baseInner: baseHero.inner || "",
+								dirtyInner: dirtyHero.inner || "",
+								summary:
+									dirtyHeroModel.type === "hero" && dirtyHeroModel.title
+										? `Hero: ${dirtyHeroModel.title}`
+										: "Hero",
+							}
+						: null;
 
 					const summarize = (html) => {
 						const doc = new DOMParser().parseFromString(
@@ -3613,6 +3667,23 @@
 						modified.push(item);
 					});
 
+					if (heroEntry) {
+						const heroItem = {
+							id: heroEntry.id,
+							idx: -1,
+							html: String(heroEntry.dirtyInner || "").trim(),
+							summary: heroEntry.summary || "Hero",
+							selectable: true,
+							localStatus: "staged",
+							prNumber: null,
+							localId: null,
+							baseId: "hero",
+							removed: false,
+							kind: "hero",
+						};
+						modified.unshift(heroItem);
+					}
+
 					all.push(...added, ...modified, ...removed);
 
 					blockMap[path] = {
@@ -3620,6 +3691,7 @@
 						baseHtml,
 						dirtyHtml: mergedForList,
 						localBlocks,
+						hero: heroEntry,
 						all,
 						added,
 						modified,
@@ -3773,6 +3845,11 @@
 	function buildHtmlForSelection(entry, selectedIds, action) {
 		const baseHtml = entry?.baseHtml || entry?.dirtyHtml || "";
 		if (!baseHtml) return "";
+		const heroInfo = entry?.hero || null;
+		const heroSelected =
+			heroInfo && selectedIds ? selectedIds.has(heroInfo.id) : false;
+		const heroBase = heroInfo?.baseInner || "";
+		const heroDirty = heroInfo?.dirtyInner || "";
 		const localBlocks = normalizeLocalBlocks(entry?.localBlocks || []);
 		if (!selectedIds || !selectedIds.size) {
 			const result =
@@ -3782,7 +3859,18 @@
 							respectRemovals: true,
 							path: entry?.path || state.path,
 						});
-			return canonicalizeFullHtml(result, entry?.path || state.path);
+			const heroInner =
+				action === "commit"
+					? heroSelected
+						? heroDirty
+						: heroBase
+					: heroSelected
+						? heroBase
+						: heroDirty;
+			const withHero = heroInfo
+				? applyHeroRegion(result, heroInner)
+				: result;
+			return canonicalizeFullHtml(withHero, entry?.path || state.path);
 		}
 		const selectedLocalIds = getSelectedLocalIds(entry, selectedIds);
 		const selectedLocal = localBlocks
@@ -3798,7 +3886,10 @@
 				respectRemovals: true,
 				path: entry?.path || state.path,
 			});
-			return canonicalizeFullHtml(result, entry?.path || state.path);
+			const withHero = heroInfo
+				? applyHeroRegion(result, heroSelected ? heroDirty : heroBase)
+				: result;
+			return canonicalizeFullHtml(withHero, entry?.path || state.path);
 		}
 		const remainingLocal = localBlocks.filter(
 			(item) => !selectedLocalIds.has(item.id),
@@ -3807,7 +3898,10 @@
 			respectRemovals: hasRemovalActions(remainingLocal),
 			path: entry?.path || state.path,
 		});
-		return canonicalizeFullHtml(result, entry?.path || state.path);
+		const withHero = heroInfo
+			? applyHeroRegion(result, heroSelected ? heroBase : heroDirty)
+			: result;
+		return canonicalizeFullHtml(withHero, entry?.path || state.path);
 	}
 
 	function applyHtmlToCurrentPage(updatedHtml) {
@@ -12413,6 +12507,9 @@
 			pathsToProcess.forEach((path) => {
 				const entry = blockData[path];
 				const selectedIds = selectedBlocks.get(path) || new Set();
+				const heroInfo = entry.hero || null;
+				const heroSelected =
+					heroInfo && selectedIds ? selectedIds.has(heroInfo.id) : false;
 				const localIdsToDrop = new Set();
 				(entry.all || []).forEach((block) => {
 					if (!selectedIds.has(block.id)) return;
@@ -12440,7 +12537,22 @@
 					return true;
 				});
 				const baseHtml = entry.baseHtml || entry.dirtyHtml || "";
+				const keepHero = heroInfo && !heroSelected;
+				const dropHero = heroInfo && heroSelected;
 				if (!remainingLocal.length) {
+					if (keepHero) {
+						const updatedHtml = applyHeroRegion(
+							baseHtml,
+							heroInfo.dirtyInner,
+						);
+						setDirtyPage(path, updatedHtml, entry.baseHtml, []);
+						if (path === state.path) {
+							state.lastReorderLocal = null;
+							applyHtmlToCurrentPage(updatedHtml);
+							renderPageSurface();
+						}
+						return;
+					}
 					clearDirtyPage(path);
 					if (path === state.path) {
 						state.lastReorderLocal = null;
@@ -12449,7 +12561,7 @@
 					}
 					return;
 				}
-				const updatedHtml = mergeDirtyWithBase(
+				let updatedHtml = mergeDirtyWithBase(
 					baseHtml,
 					baseHtml,
 					remainingLocal,
@@ -12458,6 +12570,12 @@
 						path,
 					},
 				);
+				if (heroInfo) {
+					updatedHtml = applyHeroRegion(
+						updatedHtml,
+						dropHero ? heroInfo.baseInner : heroInfo.dirtyInner,
+					);
+				}
 				const remappedLocal = assignAnchorsFromHtml(
 					baseHtml,
 					updatedHtml,
@@ -12821,6 +12939,9 @@
 			pathsToProcess.forEach((path) => {
 				const entry = blockData[path];
 				const selectedIds = selectedBlocks.get(path) || new Set();
+				const heroInfo = entry.hero || null;
+				const heroSelected =
+					heroInfo && selectedIds ? selectedIds.has(heroInfo.id) : false;
 				commitSelections.push({ path, entry, selectedIds });
 				const commitHtml = buildHtmlForSelection(entry, selectedIds, "commit");
 				const localById = new Map(
@@ -12849,7 +12970,7 @@
 					});
 				});
 				const remainingBase = entry.baseHtml || entry.dirtyHtml || "";
-				const remainingHtml = mergeDirtyWithBase(
+				let remainingHtml = mergeDirtyWithBase(
 					remainingBase,
 					remainingBase,
 					remainingLocal,
@@ -12858,6 +12979,12 @@
 						path,
 					},
 				);
+				if (heroInfo) {
+					remainingHtml = applyHeroRegion(
+						remainingHtml,
+						heroSelected ? heroInfo.baseInner : heroInfo.dirtyInner,
+					);
+				}
 				const remappedLocal = assignAnchorsFromHtml(
 					remainingBase,
 					remainingHtml,
@@ -12897,7 +13024,9 @@
 			if (!pr?.number) return;
 			commitSelections.forEach(({ path, entry, selectedIds }) => {
 				const selectedBlocks = (entry.all || [])
-					.filter((block) => selectedIds.has(block.id))
+					.filter(
+						(block) => selectedIds.has(block.id) && block.kind !== "hero",
+					)
 					.map((block) => ({
 						html: block.html,
 						pos: block.idx,
