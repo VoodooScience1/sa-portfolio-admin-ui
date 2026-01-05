@@ -7083,13 +7083,61 @@
 		return el("div", { class: "cms-field" }, nodes);
 	}
 
+	function buildHeadingField({ label, input, align, note }) {
+		const row = el(
+			"div",
+			{ class: "cms-field__row cms-field__row--heading" },
+			[input, align].filter(Boolean),
+		);
+		return buildField({ label, input: row, note });
+	}
+
 	function buildAlignSelect(value, fallback = "left") {
-		const select = el("select", { class: "cms-field__select" }, [
-			el("option", { value: "left" }, ["Left"]),
-			el("option", { value: "center" }, ["Center"]),
-		]);
-		select.value = normalizeHeadingAlign(value, fallback);
-		return select;
+		const wrap = el("div", {
+			class: "cms-align-toggle",
+			role: "group",
+			"aria-label": "Heading alignment",
+		});
+		const alignValue = normalizeHeadingAlign(value, fallback);
+		const buildBtn = (align, icon, label) => {
+			const btn = el(
+				"button",
+				{
+					type: "button",
+					class: "cms-align-toggle__btn",
+					"data-align": align,
+					"aria-label": label,
+					"data-tooltip": label,
+				},
+				[el("span", { class: "material-icons", "aria-hidden": "true" }, [icon])],
+			);
+			btn.addEventListener("click", (event) => {
+				event.preventDefault();
+				wrap.value = align;
+			});
+			return btn;
+		};
+		const leftBtn = buildBtn("left", "format_align_left", "Align left");
+		const centerBtn = buildBtn("center", "format_align_center", "Align center");
+		wrap.appendChild(leftBtn);
+		wrap.appendChild(centerBtn);
+
+		const setValue = (next) => {
+			const normalized = normalizeHeadingAlign(next, fallback);
+			wrap.dataset.value = normalized;
+			leftBtn.classList.toggle("is-active", normalized === "left");
+			centerBtn.classList.toggle("is-active", normalized === "center");
+		};
+		Object.defineProperty(wrap, "value", {
+			get() {
+				return wrap.dataset.value || fallback;
+			},
+			set(next) {
+				setValue(next);
+			},
+		});
+		setValue(alignValue);
+		return wrap;
 	}
 
 	function buildBlockNoopSignature(html) {
@@ -8318,6 +8366,7 @@
 			closeModal();
 			queueMicrotask(() => scrollToEditedBlock());
 		};
+		let getEditorChangeState = async () => false;
 		const bindModalCloseHandler = (closeHandler) => {
 			const root = qs("#cms-modal");
 			if (!root) return;
@@ -8331,11 +8380,16 @@
 				);
 			});
 		};
-		const openExitConfirm = () => {
+		const openExitConfirm = async () => {
 			const root = qs("#cms-modal");
 			if (!root) return;
 			const existing = root.querySelector(".cms-modal__confirm");
 			if (existing) return;
+			const hasChanges = await getEditorChangeState().catch(() => true);
+			if (!hasChanges) {
+				handleExitEdit();
+				return;
+			}
 			let overlay = null;
 			const closeConfirm = () => {
 				if (overlay) overlay.remove();
@@ -8389,7 +8443,7 @@
 				"div",
 				{ class: "cms-modal__note cms-note--warning" },
 				[
-					"\u26a0 Are you sure you want to close? All unsaved changes will be lost. \u26a0",
+					"\u26a0 You have unsaved changes. Are you sure you want to exit? \u26a0",
 				],
 			);
 			const panel = el("div", { class: "cms-modal__confirm-panel" }, [
@@ -8526,7 +8580,7 @@
 				]),
 				el("label", { class: "cms-field__toggle" }, [
 					showTypesInput,
-					el("span", { class: "cms-field__toggle-text" }, ["Types"]),
+					el("span", { class: "cms-field__toggle-text" }, ["Categories"]),
 				]),
 				el("label", { class: "cms-field__toggle" }, [
 					showTagsInput,
@@ -8598,10 +8652,10 @@
 				"div",
 				{ class: "cms-portfolio-type-manager" },
 				[
-					el("div", { class: "cms-modal__group-title" }, ["Manage types"]),
+					el("div", { class: "cms-modal__group-title" }, ["Manage categories"]),
 					typeManagerInput,
 					el("div", { class: "cms-field__note" }, [
-						"Comma-separated list used by the type dropdown.",
+						"Comma-separated list used by the category dropdown.",
 					]),
 					el("div", { class: "cms-field__row" }, [
 						typeManagerCancel,
@@ -8647,26 +8701,26 @@
 				]);
 				const titleInput = el("input", {
 					type: "text",
-					class: "cms-field__input",
+					class: "cms-field__input cms-field__input--title",
 					value: data.title || "",
 					placeholder: "Project title",
 				});
 				const typeSelect = el("select", { class: "cms-field__select" }, [
-					el("option", { value: "" }, ["Select type"]),
+					el("option", { value: "" }, ["Select category"]),
 				]);
 				const typeInput = el("input", {
 					type: "text",
-					class: "cms-field__input",
+					class: "cms-field__input cms-field__input--category",
 					value: data.type || "",
-					placeholder: "Type (Work, Academic, Personal...)",
+					placeholder: "New category",
 				});
 				const typeAddBtn = el(
 					"button",
 					{
 						type: "button",
 						class: "cms-btn cms-btn--success cms-btn--inline",
-						"data-tooltip": "Add to type list",
-						"aria-label": "Add type to list",
+						"data-tooltip": "Add to category list",
+						"aria-label": "Add category to list",
 					},
 					["Add"],
 				);
@@ -8675,24 +8729,18 @@
 					{
 						type: "button",
 						class: "cms-btn cms-btn--info cms-btn--inline",
-						"data-tooltip": "Manage type list (comma separated)",
-						"aria-label": "Manage type list",
+						"data-tooltip": "Manage category list (comma separated)",
+						"aria-label": "Manage category list",
 					},
 					["i"],
 				);
-				const typeInputLabel = el("div", { class: "cms-field__label" }, [
-					"New type",
+				const typeRow = el("div", { class: "cms-portfolio-type-row" }, [
+					titleInput,
+					typeSelect,
+					typeInput,
+					typeAddBtn,
+					typeInfoBtn,
 				]);
-				const typeInputRow = el(
-					"div",
-					{ class: "cms-field__row" },
-					[typeInput, typeAddBtn, typeInfoBtn],
-				);
-				const typeControls = el(
-					"div",
-					{ class: "cms-portfolio-type-controls cms-field__stack" },
-					[typeSelect, typeInputLabel, typeInputRow],
-				);
 				const startInput = el("input", {
 					type: "text",
 					class: "cms-field__input",
@@ -9066,10 +9114,10 @@
 					{ class: "cms-modal__group cms-modal__group--settings" },
 					[
 						titleEl,
-						el("div", { class: "cms-portfolio-row" }, [
-							buildField({ label: "Title", input: titleInput }),
-							buildField({ label: "Type", input: typeControls }),
-						]),
+						buildField({
+							label: "Title / Category",
+							input: typeRow,
+						}),
 						buildField({
 							label: "Dates",
 							input: el("div", { class: "cms-field__row" }, [
@@ -9218,14 +9266,11 @@
 			openModal({
 				title: "Edit block",
 				bodyNodes: [
-					buildField({
+					buildHeadingField({
 						label: "Header",
 						input: titleInput,
+						align: titleAlignSelect,
 						note: "Saved as an H2 heading.",
-					}),
-					buildField({
-						label: "Header alignment",
-						input: titleAlignSelect,
 					}),
 					...(sharedToolbar ? [sharedToolbar] : []),
 					introEditor.wrap,
@@ -9439,13 +9484,10 @@
 			openModal({
 				title: "Edit block",
 				bodyNodes: [
-					buildField({
+					buildHeadingField({
 						label: "Title",
 						input: titleInput,
-					}),
-					buildField({
-						label: "Title alignment",
-						input: titleAlignSelect,
+						align: titleAlignSelect,
 					}),
 					...(sharedToolbar ? [sharedToolbar] : []),
 					introGroup,
@@ -9504,14 +9546,11 @@
 			openModal({
 				title: "Edit block",
 				bodyNodes: [
-					buildField({
+					buildHeadingField({
 						label: "Header",
 						input: headingInput,
+						align: headingAlignSelect,
 						note: "Optional header for this container.",
-					}),
-					buildField({
-						label: "Header alignment",
-						input: headingAlignSelect,
 					}),
 					...(sharedToolbar ? [sharedToolbar] : []),
 					body.wrap,
@@ -9541,7 +9580,7 @@
 			});
 			settings = {
 				stdHeadingInput: headingInput,
-				stdHeadingTag: parsed.headingTag || "h1",
+				stdHeadingTag: parsed.headingTag || "h2",
 				stdHeadingStyle: parsed.headingStyle || "",
 				stdHeadingAlignSelect: headingAlignSelect,
 			};
@@ -9579,24 +9618,18 @@
 				title: "Edit block",
 				bodyNodes: [
 					...(sharedToolbar ? [sharedToolbar] : []),
-					buildField({
+					buildHeadingField({
 						label: "Header (left)",
 						input: headingLeftInput,
+						align: leftAlignSelect,
 						note: "Optional left column header.",
 					}),
-					buildField({
-						label: "Alignment (left)",
-						input: leftAlignSelect,
-					}),
 					left.wrap,
-					buildField({
+					buildHeadingField({
 						label: "Header (right)",
 						input: headingRightInput,
+						align: rightAlignSelect,
 						note: "Optional right column header.",
-					}),
-					buildField({
-						label: "Alignment (right)",
-						input: rightAlignSelect,
 					}),
 					right.wrap,
 				],
@@ -9987,20 +10020,13 @@
 			const settingsNodes = [];
 			if (headingInput) {
 				settingsNodes.push(
-					buildField({
+					buildHeadingField({
 						label: "Heading",
 						input: headingInput,
+						align: headingAlignSelect,
 						note: "Controls the block title styling.",
 					}),
 				);
-				if (headingAlignSelect) {
-					settingsNodes.push(
-						buildField({
-							label: "Heading alignment",
-							input: headingAlignSelect,
-						}),
-					);
-				}
 			}
 			if (imgInput) {
 				const imageRow = el("div", { class: "cms-field__row" }, [
@@ -10167,7 +10193,7 @@
 		);
 		if (!saveBtn) return;
 
-		saveBtn.addEventListener("click", async () => {
+		const buildUpdatedHtmlFromSettings = async () => {
 			const updated = { ...parsed };
 			if (settings.accordionItems) {
 				updated.title = settings.accordionTitleInput?.value.trim() || "";
@@ -10186,7 +10212,7 @@
 			}
 			if (settings.stdHeadingInput) {
 				updated.heading = settings.stdHeadingInput.value.trim();
-				updated.headingTag = settings.stdHeadingTag || "h1";
+				updated.headingTag = settings.stdHeadingTag || "h2";
 				updated.headingStyle = settings.stdHeadingStyle || "";
 				updated.headingAlign =
 					settings.stdHeadingAlignSelect?.value || parsed.headingAlign || "";
@@ -10293,9 +10319,20 @@
 					else updated.body = sanitizeRteHtml(raw, ctx);
 				}),
 			);
-			const updatedHtml = serializeMainBlocks([updated], {
+			return serializeMainBlocks([updated], {
 				path: state.path,
 			}).trim();
+		};
+
+		getEditorChangeState = async () => {
+			const updatedHtml = await buildUpdatedHtmlFromSettings();
+			if (!updatedHtml) return false;
+			const updatedSig = buildNoopSignature(updatedHtml);
+			return updatedSig !== baseSig;
+		};
+
+		saveBtn.addEventListener("click", async () => {
+			const updatedHtml = await buildUpdatedHtmlFromSettings();
 			if (!updatedHtml) return;
 			const updatedSig = buildNoopSignature(updatedHtml);
 			if (updatedSig === baseSig) {
@@ -10434,15 +10471,11 @@
 		openModal({
 			title: "Edit hero",
 			bodyNodes: [
-				buildField({
+				buildHeadingField({
 					label: "Title",
 					input: titleInput,
+					align: alignSelect,
 					note: "Hero uses a single h1 and a single subtitle line.",
-				}),
-				buildField({
-					label: "Alignment",
-					input: alignSelect,
-					note: "Applies to both title and subtitle.",
 				}),
 				buildField({ label: "Subtitle", input: subtitleInput }),
 			],
