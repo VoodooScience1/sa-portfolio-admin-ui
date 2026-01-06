@@ -4922,7 +4922,7 @@
 						"data-tooltip": "Remove row",
 						"aria-label": "Remove row",
 					},
-					[toolbarIcon("remove")],
+					[toolbarIcon("border_horizontal")],
 				),
 				el(
 					"button",
@@ -4932,7 +4932,7 @@
 						"data-tooltip": "Remove column",
 						"aria-label": "Remove column",
 					},
-					[toolbarIcon("remove")],
+					[toolbarIcon("border_vertical")],
 				),
 			]),
 			toolbarDivider(),
