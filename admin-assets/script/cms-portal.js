@@ -2142,7 +2142,7 @@
 					sig,
 					occ,
 					blockId: stableId,
-					blockIdShort: hashText(`${stableId || "block"}::${idx}`).slice(0, 4),
+					blockIdShort: hashText(String(stableId || "block")).slice(0, 4),
 				};
 				if (block.type === "twoCol") return serializeTwoCol(block, blockCtx);
 				if (block.type === "stdContainer")
@@ -4628,6 +4628,60 @@
 		});
 	}
 
+	function removeTableRowAtCell() {
+		const cell = findClosestCell();
+		const row = cell?.closest("tr");
+		if (!row) return;
+		const table = row.closest("table");
+		if (!table) return;
+		row.remove();
+		if (!table.querySelector("tr")) table.remove();
+	}
+
+	function removeTableColumnAtCell() {
+		const cell = findClosestCell();
+		const row = cell?.closest("tr");
+		if (!row) return;
+		const table = row.closest("table");
+		if (!table) return;
+		const index = Array.from(row.children).indexOf(cell);
+		const rows = Array.from(table.querySelectorAll("tr"));
+		rows.forEach((r) => {
+			const cells = Array.from(r.querySelectorAll("th,td"));
+			if (!cells.length) return;
+			const target = cells[index] || cells[cells.length - 1];
+			target?.remove();
+			if (!r.querySelector("th,td")) r.remove();
+		});
+		if (!table.querySelector("th,td")) table.remove();
+	}
+
+	function toggleBlockquote() {
+		const selection = window.getSelection();
+		if (!selection || !selection.anchorNode) {
+			document.execCommand("formatBlock", false, "BLOCKQUOTE");
+			return;
+		}
+		let node = selection.anchorNode;
+		if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+		const quote = node?.closest ? node.closest("blockquote") : null;
+		if (!quote) {
+			document.execCommand("formatBlock", false, "BLOCKQUOTE");
+			return;
+		}
+		const parent = quote.parentNode;
+		if (!parent) return;
+		const range =
+			selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+		const frag = document.createDocumentFragment();
+		while (quote.firstChild) frag.appendChild(quote.firstChild);
+		parent.replaceChild(frag, quote);
+		if (range) {
+			selection.removeAllRanges();
+			selection.addRange(range);
+		}
+	}
+
 	async function fetchImageLibrary(path = "assets/img", collected = []) {
 		const res = await fetch(`/api/repo/tree?path=${encodeURIComponent(path)}`, {
 			headers: { Accept: "application/json" },
@@ -4859,6 +4913,26 @@
 						"aria-label": "Add column",
 					},
 					[toolbarIcon("chrome_reader_mode")],
+				),
+				el(
+					"button",
+					{
+						type: "button",
+						"data-cmd": "table-row-remove",
+						"data-tooltip": "Remove row",
+						"aria-label": "Remove row",
+					},
+					[toolbarIcon("remove")],
+				),
+				el(
+					"button",
+					{
+						type: "button",
+						"data-cmd": "table-col-remove",
+						"data-tooltip": "Remove column",
+						"aria-label": "Remove column",
+					},
+					[toolbarIcon("remove")],
 				),
 			]),
 			toolbarDivider(),
@@ -6954,8 +7028,7 @@
 			else if (cmd === "align-center") document.execCommand("justifyCenter");
 			else if (cmd === "h2") document.execCommand("formatBlock", false, "H2");
 			else if (cmd === "h3") document.execCommand("formatBlock", false, "H3");
-			else if (cmd === "quote")
-				document.execCommand("formatBlock", false, "BLOCKQUOTE");
+			else if (cmd === "quote") toggleBlockquote();
 			else if (cmd === "ul") document.execCommand("insertUnorderedList");
 			else if (cmd === "ol") document.execCommand("insertOrderedList");
 			else if (cmd === "table") {
@@ -7000,6 +7073,10 @@
 				addTableRowAfterCell();
 			} else if (cmd === "table-col") {
 				addTableColumnAfterCell();
+			} else if (cmd === "table-row-remove") {
+				removeTableRowAtCell();
+			} else if (cmd === "table-col-remove") {
+				removeTableColumnAtCell();
 			} else if (cmd === "code") {
 				const selection = window.getSelection();
 				if (!selection || selection.rangeCount === 0) return;
