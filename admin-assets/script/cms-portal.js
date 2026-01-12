@@ -527,6 +527,16 @@
 		return "";
 	}
 
+	function normalizeDocPath(value) {
+		const raw = String(value || "").trim();
+		if (!raw) return "";
+		if (/^https?:\/\//i.test(raw)) return raw;
+		let path = raw.replace(/^\/+/, "");
+		if (path.startsWith("docs/")) path = `assets/${path}`;
+		else if (!path.startsWith("assets/")) path = `assets/docs/${path}`;
+		return `/${path}`;
+	}
+
 	function sanitizeRteHtml(html, ctx = {}) {
 		let rawHtml = String(html || "");
 		rawHtml = rawHtml.replace(
@@ -652,32 +662,32 @@
 			const target =
 				link?.getAttribute("target") === "_blank" ? "_blank" : "_blank";
 			const rel = target === "_blank" ? "noopener noreferrer" : "";
-			const lines = [
+			const safeDesc = desc ? `<div class="doc-card__desc">${escapeHtml(desc)}</div>` : "";
+			return [
 				`<div class="doc-card doc-card--compact">`,
-				`\t<a class="doc-card__link" href="${escapeAttr(
+				`<a class="doc-card__link" href="${escapeAttr(
 					href,
 				)}" target="${target}" rel="${rel}" data-doc-open>`,
-				`\t\t<span class="material-icons doc-card__type-icon" aria-hidden="true">insert_drive_file</span>`,
-				`\t\t<div class="doc-card__text">`,
-				`\t\t\t<div class="doc-card__title">${escapeHtml(title)}</div>`,
-			];
-			lines.push(
-				`\t\t\t<div class="doc-card__desc">${escapeHtml(desc)}</div>`,
-				`\t\t</div>`,
-				`\t\t<div class="doc-card__overlay">`,
-				`\t\t\t<div class="doc-card__overlay-content">`,
-				`\t\t\t\t<span class="material-icons" aria-hidden="true">open_in_new</span>`,
-				`\t\t\t\t<span class="doc-card__overlay-label">Open document</span>`,
-				`\t\t\t</div>`,
-				`\t\t</div>`,
-				`\t</a>`,
+				`<span class="material-icons doc-card__type-icon" aria-hidden="true">insert_drive_file</span>`,
+				`<div class="doc-card__text">`,
+				`<div class="doc-card__title">${escapeHtml(title)}</div>`,
+				safeDesc,
 				`</div>`,
-			);
-			return lines.join("\n");
+				`<div class="doc-card__overlay">`,
+				`<div class="doc-card__overlay-content">`,
+				`<span class="material-icons" aria-hidden="true">open_in_new</span>`,
+				`<span class="doc-card__overlay-label">Open document</span>`,
+				`</div>`,
+				`</div>`,
+				`</a>`,
+				`</div>`,
+			]
+				.filter(Boolean)
+				.join("");
 		};
 
 		const serializeDocEmbed = (node) => {
-			const href = sanitizeHref(node.getAttribute("data-doc") || "");
+			const href = sanitizeHref(normalizeDocPath(node.getAttribute("data-doc")));
 			if (!href) return "";
 			const title = node.getAttribute("data-title") || "";
 			const desc = node.getAttribute("data-desc") || "";
@@ -6058,13 +6068,7 @@
 		};
 
 		const normalizeDocHref = (value) => {
-			const raw = String(value || "").trim();
-			if (!raw) return "";
-			if (/^https?:\/\//i.test(raw)) return raw;
-			let path = raw.replace(/^\/+/, "");
-			if (path.startsWith("docs/")) path = `assets/${path}`;
-			else if (!path.startsWith("assets/")) path = `assets/docs/${path}`;
-			return `/${path}`;
+			return normalizeDocPath(value);
 		};
 
 		const getDocExtFromHref = (value) => {
@@ -6806,35 +6810,34 @@
 
 		const buildDocCardHtml = (attrs) => {
 			const title = escapeHtml(attrs.title || "Document");
-			const desc = escapeHtml(attrs.desc || "");
+			const desc = attrs.desc ? escapeHtml(attrs.desc) : "";
 			const href = escapeAttr(attrs.href || "");
 			const ext = getDocExtFromHref(attrs.href || "");
 			const icon = resolveDocIcon(ext);
 			const overlayLabel = ext === "pdf" ? "Open PDF" : "Open document";
-			const lines = [
+			return [
 				`<div class="doc-card doc-card--compact" data-doc-ext="${escapeAttr(
 					ext,
 				)}">`,
-				`\t<a class="doc-card__link" href="${href}" target="_blank" rel="noopener noreferrer" data-doc-open>`,
-				`\t\t<span class="material-icons doc-card__type-icon" aria-hidden="true">${escapeHtml(
+				`<a class="doc-card__link" href="${href}" target="_blank" rel="noopener noreferrer" data-doc-open>`,
+				`<span class="material-icons doc-card__type-icon" aria-hidden="true">${escapeHtml(
 					icon,
 				)}</span>`,
-				`\t\t<div class="doc-card__text">`,
-				`\t\t\t<div class="doc-card__title">${title}</div>`,
-			];
-			lines.push(
-				`\t\t\t<div class="doc-card__desc">${desc || ""}</div>`,
-				`\t\t</div>`,
-				`\t\t<div class="doc-card__overlay">`,
-				`\t\t\t<div class="doc-card__overlay-content">`,
-				`\t\t\t\t<span class="material-icons" aria-hidden="true">open_in_new</span>`,
-				`\t\t\t\t<span class="doc-card__overlay-label">${overlayLabel}</span>`,
-				`\t\t\t</div>`,
-				`\t\t</div>`,
-				`\t</a>`,
+				`<div class="doc-card__text">`,
+				`<div class="doc-card__title">${title}</div>`,
+				desc ? `<div class="doc-card__desc">${desc}</div>` : "",
 				`</div>`,
-			);
-			return lines.join("\n");
+				`<div class="doc-card__overlay">`,
+				`<div class="doc-card__overlay-content">`,
+				`<span class="material-icons" aria-hidden="true">open_in_new</span>`,
+				`<span class="doc-card__overlay-label">${overlayLabel}</span>`,
+				`</div>`,
+				`</div>`,
+				`</a>`,
+				`</div>`,
+			]
+				.filter(Boolean)
+				.join("");
 		};
 
 		const buildDocEmbedHtml = (attrs) =>
