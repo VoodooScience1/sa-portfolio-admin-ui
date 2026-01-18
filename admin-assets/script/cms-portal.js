@@ -1528,13 +1528,11 @@
 				const headingEl = inner.querySelector("h1,h2,h3");
 				const headingTag = headingEl ? headingEl.tagName.toLowerCase() : "h2";
 				const headingStyle = headingEl?.getAttribute("style") || "";
-				let body = inner.innerHTML || "";
-				if (headingEl) {
-					const clone = inner.cloneNode(true);
-					const removeHeading = clone.querySelector("h1,h2,h3");
-					if (removeHeading) removeHeading.remove();
-					body = clone.innerHTML || "";
-				}
+				const clone = inner.cloneNode(true);
+				const removeHeading = clone.querySelector("h1,h2,h3");
+				if (removeHeading) removeHeading.remove();
+				const wrapper = clone.querySelector(".std-container-text");
+				const body = wrapper ? wrapper.innerHTML || "" : clone.innerHTML || "";
 				return {
 					type: "stdContainer",
 					cmsId,
@@ -1719,14 +1717,17 @@
 			? `<${headingTag}${styleAttr}>${escapeHtml(headingText)}</${headingTag}>`
 			: "";
 		const body = sanitizeRteHtml(block.body || "", ctx);
+		const content = [headingHtml, body].filter(Boolean).join("\n");
 		const lines = [
 			`<div class="div-wrapper" data-cms-id="${escapeAttr(cmsId)}">`,
 			`\t<div class="default-div-wrapper">`,
-			headingHtml ? `\t\t${headingHtml}` : "",
-			body ? indentLines(body, 2) : "",
-			`\t</div>`,
-			`</div>`,
-		].filter((line) => line !== "");
+		];
+		if (content) {
+			lines.push(`\t\t<div class="std-container-text">`);
+			lines.push(indentLines(content, 3));
+			lines.push(`\t\t</div>`);
+		}
+		lines.push(`\t</div>`, `</div>`);
 		return lines.join("\n");
 	}
 
