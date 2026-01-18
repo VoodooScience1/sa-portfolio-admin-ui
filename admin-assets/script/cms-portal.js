@@ -11730,9 +11730,18 @@
 
 	function renderPageSurface() {
 		const entry = state.dirtyPages[state.path];
-		if (entry?.html) {
-			const hero = extractRegion(entry.html, "hero");
-			const main = extractRegion(entry.html, "main");
+		const entryHtml = entry?.html ? String(entry.html) : "";
+		if (entryHtml.trim()) {
+			const hero = extractRegion(entryHtml, "hero");
+			const main = extractRegion(entryHtml, "main");
+			if (hero.found) state.heroInner = hero.inner;
+			if (main.found) {
+				state.mainInner = main.inner;
+				state.blocks = parseBlocks(state.mainInner);
+			}
+		} else if (state.originalHtml) {
+			const hero = extractRegion(state.originalHtml, "hero");
+			const main = extractRegion(state.originalHtml, "main");
 			if (hero.found) state.heroInner = hero.inner;
 			if (main.found) {
 				state.mainInner = main.inner;
