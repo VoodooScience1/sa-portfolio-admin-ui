@@ -616,11 +616,43 @@
 		const pageHash = ctx.pageHash || hashText(ctx.path || "");
 		const blockShort = ctx.blockIdShort || hashText(ctx.blockId || "block");
 
-		const serializeChildren = (node) =>
-			Array.from(node.childNodes)
-				.map((child) => sanitizeNode(child))
-				.filter(Boolean)
+		const blockTags = new Set([
+			"div",
+			"p",
+			"h1",
+			"h2",
+			"h3",
+			"blockquote",
+			"table",
+			"thead",
+			"tbody",
+			"tr",
+			"th",
+			"td",
+			"pre",
+			"ul",
+			"ol",
+			"li",
+		]);
+		const isBlockNode = (node) =>
+			node?.nodeType === Node.ELEMENT_NODE &&
+			blockTags.has(node.tagName.toLowerCase());
+		const serializeChildren = (node) => {
+			const parts = [];
+			Array.from(node.childNodes).forEach((child) => {
+				const html = sanitizeNode(child);
+				if (!html) return;
+				parts.push({ html, block: isBlockNode(child) });
+			});
+			return parts
+				.map((part, idx) => {
+					if (!idx) return part.html;
+					const prev = parts[idx - 1];
+					if (prev.block && part.block) return `\n${part.html}`;
+					return part.html;
+				})
 				.join("");
+		};
 
 		const serializeAccordion = (node) => {
 			const itemIndex = accState.index;
@@ -719,9 +751,11 @@
 						"",
 					);
 					if (!cleaned.trim()) return "";
-					return escapeHtml(cleaned);
+					return escapeHtml(cleaned.replace(/\s+/g, " "));
 				}
-				return escapeHtml(text);
+				const normalized = text.replace(/\s+/g, " ");
+				if (!normalized.trim()) return "";
+				return escapeHtml(normalized);
 			}
 			if (node.nodeType !== Node.ELEMENT_NODE) return "";
 
@@ -4484,18 +4518,18 @@
 	async function insertHtmlAt(index, anchorOverride, html) {
 		const localEntry = state.dirtyPages[state.path] || {};
 		const localBlocks = normalizeLocalBlocks(localEntry.localBlocks || []);
+		const mergedForIndex = buildMergedRenderBlocks(
+			state.originalHtml || "",
+			localBlocks,
+			{ respectRemovals: hasRemovalActions(localBlocks) },
+		);
 		let anchor = null;
 		let placement = "after";
 		if (anchorOverride?.anchor) {
 			anchor = anchorOverride.anchor;
 			placement = anchorOverride.placement || "after";
 		} else {
-			const merged = buildMergedRenderBlocks(
-				state.originalHtml || "",
-				localBlocks,
-				{ respectRemovals: hasRemovalActions(localBlocks) },
-			);
-			const anchorInfo = getAnchorForIndex(index, merged);
+			const anchorInfo = getAnchorForIndex(index, mergedForIndex);
 			anchor = anchorInfo.anchor;
 			placement = anchorInfo.placement;
 		}
@@ -4510,18 +4544,26 @@
 			return { ...item, html: ensured.html };
 		});
 		const ensuredNew = ensureBlockHtmlHasCmsId(html, idCtx);
-		const updatedLocal = [
-			...normalizedLocal,
-			{
-				id: makeLocalId(),
-				html: ensuredNew.html,
-				anchor,
-				placement,
-				status: "staged",
-				kind: "new",
-				pos: index,
-			},
-		];
+		const countLocalBefore = (merged, targetIndex) => {
+			if (!Array.isArray(merged) || !Number.isInteger(targetIndex)) return 0;
+			let count = 0;
+			const limit = Math.min(targetIndex, merged.length);
+			for (let i = 0; i < limit; i += 1) {
+				if (merged[i]?._local) count += 1;
+			}
+			return count;
+		};
+		const localInsertIndex = countLocalBefore(mergedForIndex, index);
+		const updatedLocal = normalizedLocal.slice();
+		updatedLocal.splice(Math.max(0, Math.min(localInsertIndex, updatedLocal.length)), 0, {
+			id: makeLocalId(),
+			html: ensuredNew.html,
+			anchor,
+			placement,
+			status: "staged",
+			kind: "new",
+			pos: index,
+		});
 		state.blocks.splice(index, 0, {
 			idx: index,
 			type: "std-container",
