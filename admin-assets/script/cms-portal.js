@@ -980,8 +980,10 @@
 		return [
 			`<div class="div-wrapper">`,
 			`\t<div class="default-div-wrapper hero-override">`,
-			`\t\t<h1${titleAttr}>${title}</h1>`,
-			`\t\t<p${subtitleAttr}>${subtitle}</p>`,
+			`\t\t<div class="std-container-text">`,
+			`\t\t\t<h1${titleAttr}>${title}</h1>`,
+			`\t\t\t<p${subtitleAttr}>${subtitle}</p>`,
+			`\t\t</div>`,
 			`\t</div>`,
 			`</div>`,
 		].join("\n");
@@ -3263,6 +3265,8 @@
 
 	function updateLocalBlocksAndRender(path, updatedLocal) {
 		const baseHtml = state.originalHtml || "";
+		const entry = state.dirtyPages[path] || {};
+		const dirtyHtml = entry?.html ? entry.html : baseHtml;
 		const normalizedLocal = normalizeLocalBlocks(updatedLocal);
 		const hasLocal = normalizedLocal.length > 0;
 		if (!hasLocal) {
@@ -3275,7 +3279,7 @@
 			refreshUiStateForDirty();
 			return;
 		}
-		const updatedHtml = mergeDirtyWithBase(baseHtml, baseHtml, updatedLocal, {
+		const updatedHtml = mergeDirtyWithBase(baseHtml, dirtyHtml, updatedLocal, {
 			respectRemovals: hasRemovalActions(updatedLocal),
 			path,
 		});
