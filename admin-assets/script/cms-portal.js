@@ -1421,8 +1421,10 @@
 					getHeadingAlignFromStyle(headingStyle),
 					"left",
 				);
+				const video = cleanNode.getAttribute("data-video") || "";
+				const hasVideo = Boolean(video);
 				const overlayEnabled =
-					cleanNode.getAttribute("data-overlay") !== "false";
+					!hasVideo && cleanNode.getAttribute("data-overlay") !== "false";
 				let body = cleanNode.innerHTML || "";
 				if (headingEl) {
 					const clone = cleanNode.cloneNode(true);
@@ -1434,12 +1436,19 @@
 					type,
 					cmsId,
 					imgPos: cleanNode.getAttribute("data-img-pos") || "left",
-					img: cleanNode.getAttribute("data-img") || "",
+					img: hasVideo ? "" : cleanNode.getAttribute("data-img") || "",
+					video,
 					caption: cleanNode.getAttribute("data-caption") || "",
-					lightbox: cleanNode.getAttribute("data-lightbox") || "false",
+					lightbox: hasVideo
+						? "false"
+						: cleanNode.getAttribute("data-lightbox") || "false",
 					overlayEnabled,
-					overlayTitle: cleanNode.getAttribute("data-overlay-title") || "",
-					overlayText: cleanNode.getAttribute("data-overlay-text") || "",
+					overlayTitle: hasVideo
+						? ""
+						: cleanNode.getAttribute("data-overlay-title") || "",
+					overlayText: hasVideo
+						? ""
+						: cleanNode.getAttribute("data-overlay-text") || "",
 					heading: headingEl?.textContent?.trim() || "",
 					headingTag: safeHeadingTag,
 					headingStyle,
@@ -1605,27 +1614,40 @@
 			"data-cms-id": cmsId,
 			"data-type": type,
 		};
+		const hasVideo = Boolean(block.video);
 		if (block.imgPos && block.imgPos !== "left") {
 			attrs["data-img-pos"] = block.imgPos;
 		}
-		if (block.img) attrs["data-img"] = block.img;
+		if (hasVideo) {
+			attrs["data-video"] = block.video;
+		} else if (block.img) {
+			attrs["data-img"] = block.img;
+		}
 		if (block.caption) attrs["data-caption"] = block.caption;
-		attrs["data-lightbox"] = normalizeBool(block.lightbox, "false");
-		if (block.overlayEnabled === false) attrs["data-overlay"] = "false";
-		if (block.overlayTitle) attrs["data-overlay-title"] = block.overlayTitle;
+		if (!hasVideo) {
+			attrs["data-lightbox"] = normalizeBool(block.lightbox, "false");
+			if (block.overlayEnabled === false) attrs["data-overlay"] = "false";
+			if (block.overlayTitle) attrs["data-overlay-title"] = block.overlayTitle;
+		}
 		let overlayText = block.overlayText || "";
-		if (!block.overlayTitle && !overlayText && block.overlayEnabled !== false) {
+		if (
+			!hasVideo &&
+			!block.overlayTitle &&
+			!overlayText &&
+			block.overlayEnabled !== false
+		) {
 			overlayText =
 				normalizeBool(block.lightbox, "false") === "true"
 					? "Click to view"
 					: "";
 		}
-		if (overlayText) attrs["data-overlay-text"] = overlayText;
+		if (!hasVideo && overlayText) attrs["data-overlay-text"] = overlayText;
 		const order = [
 			"class",
 			"data-cms-id",
 			"data-type",
 			"data-img-pos",
+			"data-video",
 			"data-img",
 			"data-caption",
 			"data-lightbox",
@@ -10356,6 +10378,8 @@
 			let headingAlignSelect = null;
 			let headingStyle = "";
 			let imgInput = null;
+			let videoInput = null;
+			let imageRow = null;
 			let imagePickBtn = null;
 			let imageModeSelect = null;
 			let imageLibrarySelect = null;
@@ -10376,11 +10400,15 @@
 			let overlayTextInput = null;
 			let lightboxInput = null;
 			let posSelect = null;
+			let displayRow = null;
+			let lightboxToggle = null;
+			let overlayToggle = null;
 			let imagePreviewWrap = null;
 			let imagePreviewImg = null;
 			let updateBlockPreview = null;
 			let updateOverlayPreview = null;
 			let overlayGroup = null;
+			let videoRow = null;
 
 			if (parsed.type === "imgText" || parsed.type === "split50") {
 				headingInput = el("input", {
@@ -10397,11 +10425,18 @@
 					value: parsed.img || "",
 					placeholder: "/assets/img/...",
 				});
+				videoInput = el("input", {
+					type: "text",
+					class: "cms-field__input",
+					value: parsed.video || "",
+					placeholder: "https://www.youtube.com/watch?v=...",
+				});
 				imageModeSelect = el("select", { class: "cms-field__select" }, [
 					el("option", { value: "existing" }, ["Use existing"]),
 					el("option", { value: "upload" }, ["Upload new"]),
+					el("option", { value: "video" }, ["Video"]),
 				]);
-				imageModeSelect.value = "existing";
+				imageModeSelect.value = parsed.video ? "video" : "existing";
 				imageLibrarySelect = el("select", { class: "cms-field__select" }, [
 					el("option", { value: "" }, ["Select an existing image"]),
 				]);
@@ -10543,17 +10578,33 @@
 				});
 				setImageMode = (mode) => {
 					const useUpload = mode === "upload";
-					if (imageLibrarySelect) imageLibrarySelect.hidden = useUpload;
-					if (imagePickBtn) imagePickBtn.hidden = !useUpload;
-					if (uploadNameInput) uploadNameInput.hidden = !useUpload;
-					if (uploadNameLabel) uploadNameLabel.hidden = !useUpload;
-					if (uploadNameRow) uploadNameRow.hidden = !useUpload;
+					const useVideo = mode === "video";
+					if (imageRow) imageRow.hidden = useVideo;
+					if (videoRow) videoRow.hidden = !useVideo;
+					if (imageLibrarySelect) imageLibrarySelect.hidden = useUpload || useVideo;
+					if (imagePickBtn) imagePickBtn.hidden = !useUpload || useVideo;
+					if (uploadNameInput) uploadNameInput.hidden = !useUpload || useVideo;
+					if (uploadNameLabel) uploadNameLabel.hidden = !useUpload || useVideo;
+					if (uploadNameRow) uploadNameRow.hidden = !useUpload || useVideo;
 					if (imgInput) {
-						imgInput.disabled = useUpload;
-						imgInput.classList.toggle("cms-field__input--muted", useUpload);
+						imgInput.disabled = useUpload || useVideo;
+						imgInput.classList.toggle(
+							"cms-field__input--muted",
+							useUpload || useVideo,
+						);
 					}
-					if (uploadWarning) uploadWarning.hidden = !useUpload;
-					if (!useUpload && imageLibrarySelect) {
+					if (uploadWarning) uploadWarning.hidden = !useUpload || useVideo;
+					if (imagePreviewWrap) imagePreviewWrap.hidden = useVideo;
+					if (overlayToggle) overlayToggle.hidden = useVideo;
+					if (lightboxToggle) lightboxToggle.hidden = useVideo;
+					if (overlayGroup) overlayGroup.hidden = useVideo;
+					if (overlayEnabledInput && useVideo) {
+						overlayEnabledInput.checked = false;
+					}
+					if (lightboxInput && useVideo) {
+						lightboxInput.checked = false;
+					}
+					if (!useUpload && !useVideo && imageLibrarySelect) {
 						loadImageLibraryIntoSelect(imageLibrarySelect)
 							.then(() => {
 								const local = getLocalAssetPath(imgInput.value || "");
@@ -10602,6 +10653,11 @@
 				imagePreviewWrap.appendChild(overlayLayer);
 				imagePreviewWrap.appendChild(overlayDetails);
 				updateBlockPreview = () => {
+					if (imageModeSelect?.value === "video") {
+						imagePreviewWrap.hidden = true;
+						imagePreviewImg.removeAttribute("src");
+						return;
+					}
 					const raw = imgInput.value.trim();
 					let src = raw ? normalizeImageSource(raw) : "";
 					if (src && !src.startsWith("data:")) {
@@ -10714,13 +10770,15 @@
 				);
 			}
 			if (imgInput) {
-				const imageRow = el("div", { class: "cms-field__row" }, [
+				imageRow = el("div", { class: "cms-field__row" }, [
 					imgInput,
 					imageModeSelect,
 					imageLibrarySelect,
 					imagePickBtn,
 					uploadFileInput,
 				]);
+				videoRow = el("div", { class: "cms-field__row" }, [videoInput]);
+				videoRow.hidden = true;
 				let imageInput = imageRow;
 				if (uploadNameInput) {
 					uploadNameLabel = el("div", { class: "cms-field__label" }, [
@@ -10733,20 +10791,28 @@
 					uploadNameLabel.hidden = uploadNameInput.hidden;
 					imageInput = el("div", { class: "cms-field__stack" }, [
 						imageRow,
+						videoRow,
 						uploadNameLabel,
 						uploadNameRow,
 					]);
+				} else {
+					imageInput = el("div", { class: "cms-field__stack" }, [
+						imageRow,
+						videoRow,
+					]);
 				}
-				const displayRow = el("div", { class: "cms-field__row" }, [
+				lightboxToggle = el("label", { class: "cms-field__toggle" }, [
+					lightboxInput,
+					el("span", { class: "cms-field__toggle-text" }, ["Lightbox"]),
+				]);
+				overlayToggle = el("label", { class: "cms-field__toggle" }, [
+					overlayEnabledInput,
+					el("span", { class: "cms-field__toggle-text" }, ["Overlay"]),
+				]);
+				displayRow = el("div", { class: "cms-field__row" }, [
 					posSelect,
-					el("label", { class: "cms-field__toggle" }, [
-						lightboxInput,
-						el("span", { class: "cms-field__toggle-text" }, ["Lightbox"]),
-					]),
-					el("label", { class: "cms-field__toggle" }, [
-						overlayEnabledInput,
-						el("span", { class: "cms-field__toggle-text" }, ["Overlay"]),
-					]),
+					lightboxToggle,
+					overlayToggle,
 				]);
 				const displayField = buildField({
 					label: "Display",
@@ -10769,9 +10835,9 @@
 				]);
 				settingsNodes.push(
 					buildField({
-						label: "Image source",
+						label: "Media source",
 						input: imageInput,
-						note: "Required for image blocks.",
+						note: "Required for image/video blocks.",
 					}),
 				);
 				uploadWarning = el(
@@ -10862,6 +10928,8 @@
 				headingAlignSelect,
 				headingStyle,
 				imgInput,
+				videoInput,
+				imageModeSelect,
 				imagePickBtn,
 				captionInput,
 				overlayEnabledInput,
@@ -10928,17 +10996,28 @@
 				updated.headingTag = updated.leftHeadingTag;
 			}
 			if (settings.imgInput) {
-				updated.img = settings.imgInput.value.trim();
 				updated.caption = settings.captionInput?.value.trim() || "";
-				const overlayEnabled = settings.overlayEnabledInput?.checked;
-				updated.overlayEnabled = overlayEnabled;
-				updated.overlayTitle = overlayEnabled
-					? settings.overlayTitleInput?.value.trim() || ""
-					: "";
-				updated.overlayText = overlayEnabled
-					? settings.overlayTextInput?.value.trim() || ""
-					: "";
-				updated.lightbox = settings.lightboxInput?.checked ? "true" : "false";
+				const mode = settings.imageModeSelect?.value || "existing";
+				if (mode === "video") {
+					updated.video = settings.videoInput?.value.trim() || "";
+					updated.img = "";
+					updated.overlayEnabled = false;
+					updated.overlayTitle = "";
+					updated.overlayText = "";
+					updated.lightbox = "false";
+				} else {
+					updated.video = "";
+					updated.img = settings.imgInput.value.trim();
+					const overlayEnabled = settings.overlayEnabledInput?.checked;
+					updated.overlayEnabled = overlayEnabled;
+					updated.overlayTitle = overlayEnabled
+						? settings.overlayTitleInput?.value.trim() || ""
+						: "";
+					updated.overlayText = overlayEnabled
+						? settings.overlayTextInput?.value.trim() || ""
+						: "";
+					updated.lightbox = settings.lightboxInput?.checked ? "true" : "false";
+				}
 				updated.imgPos = settings.posSelect?.value || "left";
 			}
 			if (settings.portfolioCards) {
