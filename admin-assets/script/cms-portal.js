@@ -3271,6 +3271,20 @@
 		const hasLocal = normalizedLocal.length > 0;
 		if (!hasLocal) {
 			state.lastReorderLocal = null;
+			if (entry?.html) {
+				const dirtySame =
+					normalizeForDirtyCompare(entry.html, path) ===
+					normalizeForDirtyCompare(baseHtml, path);
+				if (!dirtySame) {
+					setDirtyPage(path, entry.html, baseHtml, []);
+					if (path === state.path) {
+						applyHtmlToCurrentPage(entry.html);
+						renderPageSurface();
+					}
+					refreshUiStateForDirty();
+					return;
+				}
+			}
 			clearDirtyPage(path);
 			if (path === state.path) {
 				applyHtmlToCurrentPage(baseHtml);
