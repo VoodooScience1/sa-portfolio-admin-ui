@@ -2156,7 +2156,13 @@
 			`\t</script>`,
 		);
 		lines.push(`</div>`);
-		return lines.join("\n");
+		const open = lines[0];
+		const close = lines[lines.length - 1];
+		const inner = lines.slice(1, -1).join("\n");
+		const wrapped = [open, `\t<div class="std-container-text">`];
+		if (inner) wrapped.push(indentLines(inner, 1));
+		wrapped.push(`\t</div>`, close);
+		return wrapped.join("\n");
 	}
 
 	function serializeStyledAccordion(block, ctx) {
