@@ -249,6 +249,12 @@
 	function guessLanguageFromText(text) {
 		const raw = String(text || "").trim();
 		if (!raw) return "auto";
+		if (
+			/(^|\n)\s*(flowchart|graph|sequenceDiagram|classDiagram|stateDiagram|erDiagram|journey)\b/i.test(
+				raw,
+			)
+		)
+			return "mermaid";
 		if (raw.startsWith("<") || /<\/[a-z]/i.test(raw)) return "html";
 		if (/^\s*[{[]/.test(raw) && /":\s*/.test(raw)) return "json";
 		if (/(^|\n)\s*#/.test(raw) || /```/.test(raw)) return "markdown";
@@ -5143,6 +5149,16 @@
 					"button",
 					{
 						type: "button",
+						"data-cmd": "mermaid",
+						"data-tooltip": "Mermaid diagram",
+						"aria-label": "Mermaid diagram",
+					},
+					[toolbarIcon("schema")],
+				),
+				el(
+					"button",
+					{
+						type: "button",
 						"data-cmd": "doc",
 						"data-tooltip": "Attach document",
 						"aria-label": "Attach document",
@@ -5280,7 +5296,7 @@
 		};
 
 		const TOOLBAR_TEXT_RE =
-			/Auto\s*JS\s*JSON\s*HTML\s*CSS\s*Python\s*Markdown\s*YAML\s*Format/g;
+			/Auto\s*JS\s*JSON\s*HTML\s*CSS\s*Python\s*Markdown\s*Mermaid\s*YAML\s*Format/g;
 		const CODE_LANG_OPTIONS = [
 			{ value: "auto", label: "Auto" },
 			{ value: "javascript", label: "JS" },
@@ -5289,6 +5305,7 @@
 			{ value: "css", label: "CSS" },
 			{ value: "python", label: "Python" },
 			{ value: "markdown", label: "Markdown" },
+			{ value: "mermaid", label: "Mermaid" },
 			{ value: "yaml", label: "YAML" },
 		];
 
@@ -7636,6 +7653,23 @@
 				const html = buildAccordionMarkup({ styled: true });
 				insertHtmlAtCursor(editor, html);
 				queueMicrotask(() => renderAccordionActions());
+			} else if (cmd === "mermaid") {
+				const mermaidHtml = [
+					'<pre><code class="language-mermaid">',
+					"flowchart LR",
+					"  Start[Start] --> Decide{Decision}",
+					"  Decide -->|Yes| Next[Next step]",
+					"  Decide -->|No| Retry[Retry]",
+					"</code></pre>",
+				].join("\n");
+				insertHtmlAtCursor(editor, mermaidHtml);
+				queueMicrotask(() => {
+					const selection = window.getSelection();
+					let node = selection?.anchorNode || null;
+					if (node?.nodeType === Node.TEXT_NODE) node = node.parentElement;
+					const pre = node?.closest ? node.closest("pre") : null;
+					if (pre) ensureCodeToolbar(pre);
+				});
 			} else if (cmd === "doc") {
 				openDocPanel();
 			}
