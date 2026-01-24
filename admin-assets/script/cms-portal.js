@@ -1070,13 +1070,33 @@
 		return cleaned;
 	}
 
-	function buildHeadingHtml({ tag, text, align, style }) {
+	function slugifyHeading(text) {
+		const raw = String(text || "").trim().toLowerCase();
+		if (!raw) return "";
+		return raw
+			.replace(/[^a-z0-9]+/g, "-")
+			.replace(/^-+/, "")
+			.replace(/-+$/, "");
+	}
+
+	function resolveHeadingAnchor({ enabled, anchor, text }) {
+		if (!enabled) return "";
+		const existing = String(anchor || "").trim();
+		if (existing) return existing;
+		return slugifyHeading(text);
+	}
+
+	function buildHeadingHtml({ tag, text, align, style, anchor }) {
 		const headingText = String(text || "").trim();
 		if (!headingText) return "";
 		const safeTag = String(tag || "h2").toLowerCase();
+		const anchorValue = String(anchor || "").trim();
+		const anchorAttr = anchorValue ? ` id="${escapeAttr(anchorValue)}"` : "";
 		const mergedStyle = applyTextAlignStyle(style || "", align);
 		const styleAttr = mergedStyle ? ` style="${escapeAttr(mergedStyle)}"` : "";
-		return `<${safeTag}${styleAttr}>${escapeHtml(headingText)}</${safeTag}>`;
+		return `<${safeTag}${anchorAttr}${styleAttr}>${escapeHtml(
+			headingText,
+		)}</${safeTag}>`;
 	}
 
 	function normalizePortfolioDate(value) {
@@ -1176,6 +1196,9 @@
 	function normalizePortfolioGrid(raw, attrs = {}) {
 		const safe = raw && typeof raw === "object" ? raw : {};
 		const title = String(safe.title || attrs.title || "").trim();
+		const titleAnchor = String(
+			safe.titleAnchor || attrs.titleAnchor || "",
+		).trim();
 		const rawAlign =
 			typeof safe.titleAlign === "string" || typeof safe.titleAlign === "number"
 				? String(safe.titleAlign)
@@ -1219,6 +1242,7 @@
 			: [];
 		return {
 			title,
+			titleAnchor,
 			titleAlign,
 		intro,
 		maxVisible,
@@ -1303,12 +1327,14 @@
 		const headerEl = node.querySelector(".portfolio-grid__header h1,h2,h3");
 		const headerText = headerEl?.textContent?.trim() || "";
 		const headerStyle = headerEl?.getAttribute("style") || "";
+		const headerAnchor = headerEl?.getAttribute("id") || "";
 		if (/text-align\s*:/i.test(headerStyle)) {
 			attrs.titleAlign = normalizeHeadingAlign(
 				getHeadingAlignFromStyle(headerStyle),
 				"center",
 			);
 		}
+		if (headerAnchor) attrs.titleAnchor = headerAnchor;
 		const introHtml = node.querySelector(".portfolio-grid__intro")?.innerHTML || "";
 
 		let data = null;
@@ -1381,6 +1407,8 @@
 					rightHeadingTag === "h1" ? "h2" : rightHeadingTag;
 				const leftHeadingStyle = leftHeadingEl?.getAttribute("style") || "";
 				const rightHeadingStyle = rightHeadingEl?.getAttribute("style") || "";
+				const leftHeadingAnchor = leftHeadingEl?.getAttribute("id") || "";
+				const rightHeadingAnchor = rightHeadingEl?.getAttribute("id") || "";
 				const leftHeadingAlign = normalizeHeadingAlign(
 					getHeadingAlignFromStyle(leftHeadingStyle),
 					"left",
@@ -1412,10 +1440,12 @@
 					leftHeadingTag: safeLeftHeadingTag,
 					leftHeadingStyle,
 					leftHeadingAlign,
+					leftHeadingAnchor,
 					rightHeading: rightHeadingEl?.textContent?.trim() || "",
 					rightHeadingTag: safeRightHeadingTag,
 					rightHeadingStyle,
 					rightHeadingAlign,
+					rightHeadingAnchor,
 					left: leftHtml,
 					right: rightHtml,
 				};
@@ -1425,6 +1455,7 @@
 				const headingTag = headingEl ? headingEl.tagName.toLowerCase() : "h2";
 				const safeHeadingTag = headingTag === "h1" ? "h2" : headingTag;
 				const headingStyle = headingEl?.getAttribute("style") || "";
+				const headingAnchor = headingEl?.getAttribute("id") || "";
 				const headingAlign = normalizeHeadingAlign(
 					getHeadingAlignFromStyle(headingStyle),
 					"left",
@@ -1461,6 +1492,7 @@
 					headingTag: safeHeadingTag,
 					headingStyle,
 					headingAlign,
+					headingAnchor,
 					body,
 				};
 			}
@@ -1506,6 +1538,7 @@
 			const titleEl = box.querySelector("h1,h2,h3");
 			const titleTag = titleEl ? titleEl.tagName.toLowerCase() : "h2";
 			const safeTitleTag = titleTag === "h1" ? "h2" : titleTag;
+			const titleAnchor = titleEl?.getAttribute("id") || "";
 			const introParts = [];
 			let reachedTabs = false;
 			Array.from(box.children).forEach((child) => {
@@ -1530,6 +1563,7 @@
 				title: titleEl?.textContent?.trim() || "",
 				titleTag: safeTitleTag,
 				titleStyle: titleEl?.getAttribute("style") || "",
+				titleAnchor,
 				titleAlign: normalizeHeadingAlign(
 					getHeadingAlignFromStyle(titleEl?.getAttribute("style") || ""),
 					"left",
@@ -1545,6 +1579,7 @@
 				const headingEl = inner.querySelector("h1,h2,h3");
 				const headingTag = headingEl ? headingEl.tagName.toLowerCase() : "h2";
 				const headingStyle = headingEl?.getAttribute("style") || "";
+				const headingAnchor = headingEl?.getAttribute("id") || "";
 				const clone = inner.cloneNode(true);
 				const removeHeading = clone.querySelector("h1,h2,h3");
 				if (removeHeading) removeHeading.remove();
@@ -1560,6 +1595,7 @@
 						getHeadingAlignFromStyle(headingStyle),
 						"left",
 					),
+					headingAnchor,
 					body,
 				};
 			}
@@ -1671,6 +1707,7 @@
 					text: headingText,
 					align: block.headingAlign,
 					style: block.headingStyle,
+					anchor: block.headingAnchor,
 				})
 			: "";
 		const body = sanitizeRteHtml(block.body || "", ctx);
@@ -1703,6 +1740,7 @@
 					text: leftHeadingText,
 					align: block.leftHeadingAlign,
 					style: block.leftHeadingStyle,
+					anchor: block.leftHeadingAnchor,
 				})
 			: "";
 		const rightHeadingHtml = rightHeadingText
@@ -1711,6 +1749,7 @@
 					text: rightHeadingText,
 					align: block.rightHeadingAlign,
 					style: block.rightHeadingStyle,
+					anchor: block.rightHeadingAnchor,
 				})
 			: "";
 		const left = sanitizeRteHtml(block.left || "", ctx);
@@ -1736,15 +1775,14 @@
 		const cmsId = getBlockCmsId(block, ctx?.index ?? 0, ctx);
 		const headingText = String(block.heading || "").trim();
 		const headingTag = (block.headingTag || "h2").toLowerCase();
-		const headingStyle = applyTextAlignStyle(
-			String(block.headingStyle || "").trim(),
-			block.headingAlign,
-		);
-		const styleAttr = headingStyle
-			? ` style="${escapeAttr(headingStyle)}"`
-			: "";
 		const headingHtml = headingText
-			? `<${headingTag}${styleAttr}>${escapeHtml(headingText)}</${headingTag}>`
+			? buildHeadingHtml({
+					tag: headingTag,
+					text: headingText,
+					align: block.headingAlign,
+					style: block.headingStyle,
+					anchor: block.headingAnchor,
+				})
 			: "";
 		const body = sanitizeRteHtml(block.body || "", ctx);
 		const content = [headingHtml, body].filter(Boolean).join("\n");
@@ -1911,12 +1949,16 @@
 					? "text-align: left;"
 					: "text-align: center;"
 				: "";
-			const alignAttr = alignStyle ? ` style="${escapeAttr(alignStyle)}"` : "";
-			lines.push(
-				`\t<div class="portfolio-grid__header">`,
-				`\t\t<h2${alignAttr}>${escapeHtml(normalized.title)}</h2>`,
-				`\t</div>`,
-			);
+			const headingHtml = buildHeadingHtml({
+				tag: "h2",
+				text: normalized.title,
+				align: titleAlign,
+				style: alignStyle,
+				anchor: normalized.titleAnchor,
+			});
+			lines.push(`\t<div class="portfolio-grid__header">`);
+			if (headingHtml) lines.push(`\t\t${headingHtml}`);
+			lines.push(`\t</div>`);
 		}
 		if (normalized.intro) {
 			const introHtml = /<[a-z][\s\S]*>/i.test(normalized.intro)
@@ -2134,6 +2176,7 @@
 		const jsonPayload = {
 			version: 1,
 			title: normalized.title || "",
+			titleAnchor: normalized.titleAnchor || "",
 			titleAlign: normalized.titleAlign || "",
 			intro: normalized.intro || "",
 			maxVisible: normalized.maxVisible,
@@ -2182,6 +2225,7 @@
 					text: titleText,
 					align: block.titleAlign,
 					style: block.titleStyle,
+					anchor: block.titleAnchor,
 				})
 			: "";
 		const introRaw = String(block.intro || "").trim();
@@ -5149,9 +5193,22 @@
 					"button",
 					{
 						type: "button",
-						"data-cmd": "mermaid",
-						"data-tooltip": "Mermaid diagram",
-						"aria-label": "Mermaid diagram",
+						"data-cmd": "doc",
+						"data-tooltip": "Attach document",
+						"aria-label": "Attach document",
+					},
+					[toolbarIcon("attach_file")],
+				),
+			]),
+			toolbarDivider(),
+			buildToolbarGroup("Mermaid charts", [
+				el(
+					"button",
+					{
+						type: "button",
+						"data-cmd": "mermaid-flow",
+						"data-tooltip": "Mermaid flowchart",
+						"aria-label": "Mermaid flowchart",
 					},
 					[toolbarIcon("schema")],
 				),
@@ -5159,11 +5216,31 @@
 					"button",
 					{
 						type: "button",
-						"data-cmd": "doc",
-						"data-tooltip": "Attach document",
-						"aria-label": "Attach document",
+						"data-cmd": "mermaid-sequence",
+						"data-tooltip": "Mermaid sequence diagram",
+						"aria-label": "Mermaid sequence diagram",
 					},
-					[toolbarIcon("attach_file")],
+					[toolbarIcon("swap_horiz")],
+				),
+				el(
+					"button",
+					{
+						type: "button",
+						"data-cmd": "mermaid-gantt",
+						"data-tooltip": "Mermaid Gantt chart",
+						"aria-label": "Mermaid Gantt chart",
+					},
+					[toolbarIcon("view_timeline")],
+				),
+				el(
+					"button",
+					{
+						type: "button",
+						"data-cmd": "mermaid-pie",
+						"data-tooltip": "Mermaid pie chart",
+						"aria-label": "Mermaid pie chart",
+					},
+					[toolbarIcon("pie_chart")],
 				),
 			]),
 		]);
@@ -7653,15 +7730,58 @@
 				const html = buildAccordionMarkup({ styled: true });
 				insertHtmlAtCursor(editor, html);
 				queueMicrotask(() => renderAccordionActions());
-			} else if (cmd === "mermaid") {
-				const mermaidHtml = [
-					'<pre><code class="language-mermaid">',
-					"flowchart LR",
-					"  Start[Start] --> Decide{Decision}",
-					"  Decide -->|Yes| Next[Next step]",
-					"  Decide -->|No| Retry[Retry]",
-					"</code></pre>",
-				].join("\n");
+			} else if (cmd === "doc") {
+				openDocPanel();
+			} else if (cmd.startsWith("mermaid-")) {
+				const templates = {
+					"mermaid-flow": [
+						'<pre><code class="language-mermaid">',
+						"flowchart LR",
+						'  A[Start] --> B{Decision}',
+						"  B -->|Yes| C[Next step]",
+						"  B -->|No| D[Retry]",
+						'  click C "#section-id" "Jump to section"',
+						'</code></pre>',
+					],
+					"mermaid-sequence": [
+						'<pre><code class="language-mermaid">',
+						"sequenceDiagram",
+						"  participant User",
+						"  participant Admin",
+						"  participant GitHub",
+						"  User->>Admin: Edit content",
+						"  Admin->>GitHub: Create PR",
+						"  GitHub-->>User: Merge approved",
+						"  %% Link example (flowcharts only): click NodeId \"#section-id\"",
+						'</code></pre>',
+					],
+					"mermaid-gantt": [
+						'<pre><code class="language-mermaid">',
+						"gantt",
+						"  title Release cadence",
+						"  dateFormat  YYYY-MM-DD",
+						"  section Dev",
+						"  Build: a1, 2026-02-01, 5d",
+						"  Review: after a1, 3d",
+						"  section Prod",
+						"  Deploy: 2026-02-10, 1d",
+						"  %% Link example (flowcharts only): click NodeId \"#section-id\"",
+						"</code></pre>",
+					],
+					"mermaid-pie": [
+						'<pre><code class="language-mermaid">',
+						"pie title Case Study Mix",
+						'  "Development" : 5',
+						'  "Engineering Management" : 3',
+						'  "Commercial" : 2',
+						'  "Business Winning" : 2',
+						"  %% Link example (flowcharts only): click NodeId \"#section-id\"",
+						"</code></pre>",
+					],
+				};
+				const mermaidHtml = (templates[cmd] || templates["mermaid-flow"]).join(
+					"\n",
+				);
 				insertHtmlAtCursor(editor, mermaidHtml);
 				queueMicrotask(() => {
 					const selection = window.getSelection();
@@ -7670,8 +7790,6 @@
 					const pre = node?.closest ? node.closest("pre") : null;
 					if (pre) ensureCodeToolbar(pre);
 				});
-			} else if (cmd === "doc") {
-				openDocPanel();
 			}
 		};
 		if (toolbarController) {
@@ -7847,13 +7965,14 @@
 		return buildField({ label, input: row, note });
 	}
 
-	function buildAlignSelect(value, fallback = "left") {
+	function buildAlignSelect(value, fallback = "left", anchorValue = "") {
 		const wrap = el("div", {
 			class: "cms-align-toggle",
 			role: "group",
 			"aria-label": "Heading alignment",
 		});
 		const alignValue = normalizeHeadingAlign(value, fallback);
+		const anchorId = String(anchorValue || "").trim();
 		const buildBtn = (align, icon, label) => {
 			const btn = el(
 				"button",
@@ -7874,14 +7993,35 @@
 		};
 		const leftBtn = buildBtn("left", "format_align_left", "Align left");
 		const centerBtn = buildBtn("center", "format_align_center", "Align center");
+		const anchorBtn = el(
+			"button",
+			{
+				type: "button",
+				class: "cms-align-toggle__btn",
+				"aria-label": "Anchor link",
+				"data-tooltip": "Anchor link",
+			},
+			[el("span", { class: "material-icons", "aria-hidden": "true" }, ["link"])],
+		);
+		anchorBtn.addEventListener("click", (event) => {
+			event.preventDefault();
+			wrap.anchorEnabled = !wrap.anchorEnabled;
+		});
 		wrap.appendChild(leftBtn);
 		wrap.appendChild(centerBtn);
+		wrap.appendChild(anchorBtn);
 
 		const setValue = (next) => {
 			const normalized = normalizeHeadingAlign(next, fallback);
 			wrap.dataset.value = normalized;
 			leftBtn.classList.toggle("is-active", normalized === "left");
 			centerBtn.classList.toggle("is-active", normalized === "center");
+		};
+		const setAnchorEnabled = (next) => {
+			const enabled = Boolean(next);
+			wrap.dataset.anchorEnabled = enabled ? "true" : "false";
+			anchorBtn.classList.toggle("is-active", enabled);
+			anchorBtn.setAttribute("aria-pressed", enabled ? "true" : "false");
 		};
 		Object.defineProperty(wrap, "value", {
 			get() {
@@ -7891,7 +8031,25 @@
 				setValue(next);
 			},
 		});
+		Object.defineProperty(wrap, "anchor", {
+			get() {
+				return wrap.dataset.anchor || "";
+			},
+			set(next) {
+				wrap.dataset.anchor = String(next || "");
+			},
+		});
+		Object.defineProperty(wrap, "anchorEnabled", {
+			get() {
+				return wrap.dataset.anchorEnabled === "true";
+			},
+			set(next) {
+				setAnchorEnabled(next);
+			},
+		});
 		setValue(alignValue);
+		wrap.anchor = anchorId;
+		setAnchorEnabled(Boolean(anchorId));
 		return wrap;
 	}
 
@@ -9292,6 +9450,7 @@
 			const titleAlignSelect = buildAlignSelect(
 				normalized.titleAlign || "center",
 				"center",
+				normalized.titleAnchor || "",
 			);
 			const introHtml = (() => {
 				const raw = String(normalized.intro || "").trim();
@@ -10092,7 +10251,11 @@
 				value: parsed.title || "",
 				placeholder: "Accordion title",
 			});
-			const titleAlignSelect = buildAlignSelect(parsed.titleAlign, "left");
+			const titleAlignSelect = buildAlignSelect(
+				parsed.titleAlign,
+				"left",
+				parsed.titleAnchor || "",
+			);
 			const introHtml = (() => {
 				const raw = String(parsed.intro || "").trim();
 				if (!raw) return "";
@@ -10300,7 +10463,11 @@
 				value: parsed.heading || "",
 				placeholder: "Header text",
 			});
-			const headingAlignSelect = buildAlignSelect(parsed.headingAlign, "left");
+			const headingAlignSelect = buildAlignSelect(
+				parsed.headingAlign,
+				"left",
+				parsed.headingAnchor || "",
+			);
 			const body = buildRteEditor({
 				label: "Content",
 				initialHtml: parsed.body || "",
@@ -10356,7 +10523,11 @@
 				value: parsed.leftHeading || parsed.heading || "",
 				placeholder: "Left header",
 			});
-			const leftAlignSelect = buildAlignSelect(parsed.leftHeadingAlign, "left");
+			const leftAlignSelect = buildAlignSelect(
+				parsed.leftHeadingAlign,
+				"left",
+				parsed.leftHeadingAnchor || "",
+			);
 			const left = buildRteEditor({
 				label: "Left column",
 				initialHtml: parsed.left || "",
@@ -10368,7 +10539,11 @@
 				value: parsed.rightHeading || "",
 				placeholder: "Right header",
 			});
-			const rightAlignSelect = buildAlignSelect(parsed.rightHeadingAlign, "left");
+			const rightAlignSelect = buildAlignSelect(
+				parsed.rightHeadingAlign,
+				"left",
+				parsed.rightHeadingAnchor || "",
+			);
 			const right = buildRteEditor({
 				label: "Right column",
 				initialHtml: parsed.right || "",
@@ -10475,7 +10650,11 @@
 					value: parsed.heading || "",
 					placeholder: "Heading",
 				});
-				headingAlignSelect = buildAlignSelect(parsed.headingAlign, "left");
+				headingAlignSelect = buildAlignSelect(
+					parsed.headingAlign,
+					"left",
+					parsed.headingAnchor || "",
+				);
 				headingStyle = parsed.headingStyle || "";
 				imgInput = el("input", {
 					type: "text",
@@ -11006,12 +11185,22 @@
 
 		const buildUpdatedHtmlFromSettings = async () => {
 			const updated = { ...parsed };
+			const resolveAnchor = (control, text) =>
+				resolveHeadingAnchor({
+					enabled: control?.anchorEnabled,
+					anchor: control?.anchor,
+					text,
+				});
 			if (settings.accordionItems) {
 				updated.title = settings.accordionTitleInput?.value.trim() || "";
 				updated.titleTag = parsed.titleTag || "h2";
 				updated.titleAlign =
 					settings.accordionTitleAlignSelect?.value || parsed.titleAlign || "";
 				updated.titleStyle = settings.accordionTitleStyle || "";
+				updated.titleAnchor = resolveAnchor(
+					settings.accordionTitleAlignSelect,
+					updated.title,
+				);
 				updated.intro = sanitizeRteHtml(
 					settings.accordionIntroEditor?.editor.innerHTML || "",
 					ctx,
@@ -11027,6 +11216,10 @@
 				updated.headingStyle = settings.stdHeadingStyle || "";
 				updated.headingAlign =
 					settings.stdHeadingAlignSelect?.value || parsed.headingAlign || "";
+				updated.headingAnchor = resolveAnchor(
+					settings.stdHeadingAlignSelect,
+					updated.heading,
+				);
 			}
 			if (settings.headingInput) {
 				updated.heading = settings.headingInput.value.trim();
@@ -11034,6 +11227,10 @@
 				updated.headingAlign =
 					settings.headingAlignSelect?.value || parsed.headingAlign || "";
 				updated.headingStyle = settings.headingStyle || parsed.headingStyle || "";
+				updated.headingAnchor = resolveAnchor(
+					settings.headingAlignSelect,
+					updated.heading,
+				);
 			}
 			if (settings.leftHeadingInput) {
 				updated.leftHeading = settings.leftHeadingInput.value.trim();
@@ -11043,6 +11240,10 @@
 					settings.leftHeadingAlignSelect?.value ||
 					parsed.leftHeadingAlign ||
 					"";
+				updated.leftHeadingAnchor = resolveAnchor(
+					settings.leftHeadingAlignSelect,
+					updated.leftHeading,
+				);
 				updated.rightHeading = settings.rightHeadingInput?.value.trim() || "";
 				updated.rightHeadingTag = settings.rightHeadingTag || "h2";
 				updated.rightHeadingStyle = settings.rightHeadingStyle || "";
@@ -11050,6 +11251,10 @@
 					settings.rightHeadingAlignSelect?.value ||
 					parsed.rightHeadingAlign ||
 					"";
+				updated.rightHeadingAnchor = resolveAnchor(
+					settings.rightHeadingAlignSelect,
+					updated.rightHeading,
+				);
 				updated.heading = updated.leftHeading;
 				updated.headingTag = updated.leftHeadingTag;
 			}
@@ -11091,6 +11296,10 @@
 				updated.showTagFilters = settings.portfolioShowTags?.checked ?? true;
 				updated.showLinkFilters = settings.portfolioShowLinks?.checked ?? true;
 				updated.title = settings.portfolioTitleInput?.value.trim() || "";
+				updated.titleAnchor = resolveAnchor(
+					settings.portfolioTitleAlignSelect,
+					updated.title,
+				);
 				const alignValue = normalizeHeadingAlign(
 					settings.portfolioTitleAlignSelect?.value,
 					"center",
@@ -11810,6 +12019,7 @@
 	function getHljsLang(lang) {
 		const lower = String(lang || "").toLowerCase();
 		if (!lower) return "";
+		if (lower === "mermaid") return "";
 		if (lower === "js" || lower === "javascript") return "javascript";
 		if (lower === "json") return "json";
 		if (lower === "html") return "html";
@@ -11833,6 +12043,10 @@
 		});
 		blocks.forEach((code) => {
 			const lang = getLangFromCodeEl(code);
+			if (String(lang || "").toLowerCase() === "mermaid") {
+				code.classList.add("nohighlight");
+				return;
+			}
 			const text = String(code.textContent || "");
 			code.className = "";
 			if (lang) {
