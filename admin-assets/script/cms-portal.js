@@ -168,6 +168,7 @@
 
 		const stripHighlightMarkup = (node) => {
 			if (node.nodeType !== Node.ELEMENT_NODE) return;
+			node.querySelectorAll?.("[data-cms-preview]").forEach((el) => el.remove());
 			if (node.classList?.contains("hljs")) node.classList.remove("hljs");
 			if (node.hasAttribute?.("data-highlighted"))
 				node.removeAttribute("data-highlighted");
@@ -1378,6 +1379,7 @@
 			return { type: "legacy", raw: String(node?.outerHTML || "") };
 		}
 		const stripHighlightMarkup = (root) => {
+			root.querySelectorAll("[data-cms-preview]").forEach((el) => el.remove());
 			root.querySelectorAll("pre code").forEach((code) => {
 				code.classList.remove("hljs");
 				code.removeAttribute("data-highlighted");
@@ -8061,6 +8063,7 @@
 		const wrap = doc.querySelector("#__wrap__");
 		if (!wrap) return "";
 		const stripHighlightMarkup = (root) => {
+			root.querySelectorAll("[data-cms-preview]").forEach((el) => el.remove());
 			root.querySelectorAll("pre code").forEach((code) => {
 				code.classList.remove("hljs");
 				code.removeAttribute("data-highlighted");
@@ -9167,6 +9170,7 @@
 			const wrap = doc.querySelector("#__wrap__");
 			if (!wrap) return "";
 			const stripHighlightMarkup = (root) => {
+				root.querySelectorAll("[data-cms-preview]").forEach((el) => el.remove());
 				root.querySelectorAll("pre code").forEach((code) => {
 					code.classList.remove("hljs");
 					code.removeAttribute("data-highlighted");
