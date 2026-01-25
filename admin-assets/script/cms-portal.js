@@ -5550,6 +5550,138 @@
 		});
 		codeObserver.observe(editor, { childList: true, subtree: true });
 
+		const mermaidPreviewBody = el("div", {
+			class: "cms-mermaid-preview__body",
+		});
+		const mermaidPreviewEmpty = el(
+			"div",
+			{ class: "cms-mermaid-preview__empty" },
+			["Add a Mermaid code block to preview."],
+		);
+		const mermaidPreview = el(
+			"div",
+			{ class: "cms-mermaid-preview", hidden: true },
+			[
+				el("div", { class: "cms-mermaid-preview__header" }, [
+					"Mermaid preview",
+				]),
+				mermaidPreviewEmpty,
+				mermaidPreviewBody,
+			],
+		);
+		const editorRow = el("div", { class: "cms-rte__editor-row is-solo" }, [
+			editor,
+			mermaidPreview,
+		]);
+		let mermaidPreviewTimer = null;
+		let mermaidPreviewToken = 0;
+		let mermaidLoadPromise = window.__CMS_MERMAID_PREVIEW_PROMISE || null;
+
+		const setMermaidPreviewVisible = (visible) => {
+			mermaidPreview.hidden = !visible;
+			editorRow.classList.toggle("is-solo", !visible);
+		};
+
+		const getMermaidSources = () => {
+			const blocks = Array.from(editor.querySelectorAll("pre code"));
+			return blocks
+				.map((codeEl) => ({
+					codeEl,
+					lang: getLangFromCodeEl(codeEl),
+				}))
+				.filter(
+					({ lang }) => String(lang || "").toLowerCase() === "mermaid",
+				)
+				.map(({ codeEl }) => String(codeEl.textContent || "").trim());
+		};
+
+		const ensureMermaidReady = async () => {
+			if (window.mermaid && window.mermaid.__cmsPreviewReady) return true;
+			if (!window.mermaid) {
+				if (!mermaidLoadPromise) {
+					mermaidLoadPromise = new Promise((resolve) => {
+						const script = document.createElement("script");
+						script.src = "/assets/script/vendor/mermaid.min.js";
+						script.async = true;
+						script.onload = () => resolve(true);
+						script.onerror = () => resolve(false);
+						document.head.appendChild(script);
+					});
+					window.__CMS_MERMAID_PREVIEW_PROMISE = mermaidLoadPromise;
+				}
+				await mermaidLoadPromise;
+			}
+			if (!window.mermaid) return false;
+			window.mermaid.initialize({ startOnLoad: false, theme: "neutral" });
+			if (
+				typeof window.mermaid.registerIconPacks === "function" &&
+				!window.mermaid.__cmsPreviewIconsReady
+			) {
+				try {
+					const result = window.mermaid.registerIconPacks([
+						{
+							name: "logos",
+							icons: () =>
+								fetch("/assets/icon-packs/logos.json").then((res) =>
+									res.json(),
+								),
+						},
+					]);
+					if (result && typeof result.then === "function") await result;
+				} catch (err) {
+					console.warn("Mermaid icon pack load failed:", err);
+				}
+				window.mermaid.__cmsPreviewIconsReady = true;
+			}
+			window.mermaid.__cmsPreviewReady = true;
+			return true;
+		};
+
+		const renderMermaidPreview = async () => {
+			const sources = getMermaidSources().filter(Boolean);
+			if (!sources.length) {
+				mermaidPreviewBody.innerHTML = "";
+				mermaidPreviewEmpty.hidden = false;
+				setMermaidPreviewVisible(false);
+				return;
+			}
+			setMermaidPreviewVisible(true);
+			mermaidPreviewEmpty.hidden = true;
+			const ready = await ensureMermaidReady();
+			if (!ready || !window.mermaid?.render) {
+				mermaidPreviewBody.innerHTML =
+					'<div class="cms-mermaid-preview__error">Mermaid is not available.</div>';
+				return;
+			}
+			const token = (mermaidPreviewToken += 1);
+			mermaidPreviewBody.innerHTML = "";
+			for (let i = 0; i < sources.length; i += 1) {
+				const text = sources[i];
+				const target = document.createElement("div");
+				target.className = "cms-mermaid-preview__diagram";
+				mermaidPreviewBody.appendChild(target);
+				const id = `cms-mermaid-preview-${BUILD_TOKEN}-${makeLocalId()}-${i}`;
+				try {
+					const result = await window.mermaid.render(id, text);
+					if (token !== mermaidPreviewToken) return;
+					const svg = typeof result === "string" ? result : result?.svg;
+					target.innerHTML = svg || "";
+					result?.bindFunctions?.(target);
+				} catch (err) {
+					target.innerHTML =
+						'<div class="cms-mermaid-preview__error">Mermaid render failed.</div>';
+				}
+			}
+		};
+
+		const scheduleMermaidPreview = () => {
+			if (mermaidPreviewTimer) clearTimeout(mermaidPreviewTimer);
+			mermaidPreviewTimer = setTimeout(renderMermaidPreview, 250);
+		};
+
+		editor.addEventListener("input", scheduleMermaidPreview);
+		scheduleMermaidPreview();
+
 		let activeImageTarget = null;
 		let activeVideoTarget = null;
 		let activeDocTarget = null;
@@ -6373,7 +6505,7 @@
 		const wrap = el("div", { class: "cms-rte__field" }, [
 			el("div", { class: "cms-rte__label" }, [label]),
 			...toolbarNodes,
-			editor,
+			editorRow,
 			imagePanel,
 			videoPanel,
 			docPanel,
@@ -7798,6 +7930,7 @@
 					if (node?.nodeType === Node.TEXT_NODE) node = node.parentElement;
 					const pre = node?.closest ? node.closest("pre") : null;
 					if (pre) ensureCodeToolbar(pre);
+					scheduleMermaidPreview();
 				});
 			}
 		};
@@ -12090,6 +12223,127 @@
 		setTimeout(scheduleHighlightStaticCodeBlocks, 200);
 	}
 
+	let mermaidAdminRenderTimer = null;
+	let mermaidAdminRenderToken = 0;
+	let mermaidAdminLoadPromise = window.__CMS_MERMAID_PREVIEW_PROMISE || null;
+
+	const loadMermaidAdminScript = () => {
+		if (window.mermaid) return Promise.resolve(true);
+		if (!mermaidAdminLoadPromise) {
+			mermaidAdminLoadPromise = new Promise((resolve) => {
+				const script = document.createElement("script");
+				script.src = "/assets/script/vendor/mermaid.min.js";
+				script.async = true;
+				script.onload = () => resolve(true);
+				script.onerror = () => resolve(false);
+				document.head.appendChild(script);
+			});
+			window.__CMS_MERMAID_PREVIEW_PROMISE = mermaidAdminLoadPromise;
+		}
+		return mermaidAdminLoadPromise;
+	};
+
+	const ensureMermaidAdminReady = async () => {
+		if (window.mermaid && window.mermaid.__cmsPreviewReady) return true;
+		if (!window.mermaid) await loadMermaidAdminScript();
+		if (!window.mermaid) return false;
+		window.mermaid.initialize({ startOnLoad: false, theme: "neutral" });
+		if (
+			typeof window.mermaid.registerIconPacks === "function" &&
+			!window.mermaid.__cmsPreviewIconsReady
+		) {
+			try {
+				const result = window.mermaid.registerIconPacks([
+					{
+						name: "logos",
+						icons: () =>
+							fetch("/assets/icon-packs/logos.json").then((res) => res.json()),
+					},
+				]);
+				if (result && typeof result.then === "function") await result;
+			} catch (err) {
+				console.warn("Mermaid icon pack load failed:", err);
+			}
+			window.mermaid.__cmsPreviewIconsReady = true;
+		}
+		window.mermaid.__cmsPreviewReady = true;
+		return true;
+	};
+
+	const renderMermaidAdminPreview = async () => {
+		const root = qs("#cms-portal");
+		if (!root) return;
+		root
+			.querySelectorAll(".mermaid-admin-preview")
+			.forEach((wrap) => wrap.remove());
+		root
+			.querySelectorAll("pre.cms-mermaid-source")
+			.forEach((pre) => {
+				pre.classList.remove("cms-mermaid-source");
+				pre.classList.remove("is-show-source");
+				pre.removeAttribute("id");
+			});
+
+		const blocks = Array.from(root.querySelectorAll("pre code")).filter(
+			(code) => {
+				if (code.classList.contains("nohighlight")) return false;
+				if (code.isContentEditable) return false;
+				if (code.closest(".cms-modal")) return false;
+				if (code.closest(".cms-rte")) return false;
+				return String(getLangFromCodeEl(code) || "").toLowerCase() === "mermaid";
+			},
+		);
+		const items = blocks
+			.map((code) => ({
+				code,
+				pre: code.closest("pre"),
+				text: String(code.textContent || "").trim(),
+			}))
+			.filter((item) => item.pre && item.text);
+		if (!items.length) return;
+		const ready = await ensureMermaidAdminReady();
+		if (!ready || !window.mermaid?.render) return;
+		const token = (mermaidAdminRenderToken += 1);
+		for (let i = 0; i < items.length; i += 1) {
+			const item = items[i];
+			const sourceId = `cms-mermaid-source-${BUILD_TOKEN}-${makeLocalId()}-${i}`;
+			item.pre.classList.add("cms-mermaid-source");
+			item.pre.setAttribute("id", sourceId);
+			const wrap = document.createElement("div");
+			wrap.className = "mermaid-wrap mermaid-admin-preview is-loading";
+			wrap.setAttribute("data-source-id", sourceId);
+			const toggleBtn = document.createElement("button");
+			toggleBtn.type = "button";
+			toggleBtn.className = "cms-mermaid-toggle";
+			toggleBtn.textContent = "Show source";
+			toggleBtn.addEventListener("click", () => {
+				const isActive = wrap.classList.toggle("is-show-source");
+				const source = root.querySelector(`#${sourceId}`);
+				if (source) source.classList.toggle("is-show-source", isActive);
+				toggleBtn.textContent = isActive ? "Hide source" : "Show source";
+			});
+			wrap.appendChild(toggleBtn);
+			item.pre.insertAdjacentElement("afterend", wrap);
+			const id = `mermaid-admin-${BUILD_TOKEN}-${makeLocalId()}-${i}`;
+			try {
+				const result = await window.mermaid.render(id, item.text);
+				if (token !== mermaidAdminRenderToken) return;
+				const svg = typeof result === "string" ? result : result?.svg;
+				wrap.innerHTML = svg || "";
+				result?.bindFunctions?.(wrap);
+			} catch (err) {
+				wrap.textContent = "Mermaid render failed.";
+			} finally {
+				wrap.classList.remove("is-loading");
+			}
+		}
+	};
+
+	const scheduleMermaidAdminPreview = () => {
+		if (mermaidAdminRenderTimer) clearTimeout(mermaidAdminRenderTimer);
+		mermaidAdminRenderTimer = setTimeout(renderMermaidAdminPreview, 60);
+	};
+
 	function renderPageSurface() {
 		const entry = state.dirtyPages[state.path];
 		const entryHtml = entry?.html ? String(entry.html) : "";
@@ -12600,6 +12854,7 @@
 
 		root.appendChild(mainWrap);
 		scheduleHighlightStaticCodeBlocks();
+		scheduleMermaidAdminPreview();
 
 		queueMicrotask(() => {
 			mainWrap
