@@ -3330,6 +3330,25 @@
 		if (!hasLocal) {
 			state.lastReorderLocal = null;
 			if (entry?.html) {
+				const baseHero = extractRegion(baseHtml, "hero");
+				const entryHero = extractRegion(entry.html, "hero");
+				const baseHeroModel = parseHeroInner(baseHero.inner || "");
+				const entryHeroModel = parseHeroInner(entryHero.inner || "");
+				const heroChanged =
+					baseHero.found &&
+					entryHero.found &&
+					!heroModelsEqual(baseHeroModel, entryHeroModel);
+				if (heroChanged) {
+					const heroInner = serializeHeroInner(entryHeroModel);
+					const rebased = replaceRegion(baseHtml, "hero", heroInner);
+					setDirtyPage(path, rebased, baseHtml, []);
+					if (path === state.path) {
+						applyHtmlToCurrentPage(rebased);
+						renderPageSurface();
+					}
+					refreshUiStateForDirty();
+					return;
+				}
 				const dirtySame =
 					normalizeForDirtyCompare(entry.html, path) ===
 					normalizeForDirtyCompare(baseHtml, path);
@@ -12371,7 +12390,17 @@
 						} else {
 							const remaining = sessionCountsById.get(baseId) || 0;
 							if (remaining > 0) sessionCountsById.set(baseId, remaining - 1);
-							else status = "edited";
+							else {
+								const fallbackSig = sig || signatureForHtml(html);
+								const sigRemaining = fallbackSig
+									? sessionCountsBySig.get(fallbackSig) || 0
+									: 0;
+								if (sigRemaining > 0) {
+									sessionCountsBySig.set(fallbackSig, sigRemaining - 1);
+								} else if (sessionCountsById.size || sessionCountsBySig.size) {
+									status = "edited";
+								}
+							}
 						}
 					}
 				} else {
