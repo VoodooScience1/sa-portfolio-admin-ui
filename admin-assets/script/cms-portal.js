@@ -27,7 +27,7 @@
 	const SESSION_STORAGE_KEY = "cms-session-state";
 	const DEBUG_ENABLED_DEFAULT = true;
 	const DEBUG_CODE_STYLES_DEFAULT = false;
-	const UPDATE_VERSION = 29;
+	const UPDATE_VERSION = 30;
 
 	const BLOCK_LIBRARY = [
 		{
@@ -3344,18 +3344,6 @@
 					setDirtyPage(path, rebased, baseHtml, []);
 					if (path === state.path) {
 						applyHtmlToCurrentPage(rebased);
-						renderPageSurface();
-					}
-					refreshUiStateForDirty();
-					return;
-				}
-				const dirtySame =
-					normalizeForDirtyCompare(entry.html, path) ===
-					normalizeForDirtyCompare(baseHtml, path);
-				if (!dirtySame) {
-					setDirtyPage(path, entry.html, baseHtml, []);
-					if (path === state.path) {
-						applyHtmlToCurrentPage(entry.html);
 						renderPageSurface();
 					}
 					refreshUiStateForDirty();
