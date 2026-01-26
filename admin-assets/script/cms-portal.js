@@ -12337,7 +12337,9 @@
 					{
 						name: "logos",
 						icons: () =>
-							fetch("/assets/icon-packs/logos.json").then((res) => res.json()),
+							fetch(
+								`/assets/icon-packs/logos.json?v=${BUILD_TOKEN}-${Date.now()}`,
+							).then((res) => res.json()),
 					},
 				]);
 				if (result && typeof result.then === "function") await result;
@@ -12367,7 +12369,6 @@
 		const blocks = Array.from(root.querySelectorAll("pre code")).filter(
 			(code) => {
 				if (code.classList.contains("nohighlight")) return false;
-				if (code.isContentEditable) return false;
 				if (code.closest(".cms-modal")) return false;
 				if (code.closest(".cms-rte")) return false;
 				const lang = String(getLangFromCodeEl(code) || "").toLowerCase();
