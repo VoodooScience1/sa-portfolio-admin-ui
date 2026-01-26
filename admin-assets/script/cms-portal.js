@@ -5472,13 +5472,19 @@
 						if (detected && detected !== "auto") {
 							updateCodeLanguage(codeEl, detected);
 							select.value = detected;
+							refreshMermaidPreviewButtons();
+							scheduleMermaidPreview();
 							return;
 						}
 						updateCodeLanguage(codeEl, "auto");
 						select.value = "auto";
+						refreshMermaidPreviewButtons();
+						scheduleMermaidPreview();
 						return;
 					}
 					updateCodeLanguage(codeEl, value);
+					refreshMermaidPreviewButtons();
+					scheduleMermaidPreview();
 				};
 				select.addEventListener("change", () => applySelection(select.value));
 				autoBtn.addEventListener("click", (event) => {
@@ -5509,6 +5515,7 @@
 			if (select) {
 				select.value = getLangFromCodeEl(codeEl) || "auto";
 			}
+			refreshMermaidPreviewButtons();
 		};
 
 		const ensureCodeToolbar = (pre) => {
@@ -5576,10 +5583,19 @@
 		let mermaidPreviewTimer = null;
 		let mermaidPreviewToken = 0;
 		let mermaidLoadPromise = window.__CMS_MERMAID_PREVIEW_PROMISE || null;
+		let mermaidPreviewHidden = false;
 
 		const setMermaidPreviewVisible = (visible) => {
 			mermaidPreview.hidden = !visible;
 			editorRow.classList.toggle("is-solo", !visible);
+			mermaidPreviewHidden = !visible;
+			refreshMermaidPreviewButtons();
+		};
+
+		const toggleMermaidPreview = () => {
+			const nextVisible = mermaidPreviewHidden;
+			setMermaidPreviewVisible(nextVisible);
+			if (nextVisible) scheduleMermaidPreview();
 		};
 
 		const getMermaidSources = () => {
@@ -5645,6 +5661,11 @@
 				setMermaidPreviewVisible(false);
 				return;
 			}
+			if (mermaidPreviewHidden) {
+				mermaidPreviewEmpty.hidden = true;
+				setMermaidPreviewVisible(false);
+				return;
+			}
 			setMermaidPreviewVisible(true);
 			mermaidPreviewEmpty.hidden = true;
 			const ready = await ensureMermaidReady();
@@ -5678,6 +5699,39 @@
 			if (mermaidPreviewTimer) clearTimeout(mermaidPreviewTimer);
 			mermaidPreviewTimer = setTimeout(renderMermaidPreview, 250);
 		};
+
+		function refreshMermaidPreviewButtons() {
+			editor
+				.querySelectorAll(".cms-code-block-wrap")
+				.forEach((wrap) => {
+					const toolbar = wrap.querySelector(".cms-code-toolbar");
+					const codeEl = wrap.querySelector("pre code");
+					if (!toolbar || !codeEl) return;
+					const lang = String(getLangFromCodeEl(codeEl) || "").toLowerCase();
+					let previewBtn = toolbar.querySelector(
+						".cms-code-toolbar__btn--mermaid-preview",
+					);
+					if (lang !== "mermaid") {
+						if (previewBtn) previewBtn.hidden = true;
+						return;
+					}
+					if (!previewBtn) {
+						previewBtn = document.createElement("button");
+						previewBtn.type = "button";
+						previewBtn.className =
+							"cms-code-toolbar__btn cms-code-toolbar__btn--mermaid-preview";
+						previewBtn.addEventListener("click", (event) => {
+							event.preventDefault();
+							toggleMermaidPreview();
+						});
+						toolbar.appendChild(previewBtn);
+					}
+					previewBtn.hidden = false;
+					previewBtn.textContent = mermaidPreviewHidden
+						? "Show preview"
+						: "Hide preview";
+				});
+		}
 
 		editor.addEventListener("input", scheduleMermaidPreview);
 		scheduleMermaidPreview();
@@ -7004,6 +7058,31 @@
 			});
 		};
 
+		const normalizeAccordionIds = () => {
+			const used = new Set();
+			const escapeId = (value) =>
+				typeof CSS !== "undefined" && CSS.escape ? CSS.escape(value) : value;
+			editor.querySelectorAll(".tab").forEach((tab, idx) => {
+				const input = tab.querySelector("input[type=checkbox]");
+				const label = tab.querySelector(".tab-label");
+				if (!input || !label) return;
+				let base = input.id || `acc-${BUILD_TOKEN}-${makeLocalId()}`;
+				base = base.replace(/^cms-edit-/, "");
+				let nextId = `cms-edit-${BUILD_TOKEN}-${base}-${idx}`;
+				let bump = 0;
+				while (
+					used.has(nextId) ||
+					editor.querySelector(`#${escapeId(nextId)}`)
+				) {
+					bump += 1;
+					nextId = `cms-edit-${BUILD_TOKEN}-${base}-${idx}-${bump}`;
+				}
+				input.id = nextId;
+				label.setAttribute("for", nextId);
+				used.add(nextId);
+			});
+		};
+
 		const attachAccordionActions = (tab) => {
 			if (!(tab instanceof HTMLElement)) return;
 			if (tab.querySelector(".cms-accordion-actions")) return;
@@ -7101,6 +7180,7 @@
 		};
 
 		const renderAccordionActions = () => {
+			normalizeAccordionIds();
 			editor.querySelectorAll(".tab").forEach((tab) => {
 				attachAccordionActions(tab);
 			});
@@ -12307,7 +12387,6 @@
 		for (let i = 0; i < items.length; i += 1) {
 			const item = items[i];
 			const sourceId = `cms-mermaid-source-${BUILD_TOKEN}-${makeLocalId()}-${i}`;
-			item.pre.classList.add("cms-mermaid-source");
 			item.pre.setAttribute("id", sourceId);
 			const wrap = document.createElement("div");
 			wrap.className = "mermaid-wrap mermaid-admin-preview is-loading";
@@ -12322,17 +12401,29 @@
 				if (source) source.classList.toggle("is-show-source", isActive);
 				toggleBtn.textContent = isActive ? "Hide source" : "Show source";
 			});
-			wrap.appendChild(toggleBtn);
 			item.pre.insertAdjacentElement("afterend", wrap);
 			const id = `mermaid-admin-${BUILD_TOKEN}-${makeLocalId()}-${i}`;
 			try {
 				const result = await window.mermaid.render(id, item.text);
 				if (token !== mermaidAdminRenderToken) return;
 				const svg = typeof result === "string" ? result : result?.svg;
-				wrap.innerHTML = svg || "";
-				result?.bindFunctions?.(wrap);
+				wrap.innerHTML = "";
+				wrap.appendChild(toggleBtn);
+				if (svg) {
+					const svgWrap = document.createElement("div");
+					svgWrap.className = "cms-mermaid-preview__diagram";
+					svgWrap.innerHTML = svg;
+					wrap.appendChild(svgWrap);
+					result?.bindFunctions?.(svgWrap);
+				}
+				item.pre.classList.add("cms-mermaid-source");
 			} catch (err) {
-				wrap.textContent = "Mermaid render failed.";
+				wrap.innerHTML = "";
+				wrap.appendChild(toggleBtn);
+				const errorMsg = document.createElement("div");
+				errorMsg.className = "cms-mermaid-preview__error";
+				errorMsg.textContent = "Mermaid render failed.";
+				wrap.appendChild(errorMsg);
 			} finally {
 				wrap.classList.remove("is-loading");
 			}
