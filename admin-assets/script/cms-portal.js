@@ -5565,22 +5565,12 @@
 			{ class: "cms-mermaid-preview__empty" },
 			["Add a Mermaid code block to preview."],
 		);
-		const mermaidPreviewToggle = el(
-			"button",
-			{ type: "button", class: "cms-mermaid-preview__toggle" },
-			["Hide preview"],
-		);
-		mermaidPreviewToggle.addEventListener("click", (event) => {
-			event.preventDefault();
-			toggleMermaidPreview();
-		});
 		const mermaidPreview = el(
 			"div",
 			{ class: "cms-mermaid-preview", hidden: true },
 			[
 				el("div", { class: "cms-mermaid-preview__header" }, [
-					el("span", {}, ["Mermaid preview"]),
-					mermaidPreviewToggle,
+					"Mermaid preview",
 				]),
 				mermaidPreviewEmpty,
 				mermaidPreviewBody,
@@ -5599,10 +5589,7 @@
 			mermaidPreview.hidden = !visible;
 			editorRow.classList.toggle("is-solo", !visible);
 			mermaidPreviewHidden = !visible;
-			mermaidPreviewToggle.hidden = !visible;
-			mermaidPreviewToggle.textContent = visible
-				? "Hide preview"
-				: "Show preview";
+			refreshMermaidPreviewButtons();
 		};
 
 		const toggleMermaidPreview = () => {
@@ -5713,7 +5700,38 @@
 			mermaidPreviewTimer = setTimeout(renderMermaidPreview, 250);
 		};
 
-		function refreshMermaidPreviewButtons() {}
+		function refreshMermaidPreviewButtons() {
+			editor
+				.querySelectorAll(".cms-code-block-wrap")
+				.forEach((wrap) => {
+					const toolbar = wrap.querySelector(".cms-code-toolbar");
+					const codeEl = wrap.querySelector("pre code");
+					if (!toolbar || !codeEl) return;
+					const lang = String(getLangFromCodeEl(codeEl) || "").toLowerCase();
+					let previewBtn = toolbar.querySelector(
+						".cms-code-toolbar__btn--mermaid-preview",
+					);
+					if (lang !== "mermaid") {
+						if (previewBtn) previewBtn.hidden = true;
+						return;
+					}
+					if (!previewBtn) {
+						previewBtn = document.createElement("button");
+						previewBtn.type = "button";
+						previewBtn.className =
+							"cms-code-toolbar__btn cms-code-toolbar__btn--mermaid-preview";
+						previewBtn.addEventListener("click", (event) => {
+							event.preventDefault();
+							toggleMermaidPreview();
+						});
+						toolbar.appendChild(previewBtn);
+					}
+					previewBtn.hidden = false;
+					previewBtn.textContent = mermaidPreviewHidden
+						? "Show preview"
+						: "Hide preview";
+				});
+		}
 
 		editor.addEventListener("input", scheduleMermaidPreview);
 		scheduleMermaidPreview();
@@ -12582,8 +12600,12 @@
 			};
 			if (anchorInfo?.anchor?.id) {
 				attrs["data-anchor-id"] = anchorInfo.anchor.id;
-				if (anchorInfo.anchor.sig)
-					attrs["data-anchor-sig"] = anchorInfo.anchor.sig;
+				if (Number.isInteger(anchorInfo.anchor.occ))
+					attrs["data-anchor-occ"] = String(anchorInfo.anchor.occ);
+				if (anchorInfo.placement)
+					attrs["data-anchor-placement"] = anchorInfo.placement;
+			} else if (anchorInfo?.anchor?.sig) {
+				attrs["data-anchor-sig"] = anchorInfo.anchor.sig;
 				if (Number.isInteger(anchorInfo.anchor.occ))
 					attrs["data-anchor-occ"] = String(anchorInfo.anchor.occ);
 				if (anchorInfo.placement)
