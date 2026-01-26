@@ -251,7 +251,7 @@
 		const raw = String(text || "").trim();
 		if (!raw) return "auto";
 		if (
-			/(^|\n)\s*(flowchart|graph|sequenceDiagram|classDiagram|stateDiagram|erDiagram|journey)\b/i.test(
+			/(^|\n)\s*(flowchart|graph|sequenceDiagram|classDiagram|stateDiagram|erDiagram|journey|architecture-beta|architecture)\b/i.test(
 				raw,
 			)
 		)
@@ -12370,7 +12370,10 @@
 				if (code.isContentEditable) return false;
 				if (code.closest(".cms-modal")) return false;
 				if (code.closest(".cms-rte")) return false;
-				return String(getLangFromCodeEl(code) || "").toLowerCase() === "mermaid";
+				const lang = String(getLangFromCodeEl(code) || "").toLowerCase();
+				if (lang === "mermaid") return true;
+				const detected = guessLanguageFromText(code.textContent || "");
+				return detected === "mermaid";
 			},
 		);
 		const items = blocks
