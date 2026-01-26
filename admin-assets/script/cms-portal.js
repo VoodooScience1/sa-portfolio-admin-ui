@@ -12388,23 +12388,66 @@
 			const item = items[i];
 			const sourceId = `cms-mermaid-source-${BUILD_TOKEN}-${makeLocalId()}-${i}`;
 			item.pre.setAttribute("id", sourceId);
+			item.pre
+				.querySelectorAll(".code-copy-btn, .code-preview-btn")
+				.forEach((btn) => btn.remove());
 			const wrap = document.createElement("div");
 			wrap.className = "mermaid-wrap mermaid-admin-preview is-loading";
 			wrap.setAttribute("data-source-id", sourceId);
 			item.pre.insertAdjacentElement("afterend", wrap);
+			const actions = document.createElement("div");
+			actions.className = "mermaid-admin-actions";
+			const previewBtn = document.createElement("button");
+			previewBtn.type = "button";
+			previewBtn.className = "code-preview-btn";
+			const copyBtn = document.createElement("button");
+			copyBtn.type = "button";
+			copyBtn.className = "code-copy-btn";
+			copyBtn.textContent = "content_copy";
+			copyBtn.setAttribute("aria-label", "Copy code");
+			copyBtn.setAttribute("title", "Copy");
+			copyBtn.addEventListener("click", async (event) => {
+				event.preventDefault();
+				event.stopPropagation();
+				const text = item.code.textContent || "";
+				try {
+					if (navigator.clipboard?.writeText) {
+						await navigator.clipboard.writeText(text);
+					} else {
+						const area = document.createElement("textarea");
+						area.value = text;
+						area.setAttribute("readonly", "true");
+						area.style.position = "fixed";
+						area.style.top = "-9999px";
+						area.style.left = "-9999px";
+						document.body.appendChild(area);
+						area.select();
+						document.execCommand("copy");
+						document.body.removeChild(area);
+					}
+					copyBtn.classList.add("is-copied");
+					copyBtn.textContent = "check";
+					setTimeout(() => {
+						copyBtn.classList.remove("is-copied");
+						copyBtn.textContent = "content_copy";
+					}, 1200);
+				} catch {
+					copyBtn.textContent = "error";
+					setTimeout(() => {
+						copyBtn.textContent = "content_copy";
+					}, 1200);
+				}
+			});
+			actions.appendChild(previewBtn);
+			actions.appendChild(copyBtn);
+			wrap.appendChild(actions);
 			const id = `mermaid-admin-${BUILD_TOKEN}-${makeLocalId()}-${i}`;
 			try {
 				const result = await window.mermaid.render(id, item.text);
 				if (token !== mermaidAdminRenderToken) return;
 				const svg = typeof result === "string" ? result : result?.svg;
 				wrap.innerHTML = "";
-				let previewBtn = item.pre.querySelector(".code-preview-btn");
-				if (!previewBtn) {
-					previewBtn = document.createElement("button");
-					previewBtn.type = "button";
-					previewBtn.className = "code-preview-btn";
-					item.pre.appendChild(previewBtn);
-				}
+				wrap.appendChild(actions);
 				if (svg) {
 					const svgWrap = document.createElement("div");
 					svgWrap.className = "cms-mermaid-preview__diagram";
@@ -12428,6 +12471,7 @@
 				setPreviewState(false);
 			} catch (err) {
 				wrap.innerHTML = "";
+				wrap.appendChild(actions);
 				const errorMsg = document.createElement("div");
 				errorMsg.className = "cms-mermaid-preview__error";
 				errorMsg.textContent = "Mermaid render failed.";
