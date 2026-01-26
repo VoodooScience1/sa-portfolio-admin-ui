@@ -5565,12 +5565,22 @@
 			{ class: "cms-mermaid-preview__empty" },
 			["Add a Mermaid code block to preview."],
 		);
+		const mermaidPreviewToggle = el(
+			"button",
+			{ type: "button", class: "cms-mermaid-preview__toggle" },
+			["Hide preview"],
+		);
+		mermaidPreviewToggle.addEventListener("click", (event) => {
+			event.preventDefault();
+			toggleMermaidPreview();
+		});
 		const mermaidPreview = el(
 			"div",
 			{ class: "cms-mermaid-preview", hidden: true },
 			[
 				el("div", { class: "cms-mermaid-preview__header" }, [
-					"Mermaid preview",
+					el("span", {}, ["Mermaid preview"]),
+					mermaidPreviewToggle,
 				]),
 				mermaidPreviewEmpty,
 				mermaidPreviewBody,
@@ -5583,13 +5593,16 @@
 		let mermaidPreviewTimer = null;
 		let mermaidPreviewToken = 0;
 		let mermaidLoadPromise = window.__CMS_MERMAID_PREVIEW_PROMISE || null;
-		let mermaidPreviewHidden = false;
+		var mermaidPreviewHidden = false;
 
 		const setMermaidPreviewVisible = (visible) => {
 			mermaidPreview.hidden = !visible;
 			editorRow.classList.toggle("is-solo", !visible);
 			mermaidPreviewHidden = !visible;
-			refreshMermaidPreviewButtons();
+			mermaidPreviewToggle.hidden = !visible;
+			mermaidPreviewToggle.textContent = visible
+				? "Hide preview"
+				: "Show preview";
 		};
 
 		const toggleMermaidPreview = () => {
@@ -5700,38 +5713,7 @@
 			mermaidPreviewTimer = setTimeout(renderMermaidPreview, 250);
 		};
 
-		function refreshMermaidPreviewButtons() {
-			editor
-				.querySelectorAll(".cms-code-block-wrap")
-				.forEach((wrap) => {
-					const toolbar = wrap.querySelector(".cms-code-toolbar");
-					const codeEl = wrap.querySelector("pre code");
-					if (!toolbar || !codeEl) return;
-					const lang = String(getLangFromCodeEl(codeEl) || "").toLowerCase();
-					let previewBtn = toolbar.querySelector(
-						".cms-code-toolbar__btn--mermaid-preview",
-					);
-					if (lang !== "mermaid") {
-						if (previewBtn) previewBtn.hidden = true;
-						return;
-					}
-					if (!previewBtn) {
-						previewBtn = document.createElement("button");
-						previewBtn.type = "button";
-						previewBtn.className =
-							"cms-code-toolbar__btn cms-code-toolbar__btn--mermaid-preview";
-						previewBtn.addEventListener("click", (event) => {
-							event.preventDefault();
-							toggleMermaidPreview();
-						});
-						toolbar.appendChild(previewBtn);
-					}
-					previewBtn.hidden = false;
-					previewBtn.textContent = mermaidPreviewHidden
-						? "Show preview"
-						: "Hide preview";
-				});
-		}
+		function refreshMermaidPreviewButtons() {}
 
 		editor.addEventListener("input", scheduleMermaidPreview);
 		scheduleMermaidPreview();
@@ -12391,16 +12373,6 @@
 			const wrap = document.createElement("div");
 			wrap.className = "mermaid-wrap mermaid-admin-preview is-loading";
 			wrap.setAttribute("data-source-id", sourceId);
-			const toggleBtn = document.createElement("button");
-			toggleBtn.type = "button";
-			toggleBtn.className = "cms-mermaid-toggle";
-			toggleBtn.textContent = "Show source";
-			toggleBtn.addEventListener("click", () => {
-				const isActive = wrap.classList.toggle("is-show-source");
-				const source = root.querySelector(`#${sourceId}`);
-				if (source) source.classList.toggle("is-show-source", isActive);
-				toggleBtn.textContent = isActive ? "Hide source" : "Show source";
-			});
 			item.pre.insertAdjacentElement("afterend", wrap);
 			const id = `mermaid-admin-${BUILD_TOKEN}-${makeLocalId()}-${i}`;
 			try {
@@ -12408,7 +12380,13 @@
 				if (token !== mermaidAdminRenderToken) return;
 				const svg = typeof result === "string" ? result : result?.svg;
 				wrap.innerHTML = "";
-				wrap.appendChild(toggleBtn);
+				let previewBtn = item.pre.querySelector(".code-preview-btn");
+				if (!previewBtn) {
+					previewBtn = document.createElement("button");
+					previewBtn.type = "button";
+					previewBtn.className = "code-preview-btn";
+					item.pre.appendChild(previewBtn);
+				}
 				if (svg) {
 					const svgWrap = document.createElement("div");
 					svgWrap.className = "cms-mermaid-preview__diagram";
@@ -12417,9 +12395,21 @@
 					result?.bindFunctions?.(svgWrap);
 				}
 				item.pre.classList.add("cms-mermaid-source");
+				const setPreviewState = (showSource) => {
+					item.pre.classList.toggle("is-show-source", showSource);
+					wrap.classList.toggle("is-show-source", showSource);
+					previewBtn.textContent = showSource ? "visibility" : "code";
+					const label = showSource ? "Show preview" : "Show source";
+					previewBtn.setAttribute("title", label);
+					previewBtn.setAttribute("aria-label", label);
+				};
+				previewBtn.onclick = (event) => {
+					event.preventDefault();
+					setPreviewState(!item.pre.classList.contains("is-show-source"));
+				};
+				setPreviewState(false);
 			} catch (err) {
 				wrap.innerHTML = "";
-				wrap.appendChild(toggleBtn);
 				const errorMsg = document.createElement("div");
 				errorMsg.className = "cms-mermaid-preview__error";
 				errorMsg.textContent = "Mermaid render failed.";
