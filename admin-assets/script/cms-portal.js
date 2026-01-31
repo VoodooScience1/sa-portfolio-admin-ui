@@ -12593,6 +12593,7 @@
 					wrap.classList.remove("is-loading");
 				}
 			});
+		document.documentElement.classList.add("mermaid-ready");
 		scheduleLoadingClear();
 	};
 
