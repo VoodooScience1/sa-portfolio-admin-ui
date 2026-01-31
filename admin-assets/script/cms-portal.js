@@ -5634,14 +5634,15 @@
 				!window.mermaid.__cmsPreviewIconsReady
 			) {
 				try {
+					const emptyIconPack = { prefix: "logos", icons: {} };
 					const loadIcons = async () => {
 						try {
 							const res = await fetch("/assets/icon-packs/logos.json");
 							if (res.ok) return await res.json();
 						} catch {
-							return fallbackIcons;
+							return emptyIconPack;
 						}
-						return fallbackIcons;
+						return emptyIconPack;
 					};
 					const result = window.mermaid.registerIconPacks([
 						{
