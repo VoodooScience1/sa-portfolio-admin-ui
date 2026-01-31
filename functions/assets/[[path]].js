@@ -16,7 +16,15 @@ export async function onRequest({ request, env, params }) {
 		? params.path.join("/")
 		: params.path || "";
 
-	const allowed = ["css/", "font/", "img/", "partials/", "script/", "docs/"];
+	const allowed = [
+		"css/",
+		"font/",
+		"img/",
+		"partials/",
+		"script/",
+		"docs/",
+		"icon-packs/",
+	];
 	if (!allowed.some((p) => path.startsWith(p))) {
 		return new Response("Forbidden asset path", { status: 403 });
 	}
