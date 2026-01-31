@@ -12403,6 +12403,16 @@
 	const renderMermaidAdminPreview = async () => {
 		const root = qs("#cms-portal");
 		if (!root) return;
+		const scheduleLoadingClear = () => {
+			const clear = () => {
+				root
+					.querySelectorAll(".mermaid-wrap.is-loading")
+					.forEach((wrap) => wrap.classList.remove("is-loading"));
+			};
+			setTimeout(clear, 200);
+			setTimeout(clear, 1200);
+			setTimeout(clear, 3000);
+		};
 		root
 			.querySelectorAll(".mermaid-admin-preview")
 			.forEach((wrap) => wrap.remove());
@@ -12432,8 +12442,12 @@
 			}))
 			.filter((item) => item.pre && item.text);
 		if (!items.length) return;
+		scheduleLoadingClear();
 		const ready = await ensureMermaidAdminReady();
-		if (!ready || !window.mermaid) return;
+		if (!ready || !window.mermaid) {
+			scheduleLoadingClear();
+			return;
+		}
 		const canRender = typeof window.mermaid.render === "function";
 		const canRun = typeof window.mermaid.run === "function";
 		const canInit = typeof window.mermaid.init === "function";
@@ -12461,6 +12475,7 @@
 			copyBtn.textContent = "content_copy";
 			copyBtn.setAttribute("aria-label", "Copy code");
 			copyBtn.setAttribute("title", "Copy");
+			copyBtn.dataset.tooltip = "Copy";
 			copyBtn.addEventListener("click", async (event) => {
 				event.preventDefault();
 				event.stopPropagation();
@@ -12508,6 +12523,7 @@
 				const label = showSource ? "Show preview" : "Show source";
 				previewBtn.setAttribute("title", label);
 				previewBtn.setAttribute("aria-label", label);
+				previewBtn.dataset.tooltip = label;
 			};
 			previewBtn.onclick = (event) => {
 				event.preventDefault();
@@ -12577,6 +12593,7 @@
 					wrap.classList.remove("is-loading");
 				}
 			});
+		scheduleLoadingClear();
 	};
 
 	const scheduleMermaidAdminPreview = () => {
