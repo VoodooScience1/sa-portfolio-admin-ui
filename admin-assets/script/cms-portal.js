@@ -12497,9 +12497,13 @@
 			actions.appendChild(copyBtn);
 			wrap.appendChild(actions);
 			const id = `mermaid-admin-${BUILD_TOKEN}-${makeLocalId()}-${i}`;
+			const placeActions = (target) => {
+				if (actions.parentElement !== target) target.appendChild(actions);
+			};
 			const setPreviewState = (showSource) => {
 				item.pre.classList.toggle("is-show-source", showSource);
 				wrap.classList.toggle("is-show-source", showSource);
+				placeActions(showSource ? item.pre : wrap);
 				previewBtn.textContent = showSource ? "visibility" : "code";
 				const label = showSource ? "Show preview" : "Show source";
 				previewBtn.setAttribute("title", label);
@@ -12562,6 +12566,17 @@
 				});
 			}
 		}
+		root
+			.querySelectorAll(".mermaid-wrap.is-loading")
+			.forEach((wrap) => {
+				if (
+					wrap.querySelector("svg") ||
+					wrap.querySelector(".mermaid[data-processed='true']") ||
+					wrap.querySelector(".cms-mermaid-preview__diagram")
+				) {
+					wrap.classList.remove("is-loading");
+				}
+			});
 	};
 
 	const scheduleMermaidAdminPreview = () => {
