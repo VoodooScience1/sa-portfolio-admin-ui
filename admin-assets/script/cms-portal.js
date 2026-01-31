@@ -5634,13 +5634,19 @@
 				!window.mermaid.__cmsPreviewIconsReady
 			) {
 				try {
+					const loadIcons = async () => {
+						try {
+							const res = await fetch("/assets/icon-packs/logos.json");
+							if (res.ok) return await res.json();
+						} catch {
+							return fallbackIcons;
+						}
+						return fallbackIcons;
+					};
 					const result = window.mermaid.registerIconPacks([
 						{
 							name: "logos",
-							icons: () =>
-								fetch("/assets/icon-packs/logos.json").then((res) =>
-									res.json(),
-								),
+							loader: loadIcons,
 						},
 					]);
 					if (result && typeof result.then === "function") await result;
@@ -12367,19 +12373,21 @@
 			try {
 				const iconUrl = `/assets/icon-packs/logos.json?v=${BUILD_TOKEN}-${Date.now()}`;
 				const altIconUrl = `/admin-assets/icon-packs/logos.json?v=${BUILD_TOKEN}-${Date.now()}`;
-				const iconsJson =
-					(await fetchIconPack(iconUrl)) || (await fetchIconPack(altIconUrl));
+				const loadIcons = async () =>
+					(await fetchIconPack(iconUrl)) ||
+					(await fetchIconPack(altIconUrl)) ||
+					fallbackIcons;
 				const result = window.mermaid.registerIconPacks([
 					{
 						name: "logos",
-						icons: () => Promise.resolve(iconsJson || fallbackIcons),
+						loader: loadIcons,
 					},
 				]);
 				if (result && typeof result.then === "function") await result;
 			} catch (err) {
 				try {
 					window.mermaid.registerIconPacks([
-						{ name: "logos", icons: () => Promise.resolve(fallbackIcons) },
+						{ name: "logos", loader: async () => fallbackIcons },
 					]);
 				} catch {
 					console.warn("Mermaid icon pack load failed:", err);
@@ -12407,7 +12415,6 @@
 
 		const blocks = Array.from(root.querySelectorAll("pre code")).filter(
 			(code) => {
-				if (code.classList.contains("nohighlight")) return false;
 				if (code.closest(".cms-modal")) return false;
 				if (code.closest(".cms-rte")) return false;
 				const lang = String(getLangFromCodeEl(code) || "").toLowerCase();
