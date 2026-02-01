@@ -169,6 +169,14 @@
 		const stripHighlightMarkup = (node) => {
 			if (node.nodeType !== Node.ELEMENT_NODE) return;
 			node.querySelectorAll?.("[data-cms-preview]").forEach((el) => el.remove());
+			node
+				.querySelectorAll?.(
+					".mermaid-wrap, .mermaid-admin-preview, .cms-mermaid-preview__diagram",
+				)
+				.forEach((el) => el.remove());
+			node
+				.querySelectorAll?.("[data-processed]")
+				.forEach((el) => el.removeAttribute("data-processed"));
 			if (node.classList?.contains("hljs")) node.classList.remove("hljs");
 			if (node.hasAttribute?.("data-highlighted"))
 				node.removeAttribute("data-highlighted");
@@ -3285,23 +3293,27 @@
 	}
 
 	function getAnchorForIndex(targetIndex, mergedRender) {
-		let anchor = null;
-		let placement = "after";
-		for (let i = targetIndex - 1; i >= 0; i -= 1) {
-			const block = mergedRender[i];
+		const anchorFromBlock = (block) => {
 			if (block?._base && block.sig) {
-				anchor = { id: block.id, sig: block.sig, occ: block.occ };
-				placement = "after";
-				return { anchor, placement };
+				return { id: block.id, sig: block.sig, occ: block.occ };
 			}
+			const localAnchor = block?._local?.anchor;
+			if (localAnchor && (localAnchor.id || localAnchor.sig)) {
+				return {
+					id: localAnchor.id || null,
+					sig: localAnchor.sig || null,
+					occ: localAnchor.occ ?? null,
+				};
+			}
+			return null;
+		};
+		for (let i = targetIndex - 1; i >= 0; i -= 1) {
+			const anchor = anchorFromBlock(mergedRender[i]);
+			if (anchor) return { anchor, placement: "after" };
 		}
 		for (let i = targetIndex; i < mergedRender.length; i += 1) {
-			const block = mergedRender[i];
-			if (block?._base && block.sig) {
-				anchor = { id: block.id, sig: block.sig, occ: block.occ };
-				placement = "before";
-				return { anchor, placement };
-			}
+			const anchor = anchorFromBlock(mergedRender[i]);
+			if (anchor) return { anchor, placement: "before" };
 		}
 		return { anchor: null, placement: "after" };
 	}
@@ -5628,7 +5640,11 @@
 				await mermaidLoadPromise;
 			}
 			if (!window.mermaid) return false;
-			window.mermaid.initialize({ startOnLoad: false, theme: "neutral" });
+			window.mermaid.initialize({
+				startOnLoad: false,
+				theme: "neutral",
+				suppressErrorRendering: true,
+			});
 			if (
 				typeof window.mermaid.registerIconPacks === "function" &&
 				!window.mermaid.__cmsPreviewIconsReady
@@ -12334,7 +12350,11 @@
 		if (window.mermaid && window.mermaid.__cmsPreviewReady) return true;
 		if (!window.mermaid) await loadMermaidAdminScript();
 		if (!window.mermaid) return false;
-		window.mermaid.initialize({ startOnLoad: false, theme: "neutral" });
+		window.mermaid.initialize({
+			startOnLoad: false,
+			theme: "neutral",
+			suppressErrorRendering: true,
+		});
 		if (
 			typeof window.mermaid.registerIconPacks === "function" &&
 			!window.mermaid.__cmsPreviewIconsReady
