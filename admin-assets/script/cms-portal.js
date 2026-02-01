@@ -8083,6 +8083,16 @@
 				if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
 				const preBlock = node?.closest ? node.closest("pre") : null;
 				if (!preBlock) return;
+				const codeEl = preBlock.querySelector("code");
+				if (event.shiftKey && codeEl) {
+					const caret = getCaretOffsetInCode(codeEl);
+					const content = codeEl.textContent || "";
+					if (caret !== null && caret >= content.length) {
+						event.preventDefault();
+						insertParagraphAfterPre(preBlock);
+						return;
+					}
+				}
 				event.preventDefault();
 				if (insertPlainTextIntoCode(preBlock, "\n")) {
 					scheduleMermaidPreview();
@@ -8110,6 +8120,53 @@
 			return node?.closest ? node.closest("pre") : null;
 		};
 
+		const getCaretOffsetInCode = (code) => {
+			const selection = window.getSelection();
+			if (!selection || selection.rangeCount === 0) return null;
+			const range = selection.getRangeAt(0);
+			if (!code.contains(range.commonAncestorContainer)) return null;
+			const caretRange = range.cloneRange();
+			caretRange.selectNodeContents(code);
+			caretRange.setEnd(range.endContainer, range.endOffset);
+			return caretRange.toString().length;
+		};
+
+		const setCaretInCode = (code, offset) => {
+			const selection = window.getSelection();
+			if (!selection) return false;
+			if (!code.firstChild) {
+				code.appendChild(document.createTextNode(""));
+			}
+			const walker = document.createTreeWalker(
+				code,
+				NodeFilter.SHOW_TEXT,
+				null,
+			);
+			let remaining = Math.max(0, offset);
+			let node = walker.nextNode();
+			while (node) {
+				const len = node.nodeValue ? node.nodeValue.length : 0;
+				if (remaining <= len) {
+					const range = document.createRange();
+					range.setStart(node, remaining);
+					range.collapse(true);
+					selection.removeAllRanges();
+					selection.addRange(range);
+					return true;
+				}
+				remaining -= len;
+				node = walker.nextNode();
+			}
+			const last = code.lastChild;
+			if (!last) return false;
+			const range = document.createRange();
+			range.selectNodeContents(last);
+			range.collapse(false);
+			selection.removeAllRanges();
+			selection.addRange(range);
+			return true;
+		};
+
 		const insertPlainTextIntoCode = (target, text) => {
 			const code =
 				target?.closest?.("code") || target?.querySelector?.("code") || null;
@@ -8121,14 +8178,38 @@
 				range.selectNodeContents(code);
 				range.collapse(false);
 			}
-			range.deleteContents();
-			const textNode = document.createTextNode(text);
-			range.insertNode(textNode);
-			range.setStartAfter(textNode);
+			const start = getCaretOffsetInCode(code);
+			const end = (() => {
+				const endRange = range.cloneRange();
+				endRange.selectNodeContents(code);
+				endRange.setEnd(range.endContainer, range.endOffset);
+				return endRange.toString().length;
+			})();
+			const safeStart = Math.max(0, start ?? 0);
+			const safeEnd = Math.max(safeStart, end ?? safeStart);
+			const content = code.textContent || "";
+			const next = `${content.slice(0, safeStart)}${text}${content.slice(
+				safeEnd,
+			)}`;
+			code.textContent = next;
+			setCaretInCode(code, safeStart + text.length);
+			return true;
+		};
+
+		const insertParagraphAfterPre = (pre) => {
+			const wrap = pre?.closest?.(".cms-code-block-wrap") || pre;
+			if (!wrap?.parentElement) return false;
+			const p = document.createElement("p");
+			p.appendChild(document.createElement("br"));
+			wrap.insertAdjacentElement("afterend", p);
+			const range = document.createRange();
+			range.setStart(p, 0);
 			range.collapse(true);
-			selection.removeAllRanges();
-			selection.addRange(range);
-			code.textContent = code.textContent || "";
+			const selection = window.getSelection();
+			if (selection) {
+				selection.removeAllRanges();
+				selection.addRange(range);
+			}
 			return true;
 		};
 
