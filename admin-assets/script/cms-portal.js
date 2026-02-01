@@ -13396,6 +13396,32 @@
 						});
 						return;
 					}
+					const targetBlock = merged[targetIndex];
+					if (targetBlock?._local) {
+						const anchor = {
+							id: baseBlock.id,
+							sig: baseBlock.sig,
+							occ: baseBlock.occ,
+						};
+						const placement = delta < 0 ? "after" : "before";
+						const updated = normalizeLocalBlocks(currentLocal).map((item) =>
+							item.id === targetBlock._local.id
+								? { ...item, anchor, placement }
+								: item,
+						);
+						recordMoveDebug({
+							action,
+							origin,
+							currentIndex,
+							targetIndex,
+							baseKey: anchorKey(anchor),
+							step: "base-swap-local",
+							localId: targetBlock._local.id,
+							placement,
+						});
+						updateLocalBlocksAndRender(state.path, updated);
+						return;
+					}
 					const baseKey = anchorKey({
 						id: baseBlock.id,
 						sig: baseBlock.sig,
