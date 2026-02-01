@@ -169,6 +169,14 @@
 		const stripHighlightMarkup = (node) => {
 			if (node.nodeType !== Node.ELEMENT_NODE) return;
 			node.querySelectorAll?.("[data-cms-preview]").forEach((el) => el.remove());
+			node
+				.querySelectorAll?.(
+					".mermaid-wrap, .mermaid-admin-preview, .cms-mermaid-preview__diagram",
+				)
+				.forEach((el) => el.remove());
+			node
+				.querySelectorAll?.("[data-processed]")
+				.forEach((el) => el.removeAttribute("data-processed"));
 			if (node.classList?.contains("hljs")) node.classList.remove("hljs");
 			if (node.hasAttribute?.("data-highlighted"))
 				node.removeAttribute("data-highlighted");
@@ -5628,7 +5636,11 @@
 				await mermaidLoadPromise;
 			}
 			if (!window.mermaid) return false;
-			window.mermaid.initialize({ startOnLoad: false, theme: "neutral" });
+			window.mermaid.initialize({
+				startOnLoad: false,
+				theme: "neutral",
+				suppressErrorRendering: true,
+			});
 			if (
 				typeof window.mermaid.registerIconPacks === "function" &&
 				!window.mermaid.__cmsPreviewIconsReady
@@ -12334,7 +12346,11 @@
 		if (window.mermaid && window.mermaid.__cmsPreviewReady) return true;
 		if (!window.mermaid) await loadMermaidAdminScript();
 		if (!window.mermaid) return false;
-		window.mermaid.initialize({ startOnLoad: false, theme: "neutral" });
+		window.mermaid.initialize({
+			startOnLoad: false,
+			theme: "neutral",
+			suppressErrorRendering: true,
+		});
 		if (
 			typeof window.mermaid.registerIconPacks === "function" &&
 			!window.mermaid.__cmsPreviewIconsReady
