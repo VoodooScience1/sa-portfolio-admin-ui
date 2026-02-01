@@ -3293,23 +3293,27 @@
 	}
 
 	function getAnchorForIndex(targetIndex, mergedRender) {
-		let anchor = null;
-		let placement = "after";
-		for (let i = targetIndex - 1; i >= 0; i -= 1) {
-			const block = mergedRender[i];
+		const anchorFromBlock = (block) => {
 			if (block?._base && block.sig) {
-				anchor = { id: block.id, sig: block.sig, occ: block.occ };
-				placement = "after";
-				return { anchor, placement };
+				return { id: block.id, sig: block.sig, occ: block.occ };
 			}
+			const localAnchor = block?._local?.anchor;
+			if (localAnchor && (localAnchor.id || localAnchor.sig)) {
+				return {
+					id: localAnchor.id || null,
+					sig: localAnchor.sig || null,
+					occ: localAnchor.occ ?? null,
+				};
+			}
+			return null;
+		};
+		for (let i = targetIndex - 1; i >= 0; i -= 1) {
+			const anchor = anchorFromBlock(mergedRender[i]);
+			if (anchor) return { anchor, placement: "after" };
 		}
 		for (let i = targetIndex; i < mergedRender.length; i += 1) {
-			const block = mergedRender[i];
-			if (block?._base && block.sig) {
-				anchor = { id: block.id, sig: block.sig, occ: block.occ };
-				placement = "before";
-				return { anchor, placement };
-			}
+			const anchor = anchorFromBlock(mergedRender[i]);
+			if (anchor) return { anchor, placement: "before" };
 		}
 		return { anchor: null, placement: "after" };
 	}
