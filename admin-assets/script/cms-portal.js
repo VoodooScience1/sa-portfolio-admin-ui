@@ -3318,6 +3318,32 @@
 		return { anchor: null, placement: "after" };
 	}
 
+	function summarizeMergedBlocks(mergedRender, centerIndex, radius = 3) {
+		if (!Array.isArray(mergedRender) || mergedRender.length === 0) return [];
+		const start = Math.max(0, centerIndex - radius);
+		const end = Math.min(mergedRender.length - 1, centerIndex + radius);
+		const summary = [];
+		for (let i = start; i <= end; i += 1) {
+			const block = mergedRender[i];
+			summary.push({
+				idx: i,
+				base: block?._base
+					? { id: block.id || null, sig: block.sig || null, occ: block.occ }
+					: null,
+				local: block?._local
+					? {
+							id: block._local.id || null,
+							action: block._local.action || null,
+							placement: block._local.placement || null,
+							anchor: block._local.anchor || null,
+							pos: Number.isInteger(block._local.pos) ? block._local.pos : null,
+						}
+					: null,
+			});
+		}
+		return summary;
+	}
+
 	function hasRemovalActions(localBlocks) {
 		return normalizeLocalBlocks(localBlocks).some(
 			(item) => item.action === "remove",
@@ -13320,6 +13346,22 @@
 							respectRemovals: hasRemovalActions(remaining),
 						});
 						const anchorInfo = getAnchorForIndex(targetIndex, mergedWithout);
+						if (state.debug) {
+							recordMoveDebug({
+								action,
+								origin,
+								currentIndex,
+								targetIndex,
+								id,
+								step: "local-anchor",
+								anchorInfo,
+								snapshot: summarizeMergedBlocks(
+									mergedWithout,
+									targetIndex,
+									4,
+								),
+							});
+						}
 						const moving = currentLocal.find((item) => item.id === id);
 						if (!moving) return;
 						const desired = [...mergedWithout];
@@ -13352,6 +13394,32 @@
 							targetIndex,
 							reason: "missing-base",
 						});
+						return;
+					}
+					const targetBlock = merged[targetIndex];
+					if (targetBlock?._local) {
+						const anchor = {
+							id: baseBlock.id,
+							sig: baseBlock.sig,
+							occ: baseBlock.occ,
+						};
+						const placement = delta < 0 ? "after" : "before";
+						const updated = normalizeLocalBlocks(currentLocal).map((item) =>
+							item.id === targetBlock._local.id
+								? { ...item, anchor, placement }
+								: item,
+						);
+						recordMoveDebug({
+							action,
+							origin,
+							currentIndex,
+							targetIndex,
+							baseKey: anchorKey(anchor),
+							step: "base-swap-local",
+							localId: targetBlock._local.id,
+							placement,
+						});
+						updateLocalBlocksAndRender(state.path, updated);
 						return;
 					}
 					const baseKey = anchorKey({
