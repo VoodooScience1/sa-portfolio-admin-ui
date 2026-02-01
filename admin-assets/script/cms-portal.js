@@ -8076,6 +8076,19 @@
 			});
 		}
 		editor.addEventListener("keydown", (event) => {
+			if (event.key === "Enter") {
+				const selection = window.getSelection();
+				if (!selection || !selection.anchorNode) return;
+				let node = selection.anchorNode;
+				if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+				const preBlock = node?.closest ? node.closest("pre") : null;
+				if (!preBlock) return;
+				event.preventDefault();
+				if (insertPlainTextIntoCode(preBlock, "\n")) {
+					scheduleMermaidPreview();
+				}
+				return;
+			}
 			if (event.key !== "Tab") return;
 			const selection = window.getSelection();
 			if (!selection || !selection.anchorNode) return;
@@ -8135,14 +8148,26 @@
 		editor.addEventListener(
 			"beforeinput",
 			(event) => {
-				if (event.inputType !== "insertFromPaste") return;
-				const target = event.target instanceof Element ? event.target : null;
-				const codeBlock = getSelectionPreBlock() || target?.closest("pre");
-				if (!codeBlock) return;
-				const text = event.data || "";
-				if (!text) return;
-				event.preventDefault();
-				insertPlainTextIntoCode(codeBlock, text);
+				const inputType = event.inputType || "";
+				if (inputType === "insertFromPaste") {
+					const target = event.target instanceof Element ? event.target : null;
+					const codeBlock = getSelectionPreBlock() || target?.closest("pre");
+					if (!codeBlock) return;
+					const text = event.data || "";
+					if (!text) return;
+					event.preventDefault();
+					insertPlainTextIntoCode(codeBlock, text);
+					return;
+				}
+				if (inputType === "insertParagraph" || inputType === "insertLineBreak") {
+					const target = event.target instanceof Element ? event.target : null;
+					const codeBlock = getSelectionPreBlock() || target?.closest("pre");
+					if (!codeBlock) return;
+					event.preventDefault();
+					if (insertPlainTextIntoCode(codeBlock, "\n")) {
+						scheduleMermaidPreview();
+					}
+				}
 			},
 			true,
 		);
