@@ -5636,6 +5636,68 @@
 			if (nextVisible) scheduleMermaidPreview();
 		};
 
+		const normalizeMermaidTextForElk = (text) => {
+			const raw = String(text || "");
+			if (!raw) return "";
+			const decl = /(^|\n)(\s*)(flowchart|graph)\b(?!-elk)/i.exec(raw);
+			if (!decl) return raw;
+			const declStart = decl.index + decl[1].length;
+			const preamble = raw.slice(0, declStart);
+			if (!/["']?layout["']?\s*:\s*["']?elk["']?/i.test(preamble))
+				return raw;
+			return raw.replace(
+				/(^|\n)(\s*)(flowchart|graph)\b(?!-elk)/i,
+				"$1$2flowchart-elk",
+			);
+		};
+
+		const installMermaidElkCompatForEditorPreview = () => {
+			const mermaid = window.mermaid;
+			if (!mermaid || mermaid.__cmsElkLayoutCompatInstalled) return;
+			mermaid.__cmsElkLayoutCompatInstalled = true;
+			const wrapTextArg = (fn, textIndex = 0) => {
+				if (typeof fn !== "function") return fn;
+				return function (...args) {
+					if (args.length > textIndex) {
+						args[textIndex] = normalizeMermaidTextForElk(args[textIndex]);
+					}
+					return fn.apply(this, args);
+				};
+			};
+			mermaid.render = wrapTextArg(
+				typeof mermaid.render === "function"
+					? mermaid.render.bind(mermaid)
+					: null,
+				1,
+			);
+			mermaid.parse = wrapTextArg(
+				typeof mermaid.parse === "function"
+					? mermaid.parse.bind(mermaid)
+					: null,
+				0,
+			);
+			if (mermaid.mermaidAPI) {
+				mermaid.mermaidAPI.render = wrapTextArg(
+					typeof mermaid.mermaidAPI.render === "function"
+						? mermaid.mermaidAPI.render.bind(mermaid.mermaidAPI)
+						: null,
+					1,
+				);
+				mermaid.mermaidAPI.parse = wrapTextArg(
+					typeof mermaid.mermaidAPI.parse === "function"
+						? mermaid.mermaidAPI.parse.bind(mermaid.mermaidAPI)
+						: null,
+					0,
+				);
+				mermaid.mermaidAPI.getDiagramFromText = wrapTextArg(
+					typeof mermaid.mermaidAPI.getDiagramFromText === "function"
+						? mermaid.mermaidAPI.getDiagramFromText.bind(mermaid.mermaidAPI)
+						: null,
+					0,
+				);
+			}
+		};
+
 		const getMermaidSources = () => {
 			const blocks = Array.from(editor.querySelectorAll("pre code"));
 			return blocks
@@ -5643,10 +5705,10 @@
 					codeEl,
 					lang: getLangFromCodeEl(codeEl),
 				}))
-				.filter(
-					({ lang }) => String(lang || "").toLowerCase() === "mermaid",
-				)
-				.map(({ codeEl }) => String(codeEl.textContent || "").trim());
+				.filter(({ lang }) => String(lang || "").toLowerCase() === "mermaid")
+				.map(({ codeEl }) =>
+					normalizeMermaidTextForElk(String(codeEl.textContent || "").trim()),
+				);
 		};
 
 		const ensureMermaidReady = async () => {
@@ -5671,6 +5733,7 @@
 				theme: "neutral",
 				suppressErrorRendering: true,
 			});
+			installMermaidElkCompatForEditorPreview();
 			if (
 				typeof window.mermaid.registerIconPacks === "function" &&
 				!window.mermaid.__cmsPreviewIconsReady
@@ -12462,6 +12525,63 @@
 	let mermaidAdminRenderToken = 0;
 	let mermaidAdminLoadPromise = window.__CMS_MERMAID_PREVIEW_PROMISE || null;
 
+	const normalizeMermaidTextForElkAdmin = (text) => {
+		const raw = String(text || "");
+		if (!raw) return "";
+		const decl = /(^|\n)(\s*)(flowchart|graph)\b(?!-elk)/i.exec(raw);
+		if (!decl) return raw;
+		const declStart = decl.index + decl[1].length;
+		const preamble = raw.slice(0, declStart);
+		if (!/["']?layout["']?\s*:\s*["']?elk["']?/i.test(preamble)) return raw;
+		return raw.replace(
+			/(^|\n)(\s*)(flowchart|graph)\b(?!-elk)/i,
+			"$1$2flowchart-elk",
+		);
+	};
+
+	const installMermaidElkCompatForAdminPreview = () => {
+		const mermaid = window.mermaid;
+		if (!mermaid || mermaid.__cmsElkLayoutCompatInstalled) return;
+		mermaid.__cmsElkLayoutCompatInstalled = true;
+		const wrapTextArg = (fn, textIndex = 0) => {
+			if (typeof fn !== "function") return fn;
+			return function (...args) {
+				if (args.length > textIndex) {
+					args[textIndex] = normalizeMermaidTextForElkAdmin(args[textIndex]);
+				}
+				return fn.apply(this, args);
+			};
+		};
+		mermaid.render = wrapTextArg(
+			typeof mermaid.render === "function" ? mermaid.render.bind(mermaid) : null,
+			1,
+		);
+		mermaid.parse = wrapTextArg(
+			typeof mermaid.parse === "function" ? mermaid.parse.bind(mermaid) : null,
+			0,
+		);
+		if (mermaid.mermaidAPI) {
+			mermaid.mermaidAPI.render = wrapTextArg(
+				typeof mermaid.mermaidAPI.render === "function"
+					? mermaid.mermaidAPI.render.bind(mermaid.mermaidAPI)
+					: null,
+				1,
+			);
+			mermaid.mermaidAPI.parse = wrapTextArg(
+				typeof mermaid.mermaidAPI.parse === "function"
+					? mermaid.mermaidAPI.parse.bind(mermaid.mermaidAPI)
+					: null,
+				0,
+			);
+			mermaid.mermaidAPI.getDiagramFromText = wrapTextArg(
+				typeof mermaid.mermaidAPI.getDiagramFromText === "function"
+					? mermaid.mermaidAPI.getDiagramFromText.bind(mermaid.mermaidAPI)
+					: null,
+				0,
+			);
+		}
+	};
+
 	const loadMermaidAdminScript = () => {
 		if (window.mermaid) return Promise.resolve(true);
 		if (!mermaidAdminLoadPromise) {
@@ -12487,6 +12607,7 @@
 			theme: "neutral",
 			suppressErrorRendering: true,
 		});
+		installMermaidElkCompatForAdminPreview();
 		if (
 			typeof window.mermaid.registerIconPacks === "function" &&
 			!window.mermaid.__cmsPreviewIconsReady
@@ -12590,7 +12711,9 @@
 			.map((code) => ({
 				code,
 				pre: code.closest("pre"),
-				text: String(code.textContent || "").trim(),
+				text: normalizeMermaidTextForElkAdmin(
+					String(code.textContent || "").trim(),
+				),
 			}))
 			.filter((item) => item.pre && item.text);
 		if (!items.length) return;
