@@ -100,6 +100,24 @@
 		return `loc-${Date.now().toString(36)}-${localIdCounter}`;
 	};
 
+	const installMermaidWarningFilter = () => {
+		if (window.__CMS_MERMAID_WARN_FILTER_INSTALLED) return;
+		const originalWarn = console.warn;
+		if (typeof originalWarn !== "function") return;
+		window.__CMS_MERMAID_WARN_FILTER_INSTALLED = true;
+		console.warn = function (...args) {
+			const joined = args.map((v) => String(v || "")).join(" ");
+			if (
+				joined.includes(
+					"Do not assign mappings to elements without corresponding data",
+				)
+			) {
+				return;
+			}
+			return originalWarn.apply(this, args);
+		};
+	};
+
 	const el = (tag, attrs = {}, children = []) => {
 		const n = document.createElement(tag);
 		Object.entries(attrs || {}).forEach(([k, v]) => {
@@ -5637,24 +5655,6 @@
 			if (nextVisible) scheduleMermaidPreview();
 		};
 
-		const installMermaidWarningFilter = () => {
-			if (window.__CMS_MERMAID_WARN_FILTER_INSTALLED) return;
-			const originalWarn = console.warn;
-			if (typeof originalWarn !== "function") return;
-			window.__CMS_MERMAID_WARN_FILTER_INSTALLED = true;
-			console.warn = function (...args) {
-				const msg = String(args[0] || "");
-				if (
-					msg.includes(
-						"Do not assign mappings to elements without corresponding data",
-					)
-				) {
-					return;
-				}
-				return originalWarn.apply(this, args);
-			};
-		};
-
 		const normalizeMermaidTextForElk = (text) => {
 			const raw = String(text || "").trim();
 			if (!raw) return "";
@@ -5797,6 +5797,14 @@
 				startOnLoad: false,
 				theme: "neutral",
 				suppressErrorRendering: true,
+				flowchart: {
+					defaultRenderer: "elk",
+				},
+				elk: {
+					mergeEdges: true,
+					nodePlacementStrategy: "LINEAR_SEGMENTS",
+					considerModelOrder: "NODES_AND_EDGES",
+				},
 			});
 			installMermaidWarningFilter();
 			installMermaidElkCompatForEditorPreview();
@@ -12719,10 +12727,16 @@
 			startOnLoad: false,
 			theme: "neutral",
 			suppressErrorRendering: true,
+			flowchart: {
+				defaultRenderer: "elk",
+			},
+			elk: {
+				mergeEdges: true,
+				nodePlacementStrategy: "LINEAR_SEGMENTS",
+				considerModelOrder: "NODES_AND_EDGES",
+			},
 		});
-		if (typeof installMermaidWarningFilter === "function") {
-			installMermaidWarningFilter();
-		}
+		installMermaidWarningFilter();
 		installMermaidElkCompatForAdminPreview();
 		if (
 			typeof window.mermaid.registerIconPacks === "function" &&
