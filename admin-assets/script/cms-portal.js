@@ -5637,6 +5637,24 @@
 			if (nextVisible) scheduleMermaidPreview();
 		};
 
+		const installMermaidWarningFilter = () => {
+			if (window.__CMS_MERMAID_WARN_FILTER_INSTALLED) return;
+			const originalWarn = console.warn;
+			if (typeof originalWarn !== "function") return;
+			window.__CMS_MERMAID_WARN_FILTER_INSTALLED = true;
+			console.warn = function (...args) {
+				const msg = String(args[0] || "");
+				if (
+					msg.includes(
+						"Do not assign mappings to elements without corresponding data",
+					)
+				) {
+					return;
+				}
+				return originalWarn.apply(this, args);
+			};
+		};
+
 		const normalizeMermaidTextForElk = (text) => {
 			const raw = String(text || "").trim();
 			if (!raw) return "";
@@ -5647,13 +5665,49 @@
 			if (!/["']?layout["']?\s*:\s*["']?elk["']?/i.test(preamble))
 				return raw;
 			let normalized = raw;
-			if (
-				!/(^|\n)\s*%%\{init:\s*\{[\s\S]*?defaultRenderer\s*:\s*["']?elk["']?/i.test(
+			const readBool = (key) => {
+				const m = new RegExp(
+					`["']?${key}["']?\\s*:\\s*(true|false)\\b`,
+					"i",
+				).exec(preamble);
+				if (!m) return undefined;
+				return m[1].toLowerCase() === "true";
+			};
+			const readWord = (key) => {
+				const m = new RegExp(
+					`["']?${key}["']?\\s*:\\s*["']?([A-Z0-9_]+)["']?\\b`,
+					"i",
+				).exec(preamble);
+				return m ? m[1] : undefined;
+			};
+			const elkConfig = {};
+			const mergeEdges = readBool("mergeEdges");
+			const forceNodeModelOrder = readBool("forceNodeModelOrder");
+			const nodePlacementStrategy = readWord("nodePlacementStrategy");
+			const considerModelOrder = readWord("considerModelOrder");
+			if (typeof mergeEdges === "boolean") elkConfig.mergeEdges = mergeEdges;
+			if (typeof forceNodeModelOrder === "boolean")
+				elkConfig.forceNodeModelOrder = forceNodeModelOrder;
+			if (nodePlacementStrategy)
+				elkConfig.nodePlacementStrategy = nodePlacementStrategy;
+			if (considerModelOrder) elkConfig.considerModelOrder = considerModelOrder;
+			const initConfig = { flowchart: { defaultRenderer: "elk" } };
+			if (Object.keys(elkConfig).length) initConfig.elk = elkConfig;
+			const initDirective = `%%{init: ${JSON.stringify(initConfig)}}%%`;
+			const hasElkRendererInit =
+				/(^|\n)\s*%%\{init:\s*\{[\s\S]*?defaultRenderer\s*:\s*["']?elk["']?/i.test(
 					normalized,
-				)
+				);
+			const hasElkOptionsInit =
+				/(^|\n)\s*%%\{init:\s*\{[\s\S]*?["']?elk["']?\s*:\s*\{[\s\S]*?(mergeEdges|nodePlacementStrategy|forceNodeModelOrder|considerModelOrder)\b/i.test(
+					normalized,
+				);
+			if (
+				!hasElkRendererInit ||
+				(Object.keys(elkConfig).length && !hasElkOptionsInit)
 			) {
 				normalized =
-					`${normalized.slice(0, declStart)}%%{init: {"flowchart":{"defaultRenderer":"elk"}}}%%\n` +
+					`${normalized.slice(0, declStart)}${initDirective}\n` +
 					normalized.slice(declStart);
 			}
 			return normalized.replace(
@@ -5744,6 +5798,7 @@
 				theme: "neutral",
 				suppressErrorRendering: true,
 			});
+			installMermaidWarningFilter();
 			installMermaidElkCompatForEditorPreview();
 			if (
 				typeof window.mermaid.registerIconPacks === "function" &&
@@ -12535,6 +12590,7 @@
 	let mermaidAdminRenderTimer = null;
 	let mermaidAdminRenderToken = 0;
 	let mermaidAdminLoadPromise = window.__CMS_MERMAID_PREVIEW_PROMISE || null;
+	let mermaidAdminLastSignature = "";
 
 	const normalizeMermaidTextForElkAdmin = (text) => {
 		const raw = String(text || "").trim();
@@ -12545,13 +12601,49 @@
 		const preamble = raw.slice(0, declStart);
 		if (!/["']?layout["']?\s*:\s*["']?elk["']?/i.test(preamble)) return raw;
 		let normalized = raw;
-		if (
-			!/(^|\n)\s*%%\{init:\s*\{[\s\S]*?defaultRenderer\s*:\s*["']?elk["']?/i.test(
+		const readBool = (key) => {
+			const m = new RegExp(
+				`["']?${key}["']?\\s*:\\s*(true|false)\\b`,
+				"i",
+			).exec(preamble);
+			if (!m) return undefined;
+			return m[1].toLowerCase() === "true";
+		};
+		const readWord = (key) => {
+			const m = new RegExp(
+				`["']?${key}["']?\\s*:\\s*["']?([A-Z0-9_]+)["']?\\b`,
+				"i",
+			).exec(preamble);
+			return m ? m[1] : undefined;
+		};
+		const elkConfig = {};
+		const mergeEdges = readBool("mergeEdges");
+		const forceNodeModelOrder = readBool("forceNodeModelOrder");
+		const nodePlacementStrategy = readWord("nodePlacementStrategy");
+		const considerModelOrder = readWord("considerModelOrder");
+		if (typeof mergeEdges === "boolean") elkConfig.mergeEdges = mergeEdges;
+		if (typeof forceNodeModelOrder === "boolean")
+			elkConfig.forceNodeModelOrder = forceNodeModelOrder;
+		if (nodePlacementStrategy)
+			elkConfig.nodePlacementStrategy = nodePlacementStrategy;
+		if (considerModelOrder) elkConfig.considerModelOrder = considerModelOrder;
+		const initConfig = { flowchart: { defaultRenderer: "elk" } };
+		if (Object.keys(elkConfig).length) initConfig.elk = elkConfig;
+		const initDirective = `%%{init: ${JSON.stringify(initConfig)}}%%`;
+		const hasElkRendererInit =
+			/(^|\n)\s*%%\{init:\s*\{[\s\S]*?defaultRenderer\s*:\s*["']?elk["']?/i.test(
 				normalized,
-			)
+			);
+		const hasElkOptionsInit =
+			/(^|\n)\s*%%\{init:\s*\{[\s\S]*?["']?elk["']?\s*:\s*\{[\s\S]*?(mergeEdges|nodePlacementStrategy|forceNodeModelOrder|considerModelOrder)\b/i.test(
+				normalized,
+			);
+		if (
+			!hasElkRendererInit ||
+			(Object.keys(elkConfig).length && !hasElkOptionsInit)
 		) {
 			normalized =
-				`${normalized.slice(0, declStart)}%%{init: {"flowchart":{"defaultRenderer":"elk"}}}%%\n` +
+				`${normalized.slice(0, declStart)}${initDirective}\n` +
 				normalized.slice(declStart);
 		}
 		return normalized.replace(
@@ -12628,6 +12720,9 @@
 			theme: "neutral",
 			suppressErrorRendering: true,
 		});
+		if (typeof installMermaidWarningFilter === "function") {
+			installMermaidWarningFilter();
+		}
 		installMermaidElkCompatForAdminPreview();
 		if (
 			typeof window.mermaid.registerIconPacks === "function" &&
@@ -12707,16 +12802,18 @@
 			setTimeout(clear, 1200);
 			setTimeout(clear, 3000);
 		};
-		root
-			.querySelectorAll(".mermaid-admin-preview")
-			.forEach((wrap) => wrap.remove());
-		root
-			.querySelectorAll("pre.cms-mermaid-source")
-			.forEach((pre) => {
-				pre.classList.remove("cms-mermaid-source");
-				pre.classList.remove("is-show-source");
-				pre.removeAttribute("id");
-			});
+		const clearExistingPreviews = () => {
+			root
+				.querySelectorAll(".mermaid-admin-preview")
+				.forEach((wrap) => wrap.remove());
+			root
+				.querySelectorAll("pre.cms-mermaid-source")
+				.forEach((pre) => {
+					pre.classList.remove("cms-mermaid-source");
+					pre.classList.remove("is-show-source");
+					pre.removeAttribute("id");
+				});
+		};
 
 		const blocks = Array.from(root.querySelectorAll("pre code")).filter(
 			(code) => {
@@ -12737,7 +12834,20 @@
 				),
 			}))
 			.filter((item) => item.pre && item.text);
-		if (!items.length) return;
+		const nextSignature = items.map((item) => item.text).join("\n\n%%\n\n");
+		if (!items.length) {
+			clearExistingPreviews();
+			mermaidAdminLastSignature = "";
+			return;
+		}
+		if (
+			nextSignature === mermaidAdminLastSignature &&
+			root.querySelector(".mermaid-admin-preview")
+		) {
+			return;
+		}
+		mermaidAdminLastSignature = nextSignature;
+		clearExistingPreviews();
 		scheduleLoadingClear();
 		const ready = await ensureMermaidAdminReady();
 		if (!ready || !window.mermaid) {
