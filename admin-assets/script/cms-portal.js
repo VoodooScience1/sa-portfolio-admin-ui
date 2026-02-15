@@ -14,8 +14,8 @@
  */
 
 (() => {
-	const PORTAL_VERSION = "2026-02-15-elkfix1";
-	const MERMAID_BUNDLE_VERSION = "2026-02-15-elkfix1";
+	const PORTAL_VERSION = "2026-02-15-elkfix2";
+	const MERMAID_BUNDLE_VERSION = "2026-02-15-elkfix2";
 	window.__CMS_PORTAL_VERSION__ = PORTAL_VERSION;
 	console.log(`[cms-portal] loaded v${PORTAL_VERSION}`);
 
@@ -5720,12 +5720,24 @@
 			const mermaid = window.mermaid;
 			if (!mermaid || mermaid.__cmsElkLayoutCompatInstalled) return;
 			mermaid.__cmsElkLayoutCompatInstalled = true;
+			const ensureElkFlowchartDefaults = () => {
+				const api = mermaid.mermaidAPI;
+				if (!api || typeof api.getConfig !== "function") return;
+				const cfg = api.getConfig() || {};
+				if (cfg?.flowchart?.defaultRenderer === "elk") return;
+				if (typeof api.updateSiteConfig === "function") {
+					api.updateSiteConfig({
+						flowchart: { defaultRenderer: "elk" },
+					});
+				}
+			};
 			const wrapTextArg = (fn, textIndex = 0) => {
 				if (typeof fn !== "function") return fn;
 				return function (...args) {
 					if (args.length > textIndex) {
 						args[textIndex] = normalizeMermaidTextForElk(args[textIndex]);
 					}
+					ensureElkFlowchartDefaults();
 					return fn.apply(this, args);
 				};
 			};
@@ -5799,11 +5811,6 @@
 				suppressErrorRendering: true,
 				flowchart: {
 					defaultRenderer: "elk",
-				},
-				elk: {
-					mergeEdges: true,
-					nodePlacementStrategy: "LINEAR_SEGMENTS",
-					considerModelOrder: "NODES_AND_EDGES",
 				},
 			});
 			installMermaidWarningFilter();
@@ -12664,12 +12671,24 @@
 		const mermaid = window.mermaid;
 		if (!mermaid || mermaid.__cmsElkLayoutCompatInstalled) return;
 		mermaid.__cmsElkLayoutCompatInstalled = true;
+		const ensureElkFlowchartDefaults = () => {
+			const api = mermaid.mermaidAPI;
+			if (!api || typeof api.getConfig !== "function") return;
+			const cfg = api.getConfig() || {};
+			if (cfg?.flowchart?.defaultRenderer === "elk") return;
+			if (typeof api.updateSiteConfig === "function") {
+				api.updateSiteConfig({
+					flowchart: { defaultRenderer: "elk" },
+				});
+			}
+		};
 		const wrapTextArg = (fn, textIndex = 0) => {
 			if (typeof fn !== "function") return fn;
 			return function (...args) {
 				if (args.length > textIndex) {
 					args[textIndex] = normalizeMermaidTextForElkAdmin(args[textIndex]);
 				}
+				ensureElkFlowchartDefaults();
 				return fn.apply(this, args);
 			};
 		};
@@ -12729,11 +12748,6 @@
 			suppressErrorRendering: true,
 			flowchart: {
 				defaultRenderer: "elk",
-			},
-			elk: {
-				mergeEdges: true,
-				nodePlacementStrategy: "LINEAR_SEGMENTS",
-				considerModelOrder: "NODES_AND_EDGES",
 			},
 		});
 		installMermaidWarningFilter();
