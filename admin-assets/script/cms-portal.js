@@ -5639,13 +5639,23 @@
 		const normalizeMermaidTextForElk = (text) => {
 			const raw = String(text || "");
 			if (!raw) return "";
-			const decl = /(^|\n)(\s*)(flowchart|graph)\b(?!-elk)/i.exec(raw);
+			const decl = /(^|\n)(\s*)(flowchart|graph)(?:-elk)?\b/i.exec(raw);
 			if (!decl) return raw;
 			const declStart = decl.index + decl[1].length;
 			const preamble = raw.slice(0, declStart);
 			if (!/["']?layout["']?\s*:\s*["']?elk["']?/i.test(preamble))
 				return raw;
-			return raw.replace(
+			let normalized = raw;
+			if (
+				!/(^|\n)\s*%%\{init:\s*\{[\s\S]*?defaultRenderer\s*:\s*["']?elk["']?/i.test(
+					normalized,
+				)
+			) {
+				normalized =
+					`${normalized.slice(0, declStart)}%%{init: {"flowchart":{"defaultRenderer":"elk"}}}%%\n` +
+					normalized.slice(declStart);
+			}
+			return normalized.replace(
 				/(^|\n)(\s*)(flowchart|graph)\b(?!-elk)/i,
 				"$1$2flowchart-elk",
 			);
@@ -12528,12 +12538,22 @@
 	const normalizeMermaidTextForElkAdmin = (text) => {
 		const raw = String(text || "");
 		if (!raw) return "";
-		const decl = /(^|\n)(\s*)(flowchart|graph)\b(?!-elk)/i.exec(raw);
+		const decl = /(^|\n)(\s*)(flowchart|graph)(?:-elk)?\b/i.exec(raw);
 		if (!decl) return raw;
 		const declStart = decl.index + decl[1].length;
 		const preamble = raw.slice(0, declStart);
 		if (!/["']?layout["']?\s*:\s*["']?elk["']?/i.test(preamble)) return raw;
-		return raw.replace(
+		let normalized = raw;
+		if (
+			!/(^|\n)\s*%%\{init:\s*\{[\s\S]*?defaultRenderer\s*:\s*["']?elk["']?/i.test(
+				normalized,
+			)
+		) {
+			normalized =
+				`${normalized.slice(0, declStart)}%%{init: {"flowchart":{"defaultRenderer":"elk"}}}%%\n` +
+				normalized.slice(declStart);
+		}
+		return normalized.replace(
 			/(^|\n)(\s*)(flowchart|graph)\b(?!-elk)/i,
 			"$1$2flowchart-elk",
 		);
