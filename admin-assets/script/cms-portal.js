@@ -14,7 +14,8 @@
  */
 
 (() => {
-	const PORTAL_VERSION = "2025-12-31-23";
+	const PORTAL_VERSION = "2026-02-15-elkfix1";
+	const MERMAID_BUNDLE_VERSION = "2026-02-15-elkfix1";
 	window.__CMS_PORTAL_VERSION__ = PORTAL_VERSION;
 	console.log(`[cms-portal] loaded v${PORTAL_VERSION}`);
 
@@ -5637,7 +5638,7 @@
 		};
 
 		const normalizeMermaidTextForElk = (text) => {
-			const raw = String(text || "");
+			const raw = String(text || "").trim();
 			if (!raw) return "";
 			const decl = /(^|\n)(\s*)(flowchart|graph)(?:-elk)?\b/i.exec(raw);
 			if (!decl) return raw;
@@ -5727,7 +5728,7 @@
 				if (!mermaidLoadPromise) {
 					mermaidLoadPromise = new Promise((resolve) => {
 						const script = document.createElement("script");
-						script.src = "/assets/script/vendor/mermaid.min.js";
+						script.src = `/assets/script/vendor/mermaid.min.js?v=${MERMAID_BUNDLE_VERSION}`;
 						script.async = true;
 						script.onload = () => resolve(true);
 						script.onerror = () => resolve(false);
@@ -12536,7 +12537,7 @@
 	let mermaidAdminLoadPromise = window.__CMS_MERMAID_PREVIEW_PROMISE || null;
 
 	const normalizeMermaidTextForElkAdmin = (text) => {
-		const raw = String(text || "");
+		const raw = String(text || "").trim();
 		if (!raw) return "";
 		const decl = /(^|\n)(\s*)(flowchart|graph)(?:-elk)?\b/i.exec(raw);
 		if (!decl) return raw;
@@ -12607,7 +12608,7 @@
 		if (!mermaidAdminLoadPromise) {
 			mermaidAdminLoadPromise = new Promise((resolve) => {
 				const script = document.createElement("script");
-				script.src = "/assets/script/vendor/mermaid.min.js";
+				script.src = `/assets/script/vendor/mermaid.min.js?v=${MERMAID_BUNDLE_VERSION}`;
 				script.async = true;
 				script.onload = () => resolve(true);
 				script.onerror = () => resolve(false);
