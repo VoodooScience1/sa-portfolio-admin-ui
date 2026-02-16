@@ -14,8 +14,8 @@
  */
 
 (() => {
-	const PORTAL_VERSION = "2026-02-16-elkfix7";
-	const MERMAID_BUNDLE_VERSION = "2026-02-16-elkfix7";
+	const PORTAL_VERSION = "2026-02-16-elkfix8";
+	const MERMAID_BUNDLE_VERSION = "2026-02-16-elkfix8";
 	window.__CMS_PORTAL_VERSION__ = PORTAL_VERSION;
 	console.log(`[cms-portal] loaded v${PORTAL_VERSION}`);
 
@@ -5745,6 +5745,31 @@
 				);
 		};
 
+		const ensureMermaidElkLayoutsForEditorPreview = async () => {
+			if (window.__MERMAID_ELK_LAYOUTS_READY) return true;
+			if (window.__MERMAID_ELK_LAYOUTS_PROMISE)
+				return window.__MERMAID_ELK_LAYOUTS_PROMISE;
+			window.__MERMAID_ELK_LAYOUTS_PROMISE = (async () => {
+				const mermaid = window.mermaid;
+				if (!mermaid || typeof mermaid.registerLayoutLoaders !== "function")
+					return false;
+				try {
+					const mod = await import(
+						`/assets/script/vendor/mermaid-layout-elk/mermaid-layout-elk.esm.min.js?v=${MERMAID_BUNDLE_VERSION}`
+					);
+					const layouts = Array.isArray(mod?.default) ? mod.default : [];
+					if (!layouts.length) return false;
+					mermaid.registerLayoutLoaders(layouts);
+					window.__MERMAID_ELK_LAYOUTS_READY = true;
+					return true;
+				} catch (err) {
+					console.warn("Mermaid ELK layout loader unavailable:", err);
+					return false;
+				}
+			})();
+			return window.__MERMAID_ELK_LAYOUTS_PROMISE;
+		};
+
 		const ensureMermaidReady = async () => {
 			if (window.mermaid && window.mermaid.__cmsPreviewReady) return true;
 			if (!window.mermaid) {
@@ -5769,6 +5794,7 @@
 				});
 			installMermaidWarningFilter();
 			installMermaidElkCompatForEditorPreview();
+			await ensureMermaidElkLayoutsForEditorPreview();
 			if (
 				typeof window.mermaid.registerIconPacks === "function" &&
 				!window.mermaid.__cmsPreviewIconsReady
@@ -12650,6 +12676,31 @@
 		return mermaidAdminLoadPromise;
 	};
 
+	const ensureMermaidElkLayoutsForAdminPreview = async () => {
+		if (window.__MERMAID_ELK_LAYOUTS_READY) return true;
+		if (window.__MERMAID_ELK_LAYOUTS_PROMISE)
+			return window.__MERMAID_ELK_LAYOUTS_PROMISE;
+		window.__MERMAID_ELK_LAYOUTS_PROMISE = (async () => {
+			const mermaid = window.mermaid;
+			if (!mermaid || typeof mermaid.registerLayoutLoaders !== "function")
+				return false;
+			try {
+				const mod = await import(
+					`/assets/script/vendor/mermaid-layout-elk/mermaid-layout-elk.esm.min.js?v=${MERMAID_BUNDLE_VERSION}`
+				);
+				const layouts = Array.isArray(mod?.default) ? mod.default : [];
+				if (!layouts.length) return false;
+				mermaid.registerLayoutLoaders(layouts);
+				window.__MERMAID_ELK_LAYOUTS_READY = true;
+				return true;
+			} catch (err) {
+				console.warn("Mermaid ELK layout loader unavailable:", err);
+				return false;
+			}
+		})();
+		return window.__MERMAID_ELK_LAYOUTS_PROMISE;
+	};
+
 	const ensureMermaidAdminReady = async () => {
 		if (window.mermaid && window.mermaid.__cmsPreviewReady) return true;
 		if (!window.mermaid) await loadMermaidAdminScript();
@@ -12661,6 +12712,7 @@
 		});
 		installMermaidWarningFilter();
 		installMermaidElkCompatForAdminPreview();
+		await ensureMermaidElkLayoutsForAdminPreview();
 		if (
 			typeof window.mermaid.registerIconPacks === "function" &&
 			!window.mermaid.__cmsPreviewIconsReady
