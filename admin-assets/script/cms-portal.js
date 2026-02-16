@@ -14,8 +14,8 @@
  */
 
 (() => {
-	const PORTAL_VERSION = "2026-02-16-elkfix4";
-	const MERMAID_BUNDLE_VERSION = "2026-02-16-elkfix4";
+	const PORTAL_VERSION = "2026-02-16-elkfix5";
+	const MERMAID_BUNDLE_VERSION = "2026-02-16-elkfix5";
 	window.__CMS_PORTAL_VERSION__ = PORTAL_VERSION;
 	console.log(`[cms-portal] loaded v${PORTAL_VERSION}`);
 
@@ -5655,7 +5655,32 @@
 			if (nextVisible) scheduleMermaidPreview();
 		};
 
-			const normalizeMermaidTextForElk = (text) => String(text || "").trim();
+			const normalizeMermaidTextForElk = (text) => {
+				const raw = String(text || "").trim();
+				if (!raw) return "";
+				if (/(^|\n)\s*flowchart-elk\b/i.test(raw)) return raw;
+				const decl = /(^|\n)(\s*)(flowchart|graph)\b/i.exec(raw);
+				if (!decl) return raw;
+				const frontmatter =
+					/^\s*---\s*\n([\s\S]*?)\n---\s*(?:\n|$)/.exec(raw)?.[1] || "";
+				const layoutWord =
+					(/\blayout\s*:\s*([A-Z0-9_-]+)\b/i.exec(frontmatter)?.[1] || "").toLowerCase();
+				const initRenderer =
+					/(^|\n)\s*%%\{init:\s*\{[\s\S]*?["']?flowchart["']?\s*:\s*\{[\s\S]*?defaultRenderer\s*:\s*["']?([A-Z0-9_-]+)["']?/i.exec(
+						raw,
+					)?.[2] || "";
+				const rendererWord = String(initRenderer).toLowerCase();
+				const wantsElk = layoutWord === "elk" || rendererWord === "elk";
+				const wantsDagre =
+					layoutWord === "dagre" ||
+					layoutWord === "dagre-wrapper" ||
+					layoutWord === "dagre-d3" ||
+					rendererWord === "dagre" ||
+					rendererWord === "dagre-wrapper" ||
+					rendererWord === "dagre-d3";
+				if (!wantsElk || wantsDagre) return raw;
+				return raw.replace(/(^|\n)(\s*)(flowchart|graph)\b/i, "$1$2flowchart-elk");
+			};
 
 			const installMermaidElkCompatForEditorPreview = () => {
 				const mermaid = window.mermaid;
@@ -12533,8 +12558,32 @@
 	let mermaidAdminLoadPromise = window.__CMS_MERMAID_PREVIEW_PROMISE || null;
 	let mermaidAdminLastSignature = "";
 
-	const normalizeMermaidTextForElkAdmin = (text) =>
-		String(text || "").trim();
+	const normalizeMermaidTextForElkAdmin = (text) => {
+		const raw = String(text || "").trim();
+		if (!raw) return "";
+		if (/(^|\n)\s*flowchart-elk\b/i.test(raw)) return raw;
+		const decl = /(^|\n)(\s*)(flowchart|graph)\b/i.exec(raw);
+		if (!decl) return raw;
+		const frontmatter =
+			/^\s*---\s*\n([\s\S]*?)\n---\s*(?:\n|$)/.exec(raw)?.[1] || "";
+		const layoutWord =
+			(/\blayout\s*:\s*([A-Z0-9_-]+)\b/i.exec(frontmatter)?.[1] || "").toLowerCase();
+		const initRenderer =
+			/(^|\n)\s*%%\{init:\s*\{[\s\S]*?["']?flowchart["']?\s*:\s*\{[\s\S]*?defaultRenderer\s*:\s*["']?([A-Z0-9_-]+)["']?/i.exec(
+				raw,
+			)?.[2] || "";
+		const rendererWord = String(initRenderer).toLowerCase();
+		const wantsElk = layoutWord === "elk" || rendererWord === "elk";
+		const wantsDagre =
+			layoutWord === "dagre" ||
+			layoutWord === "dagre-wrapper" ||
+			layoutWord === "dagre-d3" ||
+			rendererWord === "dagre" ||
+			rendererWord === "dagre-wrapper" ||
+			rendererWord === "dagre-d3";
+		if (!wantsElk || wantsDagre) return raw;
+		return raw.replace(/(^|\n)(\s*)(flowchart|graph)\b/i, "$1$2flowchart-elk");
+	};
 
 	const installMermaidElkCompatForAdminPreview = () => {
 		const mermaid = window.mermaid;
