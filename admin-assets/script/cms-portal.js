@@ -14,8 +14,8 @@
  */
 
 (() => {
-	const PORTAL_VERSION = "2026-02-16-elkfix8";
-	const MERMAID_BUNDLE_VERSION = "2026-02-16-elkfix8";
+	const PORTAL_VERSION = "2026-02-18-portfolio-uploadfix1";
+	const MERMAID_BUNDLE_VERSION = "2026-02-18-portfolio-uploadfix1";
 	window.__CMS_PORTAL_VERSION__ = PORTAL_VERSION;
 	console.log(`[cms-portal] loaded v${PORTAL_VERSION}`);
 
@@ -4458,6 +4458,40 @@
 				const local = getLocalAssetPath(img.getAttribute("src") || "");
 				if (local) referenced.add(local);
 			});
+			doc.querySelectorAll("[data-gallery]").forEach((node) => {
+				const raw = String(node.getAttribute("data-gallery") || "").trim();
+				if (!raw) return;
+				let paths = [];
+				try {
+					const parsed = JSON.parse(raw);
+					if (Array.isArray(parsed)) paths = parsed;
+				} catch {
+					paths = raw.split(",");
+				}
+				paths.forEach((path) => {
+					const local = getLocalAssetPath(path || "");
+					if (local) referenced.add(local);
+				});
+			});
+			doc
+				.querySelectorAll('script.portfolio-grid__data[data-cms="portfolio"]')
+				.forEach((node) => {
+					const raw = String(node.textContent || "").trim();
+					if (!raw) return;
+					try {
+						const parsed = JSON.parse(raw);
+						const cards = Array.isArray(parsed?.cards) ? parsed.cards : [];
+						cards.forEach((card) => {
+							const gallery = Array.isArray(card?.gallery) ? card.gallery : [];
+							gallery.forEach((path) => {
+								const local = getLocalAssetPath(path || "");
+								if (local) referenced.add(local);
+							});
+						});
+					} catch {
+						/* ignore malformed portfolio payloads */
+					}
+				});
 		});
 		return referenced;
 	}
@@ -6057,10 +6091,9 @@
 			if (!file) return;
 			currentUploadFile = file;
 			currentUploadExt = getFileExtension(file.name || "");
-			if (uploadNameInput && !uploadNameInput.value.trim()) {
-				uploadNameInput.value = file.name || "";
-			}
-			stageUpload(file, uploadNameInput?.value.trim() || "");
+			if (uploadNameInput) uploadNameInput.value = file.name || "";
+			stageUpload(file, file.name || uploadNameInput?.value.trim() || "");
+			uploadFileInput.value = "";
 		});
 		uploadNameInput.addEventListener("input", () => {
 			syncUploadName(uploadNameInput.value.trim(), { normalize: true });
@@ -8976,10 +9009,9 @@
 			if (!file) return;
 			currentUploadFile = file;
 			currentUploadExt = getFileExtension(file.name || "");
-			if (uploadNameInput && !uploadNameInput.value.trim()) {
-				uploadNameInput.value = file.name || "";
-			}
-			stageUpload(file, uploadNameInput?.value.trim() || "");
+			if (uploadNameInput) uploadNameInput.value = file.name || "";
+			stageUpload(file, file.name || uploadNameInput?.value.trim() || "");
+			uploadFileInput.value = "";
 		});
 		uploadNameInput.addEventListener("input", () => {
 			syncUploadName(uploadNameInput.value.trim(), { normalize: true });
@@ -10373,10 +10405,9 @@
 					if (!file) return;
 					galleryUploadFile = file;
 					galleryUploadExt = getFileExtension(file.name || "");
-					if (galleryNameInput && !galleryNameInput.value.trim()) {
-						galleryNameInput.value = file.name || "";
-					}
-					stageUpload(file, galleryNameInput?.value.trim() || "");
+					if (galleryNameInput) galleryNameInput.value = file.name || "";
+					stageUpload(file, file.name || galleryNameInput?.value.trim() || "");
+					galleryFileInput.value = "";
 				});
 				galleryNameInput.addEventListener("input", () => {
 					syncUploadName(galleryNameInput.value.trim(), { normalize: true });
@@ -11300,10 +11331,9 @@
 					if (!file) return;
 					currentUploadFile = file;
 					currentUploadExt = getFileExtension(file.name || "");
-					if (uploadNameInput && !uploadNameInput.value.trim()) {
-						uploadNameInput.value = file.name || "";
-					}
-					stageUpload(file, uploadNameInput?.value.trim() || "");
+					if (uploadNameInput) uploadNameInput.value = file.name || "";
+					stageUpload(file, file.name || uploadNameInput?.value.trim() || "");
+					uploadFileInput.value = "";
 				});
 				uploadNameInput.addEventListener("input", () => {
 					syncUploadName(uploadNameInput.value.trim(), { normalize: true });
