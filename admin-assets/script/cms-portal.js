@@ -14,8 +14,8 @@
  */
 
 (() => {
-	const PORTAL_VERSION = "2026-02-18-portfolio-uploadfix1";
-	const MERMAID_BUNDLE_VERSION = "2026-02-18-portfolio-uploadfix1";
+	const PORTAL_VERSION = "2026-02-18-portfolio-uploadfix3";
+	const MERMAID_BUNDLE_VERSION = "2026-02-18-portfolio-uploadfix3";
 	window.__CMS_PORTAL_VERSION__ = PORTAL_VERSION;
 	console.log(`[cms-portal] loaded v${PORTAL_VERSION}`);
 
@@ -10366,9 +10366,14 @@
 					galleryInput.value = `/${safePath}`;
 					if (galleryUploadBase64) {
 						if (galleryUploadPath && galleryUploadPath !== safePath) {
-							state.assetUploads = (state.assetUploads || []).filter(
-								(item) => item.path !== galleryUploadPath,
+							const previousStillUsed = galleryItems.some(
+								(src) => getLocalAssetPath(src || "") === galleryUploadPath,
 							);
+							if (!previousStillUsed) {
+								state.assetUploads = (state.assetUploads || []).filter(
+									(item) => item.path !== galleryUploadPath,
+								);
+							}
 						}
 						addAssetUpload({
 							name: safeName,
@@ -10468,9 +10473,13 @@
 						const label = String(src || "")
 							.replace(/^\/?assets\/img\//, "")
 							.trim();
+						const localPath = getLocalAssetPath(src);
+						const cachedThumb = localPath
+							? getCachedAssetDataUrl(localPath)
+							: "";
 						const thumb = el("img", {
 							class: "cms-portfolio-gallery__thumb",
-							src: src,
+							src: cachedThumb || src,
 							alt: label || "Gallery image",
 						});
 						const text = el("div", { class: "cms-portfolio-gallery__label" }, [
